@@ -34,36 +34,36 @@ export function AssistantPresenceCard({
   const isUltron = id === 'ultron';
 
   const ringColor = isJarvis
-    ? 'border-amber-400/50'
+    ? 'border-amber-500/60 dark:border-amber-400/50'
     : isUltron
-    ? 'border-red-500/60'
-    : 'border-sky-400/50';
+    ? 'border-red-500/65 dark:border-red-500/60'
+    : 'border-sky-500/60 dark:border-sky-400/50';
 
   const activeBorder = isSelected
     ? isJarvis
-      ? 'border-amber-500/60 bg-slate-900/90'
+      ? 'border-amber-500/70 bg-amber-50/70 dark:border-amber-500/60 dark:bg-slate-900/90'
       : isUltron
-      ? 'border-red-500/65 bg-red-950/20'
-      : 'border-sky-500/60 bg-slate-900/90'
-    : 'border-slate-800/90 bg-slate-900/60 hover:border-slate-700';
+      ? 'border-red-500/70 bg-red-50/70 dark:border-red-500/65 dark:bg-red-950/20'
+      : 'border-sky-500/70 bg-sky-50/70 dark:border-sky-500/60 dark:bg-slate-900/90'
+    : 'border-slate-200/90 bg-white/90 hover:border-slate-300 dark:border-slate-800/90 dark:bg-slate-900/60 dark:hover:border-slate-700';
 
   const accentText = isJarvis
-    ? 'text-amber-300'
+    ? 'text-amber-700 dark:text-amber-300'
     : isUltron
-    ? 'text-red-400'
-    : 'text-sky-300';
+    ? 'text-red-600 dark:text-red-400'
+    : 'text-sky-700 dark:text-sky-300';
 
   const barColor = isJarvis
-    ? 'bg-amber-400'
+    ? 'bg-amber-500 dark:bg-amber-400'
     : isUltron
     ? 'bg-red-500'
-    : 'bg-sky-400';
+    : 'bg-sky-500 dark:bg-sky-400';
 
   const focusRing = isJarvis
-    ? 'focus-visible:ring-amber-400'
+    ? 'focus-visible:ring-amber-500 dark:focus-visible:ring-amber-400'
     : isUltron
     ? 'focus-visible:ring-red-500'
-    : 'focus-visible:ring-sky-400';
+    : 'focus-visible:ring-sky-500 dark:focus-visible:ring-sky-400';
 
   return (
     <button
@@ -71,22 +71,22 @@ export function AssistantPresenceCard({
       onClick={() => onSelect(id)}
       className={`group relative w-full text-left rounded-xl border p-4 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 ${focusRing} ${activeBorder}`}
     >
-      <div className="flex items-center gap-4">
-        <div className="relative h-20 w-20 shrink-0">
+      <div className="flex items-start gap-3.5">
+        <div className="relative h-16 w-16 sm:h-20 sm:w-20 shrink-0 mt-0.5">
           <div
             className={`absolute -inset-1.5 rounded-full border border-dashed transition-opacity duration-300 ${ringColor} ${
               isSpeaking || isThinking || isAwake
                 ? 'opacity-100 animate-optical-slow'
-                : 'opacity-25 group-hover:opacity-60'
+                : 'opacity-30 group-hover:opacity-65'
             }`}
           />
           <div
             className={`absolute -inset-0.5 rounded-full border transition-opacity duration-300 ${ringColor} ${
-              isSpeaking ? 'opacity-90 animate-optical-reverse' : 'opacity-20'
+              isSpeaking ? 'opacity-90 animate-optical-reverse' : 'opacity-25'
             }`}
           />
 
-          <div className="relative h-full w-full overflow-hidden rounded-full border border-slate-700/80 bg-slate-950">
+          <div className="relative h-full w-full overflow-hidden rounded-full border border-slate-300 dark:border-slate-700/80 bg-slate-900 dark:bg-slate-950">
             {!imgFailed ? (
               <img
                 src={imageSrc}
@@ -121,30 +121,36 @@ export function AssistantPresenceCard({
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="font-display text-lg font-semibold tracking-tight text-slate-50 truncate">
+            <h2 className="font-display text-base sm:text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50 truncate">
               {name}
             </h2>
             {isSpeaking ? (
-              <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${accentText}`}>
+              <span className={`inline-flex items-center gap-1.5 text-xs font-medium shrink-0 ${accentText}`}>
                 <Volume2 className="h-3.5 w-3.5 shrink-0" />
                 <span>Falando</span>
               </span>
             ) : isAwake ? (
-              <span className={`inline-flex items-center gap-1 text-xs font-medium ${accentText}`}>
+              <span className={`inline-flex items-center gap-1 text-xs font-medium shrink-0 ${accentText}`}>
                 <Sparkles className="h-3.5 w-3.5 shrink-0" />
                 <span>Ouvindo você</span>
               </span>
             ) : isThinking ? (
-              <span className="text-xs font-medium text-slate-300">Analisando...</span>
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-300 shrink-0">
+                Analisando...
+              </span>
             ) : (
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-500 dark:text-slate-400 shrink-0">
                 {isSelected ? 'Alvo ativo' : 'Em prontidão'}
               </span>
             )}
           </div>
 
-          <p className="mt-0.5 text-xs font-medium text-slate-300 truncate">{subtitle}</p>
-          <p className="mt-1.5 text-xs text-slate-400 leading-relaxed">{specialtyLine}</p>
+          <p className="mt-0.5 text-xs font-medium text-slate-700 dark:text-slate-300 leading-snug">
+            {subtitle}
+          </p>
+          <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+            {specialtyLine}
+          </p>
 
           {isSpeaking && (
             <div className="mt-2.5 flex items-end gap-1 h-4" aria-hidden="true">

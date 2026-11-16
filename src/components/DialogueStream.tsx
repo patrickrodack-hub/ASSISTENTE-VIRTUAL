@@ -123,7 +123,7 @@ function highlightKeywords(text: string, tokens: string[]) {
     part.match ? (
       <mark
         key={idx}
-        className="rounded bg-amber-400/25 px-0.5 text-amber-200 ring-1 ring-amber-400/35"
+        className="rounded bg-amber-200/80 dark:bg-amber-400/25 px-0.5 text-amber-950 dark:text-amber-200 ring-1 ring-amber-500/40 dark:ring-amber-400/35"
       >
         {part.text}
       </mark>
@@ -205,7 +205,7 @@ export function DialogueStream({
     <div className="flex-1 min-h-0 flex flex-col">
       {/* Persistent Conversation History Search Bar */}
       {conversations.length > 0 && (
-        <div className="border-b border-slate-800/80 bg-slate-950/45 px-4 py-2.5 flex flex-col gap-2">
+        <div className="border-b border-slate-200 dark:border-slate-800/80 bg-slate-50/90 dark:bg-slate-950/45 px-4 py-2.5 flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative flex-1 min-w-[200px]">
               <Search
@@ -223,14 +223,14 @@ export function DialogueStream({
                 }}
                 aria-label="Pesquisar no histórico de conversas"
                 placeholder="Buscar palavras-chave no histórico (ex: segurança, previsão, SQL)..."
-                className="w-full rounded-lg border border-slate-800 bg-slate-900/90 pl-8 pr-8 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-amber-400/80"
+                className="w-full rounded-lg border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900/90 pl-8 pr-8 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-amber-500 dark:focus:border-amber-400/80"
               />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
                   aria-label="Limpar busca"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-100 transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-100 transition-colors"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -240,7 +240,7 @@ export function DialogueStream({
             <div
               role="group"
               aria-label="Filtrar diálogos por assistente"
-              className="flex items-center gap-1 p-0.5 rounded-lg bg-slate-900 border border-slate-800"
+              className="flex items-center gap-1 p-0.5 rounded-lg bg-slate-200/70 dark:bg-slate-900 border border-slate-300/80 dark:border-slate-800"
             >
               {(
                 [
@@ -256,8 +256,8 @@ export function DialogueStream({
                   onClick={() => setSpeakerFilter(opt.id)}
                   className={`px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                     speakerFilter === opt.id
-                      ? 'bg-slate-800 text-slate-100'
-                      : 'text-slate-400 hover:text-slate-200'
+                      ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-800 dark:text-slate-100'
+                      : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                   }`}
                 >
                   {opt.label}
@@ -267,7 +267,7 @@ export function DialogueStream({
           </div>
 
           {hasActiveFilter && (
-            <div className="flex items-center justify-between text-xs text-slate-400">
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
               <span className="tabular-nums">
                 {filteredConversations.length} de {conversations.length} diálogo(s) encontrado(s)
               </span>
@@ -277,7 +277,7 @@ export function DialogueStream({
                   setSearchQuery('');
                   setSpeakerFilter('todos');
                 }}
-                className="text-amber-300 hover:text-amber-200 underline underline-offset-2"
+                className="text-amber-700 dark:text-amber-300 hover:underline underline-offset-2 font-medium"
               >
                 Limpar filtros
               </button>
@@ -289,21 +289,21 @@ export function DialogueStream({
       <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
         {conversations.length === 0 && !isProcessing ? (
           <div className="flex flex-col items-center justify-center py-12 text-center max-w-xl mx-auto">
-            <MessageSquare className="h-9 w-9 text-slate-500 mb-3" />
-            <h3 className="font-display text-lg font-semibold text-slate-100">
+            <MessageSquare className="h-9 w-9 text-slate-400 dark:text-slate-500 mb-3" />
+            <h3 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
               Canal Direto com J.A.R.V.I.S., SEXTA-FEIRA &amp; ULTRON
             </h3>
-            <p className="mt-2 text-sm text-slate-400 leading-relaxed">
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
               Diga &ldquo;Jarvis&rdquo;, &ldquo;Sexta-feira&rdquo;, &ldquo;Ultron&rdquo; ou &ldquo;Todos&rdquo; com a escuta contínua ligada, ou escolha um comando abaixo para iniciar.
             </p>
           </div>
         ) : filteredConversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center max-w-md mx-auto">
-            <Search className="h-8 w-8 text-slate-500 mb-3" />
-            <h3 className="font-display text-base font-semibold text-slate-100">
+            <Search className="h-8 w-8 text-slate-400 dark:text-slate-500 mb-3" />
+            <h3 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
               Nenhum diálogo correspondente encontrado
             </h3>
-            <p className="mt-1.5 text-xs text-slate-400 leading-relaxed">
+            <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
               Não encontramos ocorrências para{' '}
               {searchQuery ? `"${searchQuery}"` : 'este filtro'} no histórico atual de conversas.
             </p>
@@ -313,7 +313,7 @@ export function DialogueStream({
                 setSearchQuery('');
                 setSpeakerFilter('todos');
               }}
-              className="mt-4 rounded-lg border border-slate-700 bg-slate-900 px-3.5 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors"
+              className="mt-4 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
               Limpar busca
             </button>
@@ -325,306 +325,316 @@ export function DialogueStream({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              className="space-y-4 pb-6 border-b border-slate-800/70 last:border-b-0"
+              className="space-y-4 pb-6 border-b border-slate-200 dark:border-slate-800/70 last:border-b-0"
             >
-            {/* Patrick Pessoa's Prompt Header */}
-            <div className="flex flex-col gap-1.5">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-slate-200">Patrick Pessoa</span>
-                  <span aria-hidden="true">·</span>
-                  <span>
-                    {entry.triggerType === 'voz'
-                      ? 'Comando de voz'
-                      : entry.triggerType === 'auditoria'
-                      ? 'Auditoria técnica'
-                      : 'Comando escrito'}
-                  </span>
-                  <span aria-hidden="true">·</span>
-                  <span className="tabular-nums font-mono">{formatTime(entry.timestamp)}</span>
-                </div>
-
-                <div className="flex items-center gap-1.5 text-slate-300">
-                  <HeartHandshake className="h-3.5 w-3.5 text-amber-300/90 shrink-0" />
-                  <span>Estado percebido: {entry.detectedEmotion.label}</span>
-                  <span aria-hidden="true">·</span>
-                  <span className="text-slate-400">intensidade {entry.detectedEmotion.intensity}</span>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-sm text-slate-100 leading-relaxed">
-                {highlightKeywords(entry.userMessage, searchTokens)}
-              </div>
-
-              <p className="text-xs text-slate-400 pl-1">
-                Leitura emocional: {entry.detectedEmotion.empathyNote}
-              </p>
-            </div>
-
-            {/* Assistant Responses */}
-            <div className="space-y-3">
-              {entry.responses.map((turn, idx) => {
-                const isJarvis = turn.speaker === 'jarvis';
-                const isUltron = turn.speaker === 'ultron';
-                const avatarSrc = isJarvis
-                  ? jarvisAvatarUrl
-                  : isUltron
-                  ? ultronAvatarUrl
-                  : fridayAvatarUrl;
-                const speakerName = isJarvis
-                  ? 'J.A.R.V.I.S.'
-                  : isUltron
-                  ? 'ULTRON'
-                  : 'SEXTA-FEIRA';
-
-                return (
-                  <div
-                    key={`${entry.id}-${turn.speaker}-${idx}`}
-                    className={`rounded-xl border p-4 transition-colors ${
-                      isJarvis
-                        ? 'border-amber-500/25 bg-amber-950/15'
-                        : isUltron
-                        ? 'border-red-500/35 bg-red-950/20'
-                        : 'border-sky-500/25 bg-sky-950/15'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3 mb-2.5">
-                      <div className="flex items-center gap-2.5 text-xs min-w-0">
-                        <img
-                          src={avatarSrc}
-                          alt={speakerName}
-                          referrerPolicy="no-referrer"
-                          className={`h-7 w-7 rounded-full object-cover border shrink-0 ${
-                            isJarvis
-                              ? 'border-amber-400/60'
-                              : isUltron
-                              ? 'border-red-500/70'
-                              : 'border-sky-400/60'
-                          }`}
-                        />
-                        <span
-                          className={`font-display text-sm font-semibold whitespace-nowrap ${
-                            isJarvis
-                              ? 'text-amber-300'
-                              : isUltron
-                              ? 'text-red-400'
-                              : 'text-sky-300'
-                          }`}
-                        >
-                          {speakerName}
-                        </span>
-                        <span aria-hidden="true" className="text-slate-600">
-                          ·
-                        </span>
-                        <span className="text-slate-300 truncate">
-                          {highlightKeywords(turn.stance, searchTokens)}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {onRateTurn && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onRateTurn(
-                                  entry.id,
-                                  turn.speaker,
-                                  turn.feedback === 'acerto' ? null : 'acerto'
-                                )
-                              }
-                              aria-pressed={turn.feedback === 'acerto'}
-                              title="Marcar resposta como acerto"
-                              className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
-                                turn.feedback === 'acerto'
-                                  ? 'border-emerald-500/60 bg-emerald-950/50 text-emerald-300'
-                                  : 'border-slate-700/80 bg-slate-900/70 text-slate-300 hover:bg-slate-800'
-                              }`}
-                            >
-                              {turn.feedback === 'acerto' ? (
-                                <Check className="h-3 w-3" />
-                              ) : (
-                                <ThumbsUp className="h-3 w-3" />
-                              )}
-                              <span>Acerto</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onRateTurn(
-                                  entry.id,
-                                  turn.speaker,
-                                  turn.feedback === 'revisar' ? null : 'revisar'
-                                )
-                              }
-                              aria-pressed={turn.feedback === 'revisar'}
-                              title="Marcar resposta para revisão"
-                              className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
-                                turn.feedback === 'revisar'
-                                  ? 'border-amber-500/60 bg-amber-950/50 text-amber-300'
-                                  : 'border-slate-700/80 bg-slate-900/70 text-slate-300 hover:bg-slate-800'
-                              }`}
-                            >
-                              {turn.feedback === 'revisar' ? (
-                                <RotateCcw className="h-3 w-3" />
-                              ) : (
-                                <ThumbsDown className="h-3 w-3" />
-                              )}
-                              <span>Revisar</span>
-                            </button>
-                          </>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => (isSpeaking ? onStopAudio() : onPlayAudio([turn]))}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-slate-900/70 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
-                        >
-                          {isSpeaking ? (
-                            <>
-                              <Square className="h-3 w-3" />
-                              <span>Parar</span>
-                            </>
-                          ) : (
-                            <>
-                              <Volume2 className="h-3.5 w-3.5" />
-                              <span>Ouvir Voz</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-
-                    <p className="text-sm text-slate-100 leading-relaxed whitespace-pre-wrap">
-                      {highlightKeywords(turn.text, searchTokens)}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Debate / Divided Opinions Synthesis */}
-            {entry.debateSummary && (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-4 space-y-2.5">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-xs font-medium text-slate-200">
-                    <Scale className="h-4 w-4 text-amber-300 shrink-0" />
+              {/* Patrick Pessoa's Prompt Header */}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-slate-800 dark:text-slate-200">
+                      Patrick Pessoa
+                    </span>
+                    <span aria-hidden="true">·</span>
                     <span>
-                      {entry.resolvedMode === 'todos'
-                        ? 'Síntese do Conselho (3 IAs)'
-                        : 'Síntese do Conselho Duplo'}
+                      {entry.triggerType === 'voz'
+                        ? 'Comando de voz'
+                        : entry.triggerType === 'auditoria'
+                        ? 'Auditoria técnica'
+                        : 'Comando escrito'}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span className="tabular-nums font-mono">{formatTime(entry.timestamp)}</span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                    <HeartHandshake className="h-3.5 w-3.5 text-amber-600 dark:text-amber-300/90 shrink-0" />
+                    <span>Estado percebido: {entry.detectedEmotion.label}</span>
+                    <span aria-hidden="true">·</span>
+                    <span className="text-slate-500 dark:text-slate-400">
+                      intensidade {entry.detectedEmotion.intensity}
                     </span>
                   </div>
-                  {entry.responses.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        isSpeaking ? onStopAudio() : onPlayAudio(entry.responses)
-                      }
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-xs font-medium text-slate-100 hover:bg-slate-700 transition-colors whitespace-nowrap shrink-0"
-                    >
-                      <Volume2 className="h-3.5 w-3.5" />
-                      <span>Ouvir Diálogo Completo</span>
-                    </button>
-                  )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs leading-relaxed">
-                  <div className="space-y-1">
-                    <div className="font-medium text-slate-400">Ponto em Comum</div>
-                    <p className="text-slate-200">
-                      {highlightKeywords(entry.debateSummary.agreementPoint, searchTokens)}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="font-medium text-slate-400">Opiniões Divididas</div>
-                    <p className="text-slate-200">
-                      {highlightKeywords(entry.debateSummary.divergencePoint, searchTokens)}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="font-medium text-slate-400">Recomendação Final</div>
-                    <p className="text-slate-100 font-medium">
-                      {highlightKeywords(entry.debateSummary.finalRecommendation, searchTokens)}
-                    </p>
-                  </div>
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/70 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 leading-relaxed">
+                  {highlightKeywords(entry.userMessage, searchTokens)}
                 </div>
+
+                <p className="text-xs text-slate-500 dark:text-slate-400 pl-1">
+                  Leitura emocional: {entry.detectedEmotion.empathyNote}
+                </p>
               </div>
-            )}
 
-            {/* Learning / Persistence Summary + Web Grounding Sources */}
-            {((entry.createdMemoriesCount ?? 0) > 0 ||
-              (entry.createdTasksCount ?? 0) > 0 ||
-              (entry.createdAlertsCount ?? 0) > 0 ||
-              (entry.sources && entry.sources.length > 0)) && (
-              <div className="flex flex-col gap-2 text-xs text-slate-400">
-                {((entry.createdMemoriesCount ?? 0) > 0 ||
-                  (entry.createdTasksCount ?? 0) > 0 ||
-                  (entry.createdAlertsCount ?? 0) > 0) && (
-                  <div className="flex flex-wrap items-center gap-2 text-slate-300">
-                    <span>Atualização automática:</span>
-                    {(entry.createdMemoriesCount ?? 0) > 0 && (
-                      <span className="tabular-nums">
-                        +{entry.createdMemoriesCount} memória(s) aprendida(s)
+              {/* Assistant Responses */}
+              <div className="space-y-3">
+                {entry.responses.map((turn, idx) => {
+                  const isJarvis = turn.speaker === 'jarvis';
+                  const isUltron = turn.speaker === 'ultron';
+                  const avatarSrc = isJarvis
+                    ? jarvisAvatarUrl
+                    : isUltron
+                    ? ultronAvatarUrl
+                    : fridayAvatarUrl;
+                  const speakerName = isJarvis
+                    ? 'J.A.R.V.I.S.'
+                    : isUltron
+                    ? 'ULTRON'
+                    : 'SEXTA-FEIRA';
+
+                  return (
+                    <div
+                      key={`${entry.id}-${turn.speaker}-${idx}`}
+                      className={`rounded-xl border p-4 transition-colors ${
+                        isJarvis
+                          ? 'border-amber-500/35 bg-amber-50/60 dark:border-amber-500/25 dark:bg-amber-950/15'
+                          : isUltron
+                          ? 'border-red-500/40 bg-red-50/60 dark:border-red-500/35 dark:bg-red-950/20'
+                          : 'border-sky-500/35 bg-sky-50/60 dark:border-sky-500/25 dark:bg-sky-950/15'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-2.5">
+                        <div className="flex items-center gap-2.5 text-xs min-w-0">
+                          <img
+                            src={avatarSrc}
+                            alt={speakerName}
+                            referrerPolicy="no-referrer"
+                            className={`h-7 w-7 rounded-full object-cover border shrink-0 ${
+                              isJarvis
+                                ? 'border-amber-500/70 dark:border-amber-400/60'
+                                : isUltron
+                                ? 'border-red-500/75 dark:border-red-500/70'
+                                : 'border-sky-500/70 dark:border-sky-400/60'
+                            }`}
+                          />
+                          <span
+                            className={`font-display text-sm font-semibold whitespace-nowrap ${
+                              isJarvis
+                                ? 'text-amber-800 dark:text-amber-300'
+                                : isUltron
+                                ? 'text-red-700 dark:text-red-400'
+                                : 'text-sky-800 dark:text-sky-300'
+                            }`}
+                          >
+                            {speakerName}
+                          </span>
+                          <span aria-hidden="true" className="text-slate-400 dark:text-slate-600">
+                            ·
+                          </span>
+                          <span className="text-slate-700 dark:text-slate-300 truncate">
+                            {highlightKeywords(turn.stance, searchTokens)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {onRateTurn && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onRateTurn(
+                                    entry.id,
+                                    turn.speaker,
+                                    turn.feedback === 'acerto' ? null : 'acerto'
+                                  )
+                                }
+                                aria-pressed={turn.feedback === 'acerto'}
+                                title="Marcar resposta como acerto"
+                                className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                                  turn.feedback === 'acerto'
+                                    ? 'border-emerald-600/60 bg-emerald-100 text-emerald-900 dark:border-emerald-500/60 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                    : 'border-slate-300 bg-white/90 text-slate-700 hover:bg-slate-100 dark:border-slate-700/80 dark:bg-slate-900/70 dark:text-slate-300 dark:hover:bg-slate-800'
+                                }`}
+                              >
+                                {turn.feedback === 'acerto' ? (
+                                  <Check className="h-3 w-3" />
+                                ) : (
+                                  <ThumbsUp className="h-3 w-3" />
+                                )}
+                                <span>Acerto</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onRateTurn(
+                                    entry.id,
+                                    turn.speaker,
+                                    turn.feedback === 'revisar' ? null : 'revisar'
+                                  )
+                                }
+                                aria-pressed={turn.feedback === 'revisar'}
+                                title="Marcar resposta para revisão"
+                                className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                                  turn.feedback === 'revisar'
+                                    ? 'border-amber-600/60 bg-amber-100 text-amber-900 dark:border-amber-500/60 dark:bg-amber-950/50 dark:text-amber-300'
+                                    : 'border-slate-300 bg-white/90 text-slate-700 hover:bg-slate-100 dark:border-slate-700/80 dark:bg-slate-900/70 dark:text-slate-300 dark:hover:bg-slate-800'
+                                }`}
+                              >
+                                {turn.feedback === 'revisar' ? (
+                                  <RotateCcw className="h-3 w-3" />
+                                ) : (
+                                  <ThumbsDown className="h-3 w-3" />
+                                )}
+                                <span>Revisar</span>
+                              </button>
+                            </>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => (isSpeaking ? onStopAudio() : onPlayAudio([turn]))}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white/90 px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-100 dark:border-slate-700/80 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
+                          >
+                            {isSpeaking ? (
+                              <>
+                                <Square className="h-3 w-3" />
+                                <span>Parar</span>
+                              </>
+                            ) : (
+                              <>
+                                <Volume2 className="h-3.5 w-3.5" />
+                                <span>Ouvir Voz</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      <p className="text-sm text-slate-900 dark:text-slate-100 leading-relaxed whitespace-pre-wrap">
+                        {highlightKeywords(turn.text, searchTokens)}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Debate / Divided Opinions Synthesis */}
+              {entry.debateSummary && (
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/80 p-4 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs font-medium text-slate-800 dark:text-slate-200">
+                      <Scale className="h-4 w-4 text-amber-600 dark:text-amber-300 shrink-0" />
+                      <span>
+                        {entry.resolvedMode === 'todos'
+                          ? 'Síntese do Conselho (3 IAs)'
+                          : 'Síntese do Conselho Duplo'}
                       </span>
-                    )}
-                    {(entry.createdTasksCount ?? 0) > 0 && (
-                      <span className="tabular-nums">
-                        · +{entry.createdTasksCount} tarefa(s)
-                      </span>
-                    )}
-                    {(entry.createdAlertsCount ?? 0) > 0 && (
-                      <span className="tabular-nums text-amber-300">
-                        · +{entry.createdAlertsCount} alerta(s) registrado(s)
-                      </span>
+                    </div>
+                    {entry.responses.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          isSpeaking ? onStopAudio() : onPlayAudio(entry.responses)
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:hover:bg-slate-700 transition-colors whitespace-nowrap shrink-0"
+                      >
+                        <Volume2 className="h-3.5 w-3.5" />
+                        <span>Ouvir Diálogo Completo</span>
+                      </button>
                     )}
                   </div>
-                )}
 
-                {entry.sources && entry.sources.length > 0 && (
-                  <div className="space-y-1">
-                    {entry.searchEnginesUsed && entry.searchEnginesUsed.length > 0 && (
-                      <div className="text-slate-400">
-                        Fontes externas consultadas ({entry.searchEnginesUsed.join(' · ')}):
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs leading-relaxed">
+                    <div className="space-y-1">
+                      <div className="font-medium text-slate-500 dark:text-slate-400">
+                        Ponto em Comum
                       </div>
-                    )}
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                      {entry.sources.slice(0, 6).map((src) => (
-                        <a
-                          key={src.uri}
-                          href={src.uri}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-sky-300 hover:text-sky-200 underline underline-offset-2"
-                        >
-                          <span className="truncate max-w-[260px]">
-                            {src.sourceType ? `${src.sourceType}: ` : ''}
-                            {src.title}
-                          </span>
-                          <ExternalLink className="h-3 w-3 shrink-0" />
-                        </a>
-                      ))}
+                      <p className="text-slate-800 dark:text-slate-200">
+                        {highlightKeywords(entry.debateSummary.agreementPoint, searchTokens)}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="font-medium text-slate-500 dark:text-slate-400">
+                        Opiniões Divididas
+                      </div>
+                      <p className="text-slate-800 dark:text-slate-200">
+                        {highlightKeywords(entry.debateSummary.divergencePoint, searchTokens)}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="font-medium text-slate-500 dark:text-slate-400">
+                        Recomendação Final
+                      </div>
+                      <p className="text-slate-900 dark:text-slate-100 font-medium">
+                        {highlightKeywords(entry.debateSummary.finalRecommendation, searchTokens)}
+                      </p>
                     </div>
                   </div>
-                )}
-              </div>
-            )}
-          </motion.article>
-        ))
-      )}
+                </div>
+              )}
 
-      {isProcessing && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-2 animate-pulse">
-          <div className="h-3 w-40 rounded bg-slate-800" />
-          <div className="h-3 w-full rounded bg-slate-800" />
-          <div className="h-3 w-4/5 rounded bg-slate-800" />
-        </div>
-      )}
+              {/* Learning / Persistence Summary + Web Grounding Sources */}
+              {((entry.createdMemoriesCount ?? 0) > 0 ||
+                (entry.createdTasksCount ?? 0) > 0 ||
+                (entry.createdAlertsCount ?? 0) > 0 ||
+                (entry.sources && entry.sources.length > 0)) && (
+                <div className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400">
+                  {((entry.createdMemoriesCount ?? 0) > 0 ||
+                    (entry.createdTasksCount ?? 0) > 0 ||
+                    (entry.createdAlertsCount ?? 0) > 0) && (
+                    <div className="flex flex-wrap items-center gap-2 text-slate-700 dark:text-slate-300">
+                      <span>Atualização automática:</span>
+                      {(entry.createdMemoriesCount ?? 0) > 0 && (
+                        <span className="tabular-nums">
+                          +{entry.createdMemoriesCount} memória(s) aprendida(s)
+                        </span>
+                      )}
+                      {(entry.createdTasksCount ?? 0) > 0 && (
+                        <span className="tabular-nums">
+                          · +{entry.createdTasksCount} tarefa(s)
+                        </span>
+                      )}
+                      {(entry.createdAlertsCount ?? 0) > 0 && (
+                        <span className="tabular-nums text-amber-700 dark:text-amber-300">
+                          · +{entry.createdAlertsCount} alerta(s) registrado(s)
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {entry.sources && entry.sources.length > 0 && (
+                    <div className="space-y-1">
+                      {entry.searchEnginesUsed && entry.searchEnginesUsed.length > 0 && (
+                        <div className="text-slate-500 dark:text-slate-400">
+                          Fontes externas consultadas ({entry.searchEnginesUsed.join(' · ')}):
+                        </div>
+                      )}
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                        {entry.sources.slice(0, 6).map((src) => (
+                          <a
+                            key={src.uri}
+                            href={src.uri}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-sky-700 dark:text-sky-300 hover:underline underline-offset-2"
+                          >
+                            <span className="truncate max-w-[260px]">
+                              {src.sourceType ? `${src.sourceType}: ` : ''}
+                              {src.title}
+                            </span>
+                            <ExternalLink className="h-3 w-3 shrink-0" />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </motion.article>
+          ))
+        )}
+
+        {isProcessing && (
+          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/70 dark:bg-slate-900/60 p-4 space-y-2 animate-pulse">
+            <div className="h-3 w-40 rounded bg-slate-200 dark:bg-slate-800" />
+            <div className="h-3 w-full rounded bg-slate-200 dark:bg-slate-800" />
+            <div className="h-3 w-4/5 rounded bg-slate-200 dark:bg-slate-800" />
+          </div>
+        )}
 
         {/* Quick suggestions when few interactions exist */}
         {conversations.length <= 2 && !isProcessing && !hasActiveFilter && (
           <div className="pt-2">
-            <p className="text-xs font-medium text-slate-400 mb-2.5">
+            <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2.5">
               Sugestões rápidas para testar colaboração, pesquisa e memória:
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -633,7 +643,7 @@ export function DialogueStream({
                   key={prompt}
                   type="button"
                   onClick={() => onQuickPrompt(prompt)}
-                  className="text-left rounded-lg border border-slate-800 bg-slate-900/50 hover:bg-slate-800/80 hover:border-slate-700 px-3.5 py-2.5 text-xs text-slate-300 leading-relaxed transition-colors"
+                  className="text-left rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700 px-3.5 py-2.5 text-xs text-slate-700 dark:text-slate-300 leading-relaxed transition-colors"
                 >
                   {prompt}
                 </button>

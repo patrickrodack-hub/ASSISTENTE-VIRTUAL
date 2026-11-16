@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistantId, AssistantTurn, InteractionMode } from '../types/assistant';
+import { safeFetchJson } from '../utils/apiClient';
 
 export type JarvisVoiceOption = 'Orus' | 'Charon' | 'Iapetus' | 'Fenrir';
 export type FridayVoiceOption = 'Kore' | 'Zephyr';
@@ -696,31 +697,30 @@ export function useVoiceEngine({
       try {
         const audioPayloads = await Promise.all(
           turns.map(async (turn) => {
-            const res = await fetch('/api/assistant/tts', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                turns: [
-                  {
-                    speaker: turn.speaker,
-                    text: turn.ttsScript || turn.text,
-                  },
-                ],
-                jarvisVoice: overrideVoices?.jarvisVoice ?? jarvisVoice,
-                fridayVoice: overrideVoices?.fridayVoice ?? fridayVoice,
-                ultronVoice: overrideVoices?.ultronVoice ?? ultronVoice,
-              }),
-            });
-            if (!res.ok) {
-              throw new Error('Falha na síntese vocal Gemini');
-            }
-            const data = (await res.json()) as { audioBase64?: string; mimeType?: string };
-            if (!data.audioBase64) {
-              throw new Error('Áudio vazio');
+            const res = await safeFetchJson<{ audioBase64?: string; mimeType?: string }>(
+              '/api/assistant/tts',
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  turns: [
+                    {
+                      speaker: turn.speaker,
+                      text: turn.ttsScript || turn.text,
+                    },
+                  ],
+                  jarvisVoice: overrideVoices?.jarvisVoice ?? jarvisVoice,
+                  fridayVoice: overrideVoices?.fridayVoice ?? fridayVoice,
+                  ultronVoice: overrideVoices?.ultronVoice ?? ultronVoice,
+                }),
+              }
+            );
+            if (!res.ok || !res.data?.audioBase64) {
+              throw new Error(res.errorMessage || 'Falha na síntese vocal Gemini');
             }
             return {
               turn,
-              url: base64ToBlobUrl(data.audioBase64, data.mimeType || 'audio/wav'),
+              url: base64ToBlobUrl(res.data.audioBase64, res.data.mimeType || 'audio/wav'),
             };
           })
         );
@@ -841,15 +841,19 @@ export function useVoiceEngine({
             reader.readAsDataURL(blob);
           });
 
-          const res = await fetch('/api/assistant/transcribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ audioBase64: base64, mimeType }),
-          });
-          const data = (await res.json()) as { text?: string; error?: string };
-          if (!res.ok) throw new Error(data.error || 'Erro ao transcrever');
-          if (data.text?.trim()) {
-            onTranscribedClip(data.text.trim());
+          const res = await safeFetchJson<{ text?: string }>(
+            '/api/assistant/transcribe',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ audioBase64: base64, mimeType }),
+            }
+          );
+          if (!res.ok) {
+            throw new Error(res.errorMessage || 'Não foi possível transcrever o áudio.');
+          }
+          if (res.data?.text?.trim()) {
+            onTranscribedClip(res.data.text.trim());
           }
         } catch (err) {
           onVoiceError(err instanceof Error ? err.message : 'Erro ao processar gravação de voz.');

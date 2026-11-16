@@ -50,6 +50,13 @@ export function formatGeminiErrorMessage(err: unknown): string {
   if (msg.includes('403') || msg.includes('PERMISSION_DENIED') || msg.includes('API_KEY_INVALID')) {
     return 'Chave da API Gemini inválida ou sem permissão. Verifique a chave configurada em Settings > Secrets.';
   }
+  if (
+    msg.includes('Unexpected token') ||
+    msg.includes('is not valid JSON') ||
+    msg.includes('The page')
+  ) {
+    return 'O servidor de IA retornou uma resposta temporariamente indisponível. Tente enviar novamente em alguns segundos.';
+  }
   return msg || 'Erro inesperado ao comunicar com a inteligência artificial.';
 }
 
@@ -374,8 +381,23 @@ Mensagem de Patrick Pessoa: """${params.message}"""`;
     })
   );
 
-  const rawJson = (response.text ?? '{}').trim();
-  const parsed = JSON.parse(rawJson) as StructuredAIResult;
+  const rawText = (response.text ?? '{}')
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+  let parsed: StructuredAIResult;
+  try {
+    parsed = JSON.parse(rawText) as StructuredAIResult;
+  } catch {
+    const startBrace = rawText.indexOf('{');
+    const endBrace = rawText.lastIndexOf('}');
+    if (startBrace !== -1 && endBrace > startBrace) {
+      parsed = JSON.parse(rawText.slice(startBrace, endBrace + 1)) as StructuredAIResult;
+    } else {
+      throw new Error('A resposta dos assistentes veio em formato inesperado. Tente novamente.');
+    }
+  }
   const finalMode = parsed.resolvedMode ?? resolvedTarget;
 
   const entry: ConversationEntry = {
@@ -493,25 +515,40 @@ export async function transcribeUserAudio(params: {
   audioBase64: string;
   mimeType: string;
 }) {
-  const ai = getClient();
-  const response = await withTransientRetry(() =>
-    ai.models.generateContent({
-      model: 'gemini-3.5-transcribe',
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: params.mimeType || 'audio/webm',
-              data: params.audioBase64,
-            },
-          },
-          {
-            text: 'Transcreva exatamente o que foi falado em Português do Brasil. Retorne apenas a transcrição limpa, sem comentários.',
-          },
-        ],
-      },
-    })
-  );
+  const models: Array<{ model: string; apiVersion?: string }> = [
+    { model: 'gemini-3.5-transcribe', apiVersion: 'v1beta' },
+    { model: 'gemini-4-hydrogen' },
+  ];
 
-  return (response.text ?? '').trim();
+  let lastErr: unknown = null;
+  for (const candidate of models) {
+    try {
+      const ai = getClient(candidate.apiVersion);
+      const response = await withTransientRetry(() =>
+        ai.models.generateContent({
+          model: candidate.model,
+          contents: {
+            parts: [
+              {
+                inlineData: {
+                  mimeType: params.mimeType || 'audio/webm',
+                  data: params.audioBase64,
+                },
+              },
+              {
+                text: 'Transcreva exatamente o que foi falado em Português do Brasil. Retorne apenas a transcrição limpa, sem comentários.',
+              },
+            ],
+          },
+        })
+      );
+      return (response.text ?? '').trim();
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error('Falha ao transcrever o áudio enviado.');
 }

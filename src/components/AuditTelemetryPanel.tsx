@@ -26,6 +26,7 @@ import type {
 
 interface AuditTelemetryPanelProps {
   workspace: WorkspaceState | null;
+  isDark?: boolean;
   onRateTurn: (
     entryId: string,
     speaker: AssistantId,
@@ -41,19 +42,19 @@ const ASSISTANT_META: Record<
     name: 'J.A.R.V.I.S.',
     color: '#F59E0B',
     stroke: '#FBBF24',
-    textClass: 'text-amber-300',
+    textClass: 'text-amber-700 dark:text-amber-300',
   },
   'sexta-feira': {
     name: 'SEXTA-FEIRA',
     color: '#38BDF8',
     stroke: '#7DD3FC',
-    textClass: 'text-sky-300',
+    textClass: 'text-sky-700 dark:text-sky-300',
   },
   ultron: {
     name: 'ULTRON',
     color: '#EF4444',
     stroke: '#F87171',
-    textClass: 'text-red-400',
+    textClass: 'text-red-600 dark:text-red-400',
   },
 };
 
@@ -76,10 +77,15 @@ function formatShortTime(iso: string): string {
 
 export function AuditTelemetryPanel({
   workspace,
+  isDark = true,
   onRateTurn,
 }: AuditTelemetryPanelProps) {
   const [scopeFilter, setScopeFilter] = useState<'todas' | 'auditoria'>('todas');
   const [timelineMetric, setTimelineMetric] = useState<'acerto' | 'latencia'>('acerto');
+
+  const gridStroke = isDark ? '#1E293B' : '#E2E8F0';
+  const axisStroke = isDark ? '#334155' : '#CBD5E1';
+  const tickColor = isDark ? '#94A3B8' : '#475569';
 
   const telemetryItems: TelemetryEntry[] = useMemo(() => {
     if (!workspace) return [];
@@ -363,31 +369,31 @@ export function AuditTelemetryPanel({
   return (
     <div className="space-y-6">
       {/* Header & Filter Bar */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6 space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-5">
+      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/70 p-6 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800/80 pb-5">
           <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <Activity className="h-4 w-4 text-amber-300 shrink-0" />
+            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <Activity className="h-4 w-4 text-amber-600 dark:text-amber-300 shrink-0" />
               <span>Telemetria de Desempenho</span>
               <span aria-hidden="true">·</span>
               <span>Patrick Pessoa</span>
             </div>
-            <h2 className="font-display text-lg font-semibold text-slate-100">
+            <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
               Desempenho &amp; Taxa de Acerto dos Assistentes
             </h2>
-            <p className="text-xs text-slate-400 leading-relaxed max-w-2xl">
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed max-w-2xl">
               Métricas reais calculadas a partir das suas validações de resposta (Acerto vs Revisar), resolução de tarefas, alertas mitigados e tempo de processamento.
             </p>
           </div>
 
-          <div className="flex items-center gap-1 p-1 rounded-lg bg-slate-950 border border-slate-800 shrink-0 self-start sm:self-auto">
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shrink-0 self-start sm:self-auto">
             <button
               type="button"
               onClick={() => setScopeFilter('todas')}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                 scopeFilter === 'todas'
-                  ? 'bg-slate-800 text-slate-100'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-800 dark:text-slate-100'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
               }`}
             >
               Todas as Interações
@@ -397,8 +403,8 @@ export function AuditTelemetryPanel({
               onClick={() => setScopeFilter('auditoria')}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                 scopeFilter === 'auditoria'
-                  ? 'bg-slate-800 text-slate-100'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-800 dark:text-slate-100'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
               }`}
             >
               Somente Auditorias
@@ -407,13 +413,13 @@ export function AuditTelemetryPanel({
         </div>
 
         {/* 4-Column Tabular KPI Strip */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 border-b border-slate-800/80 pb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 border-b border-slate-200 dark:border-slate-800/80 pb-6">
           <div className="space-y-1">
-            <p className="text-xs text-slate-400">Taxa de Acerto Global</p>
-            <p className="font-mono tabular-nums text-2xl font-semibold text-slate-50">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Taxa de Acerto Global</p>
+            <p className="font-mono tabular-nums text-2xl font-semibold text-slate-900 dark:text-slate-50">
               {summary.overallHitRate !== null ? `${summary.overallHitRate}%` : '—'}
             </p>
-            <p className="text-xs text-slate-400 tabular-nums">
+            <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
               {summary.allRated > 0
                 ? `${summary.allAcertos} de ${summary.allRated} respostas validadas`
                 : 'Base operacional de alertas e tarefas'}
@@ -421,29 +427,33 @@ export function AuditTelemetryPanel({
           </div>
 
           <div className="space-y-1">
-            <p className="text-xs text-slate-400">Interações Registradas</p>
-            <p className="font-mono tabular-nums text-2xl font-semibold text-slate-50">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Interações Registradas</p>
+            <p className="font-mono tabular-nums text-2xl font-semibold text-slate-900 dark:text-slate-50">
               {summary.totalInteractionsLogged}
             </p>
-            <p className="text-xs text-slate-400 tabular-nums">
+            <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
               Total histórico: {workspace?.profile.totalInteractions ?? 0}
             </p>
           </div>
 
           <div className="space-y-1">
-            <p className="text-xs text-slate-400">Latência Média de Resposta</p>
-            <p className="font-mono tabular-nums text-2xl font-semibold text-slate-50">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Latência Média de Resposta</p>
+            <p className="font-mono tabular-nums text-2xl font-semibold text-slate-900 dark:text-slate-50">
               {formatDuration(summary.overallAvgMs)}
             </p>
-            <p className="text-xs text-slate-400">Tempo médio de análise do conselho</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Tempo médio de análise do conselho
+            </p>
           </div>
 
           <div className="space-y-1">
-            <p className="text-xs text-slate-400">Alertas Mitigados</p>
-            <p className="font-mono tabular-nums text-2xl font-semibold text-slate-50">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Alertas Mitigados</p>
+            <p className="font-mono tabular-nums text-2xl font-semibold text-slate-900 dark:text-slate-50">
               {summary.totalResolvedAlerts}/{summary.totalAlerts}
             </p>
-            <p className="text-xs text-slate-400">Riscos de segurança e previsões</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Riscos de segurança e previsões
+            </p>
           </div>
         </div>
 
@@ -453,10 +463,10 @@ export function AuditTelemetryPanel({
           <div className="lg:col-span-5 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <h3 className="font-display text-sm font-semibold text-slate-100">
+                <h3 className="font-display text-sm font-semibold text-slate-900 dark:text-slate-100">
                   Taxa de Acerto por Assistente (%)
                 </h3>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Comparativo entre J.A.R.V.I.S., SEXTA-FEIRA e ULTRON
                 </p>
               </div>
@@ -468,16 +478,16 @@ export function AuditTelemetryPanel({
                   data={summary.perAssistant}
                   margin={{ top: 12, right: 12, left: -18, bottom: 4 }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
                   <XAxis
                     dataKey="name"
-                    tick={{ fill: '#94A3B8', fontSize: 11 }}
-                    axisLine={{ stroke: '#334155' }}
+                    tick={{ fill: tickColor, fontSize: 11 }}
+                    axisLine={{ stroke: axisStroke }}
                     tickLine={false}
                   />
                   <YAxis
                     domain={[0, 100]}
-                    tick={{ fill: '#94A3B8', fontSize: 11 }}
+                    tick={{ fill: tickColor, fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
                     unit="%"
@@ -488,17 +498,17 @@ export function AuditTelemetryPanel({
                       if (!active || !payload?.length) return null;
                       const item = payload[0].payload as (typeof summary.perAssistant)[number];
                       return (
-                        <div className="rounded-lg border border-slate-700 bg-slate-950/95 px-3.5 py-2.5 text-xs text-slate-200 space-y-1 shadow-lg">
+                        <div className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white/95 dark:bg-slate-950/95 px-3.5 py-2.5 text-xs text-slate-800 dark:text-slate-200 space-y-1 shadow-lg">
                           <div className={`font-semibold ${item.textClass}`}>{item.name}</div>
                           <div className="font-mono tabular-nums">
                             Taxa de Acerto: {item.hitRate !== null ? `${item.hitRate}%` : 'Sem dados'}
                           </div>
-                          <div className="text-slate-400 tabular-nums">
+                          <div className="text-slate-500 dark:text-slate-400 tabular-nums">
                             {item.ratedTotal > 0
                               ? `Validações: ${item.acertos} acertos · ${item.revisoes} revisões`
                               : `Base operacional: ${item.completedTasks + item.resolvedAlerts}/${item.tasksTotal + item.alertsTotal} concluídos`}
                           </div>
-                          <div className="text-slate-400 tabular-nums">
+                          <div className="text-slate-500 dark:text-slate-400 tabular-nums">
                             Participações: {item.participations} · Memórias: {item.memoriesCount}
                           </div>
                         </div>
@@ -519,24 +529,24 @@ export function AuditTelemetryPanel({
           <div className="lg:col-span-7 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
-                <h3 className="font-display text-sm font-semibold text-slate-100">
+                <h3 className="font-display text-sm font-semibold text-slate-900 dark:text-slate-100">
                   Evolução ao Longo das Interações
                 </h3>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   {timelineMetric === 'acerto'
                     ? 'Taxa de acerto acumulada (%) conforme suas avaliações'
                     : 'Participações acumuladas e tempo de resposta (s)'}
                 </p>
               </div>
 
-              <div className="flex items-center gap-1 p-1 rounded-lg bg-slate-950 border border-slate-800 self-start">
+              <div className="flex items-center gap-1 p-1 rounded-lg bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 self-start">
                 <button
                   type="button"
                   onClick={() => setTimelineMetric('acerto')}
                   className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
                     timelineMetric === 'acerto'
-                      ? 'bg-slate-800 text-slate-100'
-                      : 'text-slate-400 hover:text-slate-200'
+                      ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-800 dark:text-slate-100'
+                      : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                   }`}
                 >
                   Acerto (%)
@@ -546,8 +556,8 @@ export function AuditTelemetryPanel({
                   onClick={() => setTimelineMetric('latencia')}
                   className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
                     timelineMetric === 'latencia'
-                      ? 'bg-slate-800 text-slate-100'
-                      : 'text-slate-400 hover:text-slate-200'
+                      ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-800 dark:text-slate-100'
+                      : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                   }`}
                 >
                   Latência &amp; Uso
@@ -556,20 +566,20 @@ export function AuditTelemetryPanel({
             </div>
 
             {timelineData.length === 0 ? (
-              <div className="h-64 flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-800 px-6 text-center">
-                <p className="text-sm font-medium text-slate-200">
+              <div className="h-64 flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 dark:border-slate-800 px-6 text-center">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
                   Nenhuma interação registrada neste filtro ainda
                 </p>
-                <p className="mt-1 text-xs text-slate-400 max-w-md">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 max-w-md">
                   Envie uma solicitação no Console ou execute uma Auditoria Tripla abaixo para gerar a curva longitudinal de desempenho.
                 </p>
               </div>
             ) : timelineMetric === 'acerto' && !hasRatedTimeline ? (
-              <div className="h-64 flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-800 px-6 text-center">
-                <p className="text-sm font-medium text-slate-200">
+              <div className="h-64 flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 dark:border-slate-800 px-6 text-center">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
                   Aguardando suas primeiras validações de acerto
                 </p>
-                <p className="mt-1 text-xs text-slate-400 max-w-md">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 max-w-md">
                   Marque qualquer resposta como &ldquo;Acerto&rdquo; ou &ldquo;Revisar&rdquo; abaixo (ou no Console) para traçar a evolução percentual de cada assistente.
                 </p>
               </div>
@@ -594,16 +604,16 @@ export function AuditTelemetryPanel({
                         <stop offset="95%" stopColor="#EF4444" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
                     <XAxis
                       dataKey="indexLabel"
-                      tick={{ fill: '#94A3B8', fontSize: 11 }}
-                      axisLine={{ stroke: '#334155' }}
+                      tick={{ fill: tickColor, fontSize: 11 }}
+                      axisLine={{ stroke: axisStroke }}
                       tickLine={false}
                     />
                     <YAxis
                       domain={timelineMetric === 'acerto' ? [0, 100] : [0, 'auto']}
-                      tick={{ fill: '#94A3B8', fontSize: 11 }}
+                      tick={{ fill: tickColor, fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
                       unit={timelineMetric === 'acerto' ? '%' : ''}
@@ -613,32 +623,46 @@ export function AuditTelemetryPanel({
                         if (!active || !payload?.length) return null;
                         const row = payload[0].payload as (typeof timelineData)[number];
                         return (
-                          <div className="rounded-lg border border-slate-700 bg-slate-950/95 px-3.5 py-2.5 text-xs text-slate-200 space-y-1 max-w-xs shadow-lg">
-                            <div className="flex items-center justify-between gap-3 text-slate-400">
+                          <div className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white/95 dark:bg-slate-950/95 px-3.5 py-2.5 text-xs text-slate-800 dark:text-slate-200 space-y-1 max-w-xs shadow-lg">
+                            <div className="flex items-center justify-between gap-3 text-slate-500 dark:text-slate-400">
                               <span>Interação {row.indexLabel}</span>
                               <span className="font-mono tabular-nums">{row.timeLabel}</span>
                             </div>
-                            <p className="text-slate-100 line-clamp-2">{row.promptPreview}</p>
+                            <p className="text-slate-900 dark:text-slate-100 line-clamp-2">
+                              {row.promptPreview}
+                            </p>
                             {timelineMetric === 'acerto' ? (
                               <div className="pt-1 space-y-0.5 font-mono tabular-nums">
                                 {row.jarvisRate !== null && (
-                                  <div className="text-amber-300">J.A.R.V.I.S.: {row.jarvisRate}%</div>
+                                  <div className="text-amber-700 dark:text-amber-300">
+                                    J.A.R.V.I.S.: {row.jarvisRate}%
+                                  </div>
                                 )}
                                 {row.fridayRate !== null && (
-                                  <div className="text-sky-300">SEXTA-FEIRA: {row.fridayRate}%</div>
+                                  <div className="text-sky-700 dark:text-sky-300">
+                                    SEXTA-FEIRA: {row.fridayRate}%
+                                  </div>
                                 )}
                                 {row.ultronRate !== null && (
-                                  <div className="text-red-400">ULTRON: {row.ultronRate}%</div>
+                                  <div className="text-red-600 dark:text-red-400">
+                                    ULTRON: {row.ultronRate}%
+                                  </div>
                                 )}
                               </div>
                             ) : (
                               <div className="pt-1 space-y-0.5 font-mono tabular-nums">
-                                <div className="text-slate-200">
+                                <div className="text-slate-800 dark:text-slate-200">
                                   Latência: {row.durationSec ? `${row.durationSec}s` : '—'}
                                 </div>
-                                <div className="text-amber-300">J.A.R.V.I.S.: {row.jarvisTurns} turnos</div>
-                                <div className="text-sky-300">SEXTA-FEIRA: {row.fridayTurns} turnos</div>
-                                <div className="text-red-400">ULTRON: {row.ultronTurns} turnos</div>
+                                <div className="text-amber-700 dark:text-amber-300">
+                                  J.A.R.V.I.S.: {row.jarvisTurns} turnos
+                                </div>
+                                <div className="text-sky-700 dark:text-sky-300">
+                                  SEXTA-FEIRA: {row.fridayTurns} turnos
+                                </div>
+                                <div className="text-red-600 dark:text-red-400">
+                                  ULTRON: {row.ultronTurns} turnos
+                                </div>
                               </div>
                             )}
                           </div>
@@ -711,19 +735,22 @@ export function AuditTelemetryPanel({
         </div>
 
         {/* Second Row: Radar Matrix + Per-Assistant Table */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start border-t border-slate-800/80 pt-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start border-t border-slate-200 dark:border-slate-800/80 pt-6">
           <div className="lg:col-span-5 space-y-2">
-            <h3 className="font-display text-sm font-semibold text-slate-100">
+            <h3 className="font-display text-sm font-semibold text-slate-900 dark:text-slate-100">
               Matriz de Especialidades do Conselho
             </h3>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Distribuição real por arquitetura, segurança, execução, previsão e precisão
             </p>
             <div className="h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart cx="50%" cy="50%" outerRadius="72%" data={radarData}>
-                  <PolarGrid stroke="#1E293B" />
-                  <PolarAngleAxis dataKey="axis" tick={{ fill: '#CBD5E1', fontSize: 11 }} />
+                  <PolarGrid stroke={gridStroke} />
+                  <PolarAngleAxis
+                    dataKey="axis"
+                    tick={{ fill: isDark ? '#CBD5E1' : '#334155', fontSize: 11 }}
+                  />
                   <PolarRadiusAxis
                     angle={30}
                     domain={[0, 100]}
@@ -753,11 +780,11 @@ export function AuditTelemetryPanel({
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#020617',
-                      borderColor: '#334155',
+                      backgroundColor: isDark ? '#020617' : '#FFFFFF',
+                      borderColor: isDark ? '#334155' : '#CBD5E1',
                       borderRadius: '0.5rem',
                       fontSize: '12px',
-                      color: '#F1F5F9',
+                      color: isDark ? '#F1F5F9' : '#0F172A',
                     }}
                   />
                 </RadarChart>
@@ -767,10 +794,10 @@ export function AuditTelemetryPanel({
 
           <div className="lg:col-span-7 space-y-4">
             <div>
-              <h3 className="font-display text-sm font-semibold text-slate-100">
+              <h3 className="font-display text-sm font-semibold text-slate-900 dark:text-slate-100">
                 Placar Técnico Individual
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Consolidado de interações, acertos validados, memórias e alertas resolvidos
               </p>
             </div>
@@ -778,7 +805,7 @@ export function AuditTelemetryPanel({
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-800 text-slate-400">
+                  <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
                     <th className="py-2.5 pr-3 font-medium">Assistente</th>
                     <th className="py-2.5 px-3 font-medium text-right">Turnos</th>
                     <th className="py-2.5 px-3 font-medium text-right">Acertos</th>
@@ -787,25 +814,28 @@ export function AuditTelemetryPanel({
                     <th className="py-2.5 pl-3 font-medium text-right">Latência</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/70">
+                <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800/70">
                   {summary.perAssistant.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-800/30 transition-colors">
+                    <tr
+                      key={row.id}
+                      className="hover:bg-slate-100/70 dark:hover:bg-slate-800/30 transition-colors"
+                    >
                       <td className={`py-3 pr-3 font-semibold ${row.textClass}`}>
                         {row.name}
                       </td>
-                      <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-200">
+                      <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-800 dark:text-slate-200">
                         {row.participations}
                       </td>
-                      <td className="py-3 px-3 text-right font-mono tabular-nums text-emerald-300">
+                      <td className="py-3 px-3 text-right font-mono tabular-nums text-emerald-700 dark:text-emerald-300">
                         {row.acertos}
                       </td>
-                      <td className="py-3 px-3 text-right font-mono tabular-nums text-amber-300">
+                      <td className="py-3 px-3 text-right font-mono tabular-nums text-amber-700 dark:text-amber-300">
                         {row.revisoes}
                       </td>
-                      <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-100 font-semibold">
+                      <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-900 dark:text-slate-100 font-semibold">
                         {row.hitRate !== null ? `${row.hitRate}%` : '—'}
                       </td>
-                      <td className="py-3 pl-3 text-right font-mono tabular-nums text-slate-300">
+                      <td className="py-3 pl-3 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
                         {formatDuration(row.avgLatencyMs)}
                       </td>
                     </tr>
@@ -816,11 +846,11 @@ export function AuditTelemetryPanel({
 
             {/* Quick inline calibration for recent turns */}
             {recentEvaluatableTurns.length > 0 && (
-              <div className="pt-2 space-y-2.5 border-t border-slate-800/80">
-                <p className="text-xs font-medium text-slate-300">
+              <div className="pt-2 space-y-2.5 border-t border-slate-200 dark:border-slate-800/80">
+                <p className="text-xs font-medium text-slate-700 dark:text-slate-300">
                   Validar respostas recentes para atualizar a taxa de acerto:
                 </p>
-                <div className="divide-y divide-slate-800/60">
+                <div className="divide-y divide-slate-200/80 dark:divide-slate-800/60">
                   {recentEvaluatableTurns.map((item) => {
                     const meta = ASSISTANT_META[item.speaker];
                     return (
@@ -833,12 +863,14 @@ export function AuditTelemetryPanel({
                             <span className={`font-semibold ${meta.textClass}`}>
                               {meta.name}
                             </span>
-                            <span aria-hidden="true" className="text-slate-600">
+                            <span aria-hidden="true" className="text-slate-400 dark:text-slate-600">
                               ·
                             </span>
-                            <span className="text-slate-400 truncate">{item.stance}</span>
+                            <span className="text-slate-500 dark:text-slate-400 truncate">
+                              {item.stance}
+                            </span>
                           </div>
-                          <p className="text-xs text-slate-300 truncate mt-0.5">
+                          <p className="text-xs text-slate-700 dark:text-slate-300 truncate mt-0.5">
                             {item.snippet}
                           </p>
                         </div>
@@ -856,8 +888,8 @@ export function AuditTelemetryPanel({
                             aria-pressed={item.feedback === 'acerto'}
                             className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap ${
                               item.feedback === 'acerto'
-                                ? 'border-emerald-500/60 bg-emerald-950/50 text-emerald-300'
-                                : 'border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800'
+                                ? 'border-emerald-600/60 bg-emerald-100 text-emerald-900 dark:border-emerald-500/60 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-800'
                             }`}
                           >
                             {item.feedback === 'acerto' ? (
@@ -879,8 +911,8 @@ export function AuditTelemetryPanel({
                             aria-pressed={item.feedback === 'revisar'}
                             className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap ${
                               item.feedback === 'revisar'
-                                ? 'border-amber-500/60 bg-amber-950/50 text-amber-300'
-                                : 'border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800'
+                                ? 'border-amber-600/60 bg-amber-100 text-amber-900 dark:border-amber-500/60 dark:bg-amber-950/50 dark:text-amber-300'
+                                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-800'
                             }`}
                           >
                             {item.feedback === 'revisar' ? (

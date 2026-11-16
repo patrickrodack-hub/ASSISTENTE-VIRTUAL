@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'node:path';
-import { createServer as createViteServer } from 'vite';
 import {
   addMemory,
   addTask,
@@ -23,7 +22,7 @@ import {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: '15mb' }));
 
@@ -258,8 +257,38 @@ async function startServer() {
     }
   });
 
+  // Ensure unknown /api/* routes always return valid JSON rather than HTML/text 404
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({
+      error: `Rota da API não encontrada (${req.method} ${req.originalUrl}).`,
+    });
+  });
+
+  // Global JSON error handler for body-parser / Express middleware errors
+  app.use(
+    (
+      err: Error & { status?: number; type?: string },
+      req: express.Request,
+      res: express.Response,
+      next: express.NextFunction
+    ) => {
+      if (req.path.startsWith('/api/')) {
+        const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
+        res.status(status).json({
+          error:
+            err.type === 'entity.parse.failed'
+              ? 'Payload JSON inválido enviado na requisição.'
+              : formatGeminiErrorMessage(err),
+        });
+        return;
+      }
+      next(err);
+    }
+  );
+
   // Vite middleware in dev, static dist in production
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
