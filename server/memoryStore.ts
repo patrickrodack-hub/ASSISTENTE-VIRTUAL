@@ -179,8 +179,12 @@ function conversationToTelemetry(c: ConversationEntry): TelemetryEntry {
 }
 
 let writeQueue: Promise<void> = Promise.resolve();
+let cachedWorkspace: WorkspaceState | null = null;
 
 async function ensureFile(): Promise<WorkspaceState> {
+  if (cachedWorkspace) {
+    return cachedWorkspace;
+  }
   await fs.mkdir(DATA_DIR, { recursive: true });
   try {
     const raw = await fs.readFile(DATA_FILE, 'utf-8');
@@ -207,6 +211,7 @@ async function ensureFile(): Promise<WorkspaceState> {
       changed = true;
     }
 
+    cachedWorkspace = state;
     if (changed) {
       await fs.writeFile(DATA_FILE, JSON.stringify(state, null, 2), 'utf-8');
     }
@@ -214,6 +219,7 @@ async function ensureFile(): Promise<WorkspaceState> {
   } catch {
     const seed = createSeedWorkspace();
     seed.telemetryLog = seed.conversations.map(conversationToTelemetry);
+    cachedWorkspace = seed;
     await fs.writeFile(DATA_FILE, JSON.stringify(seed, null, 2), 'utf-8');
     return seed;
   }
@@ -230,6 +236,7 @@ export async function updateWorkspace(
     const state = await ensureFile();
     const result = mutator(state);
     const nextState = result ?? state;
+    cachedWorkspace = nextState;
     await fs.writeFile(DATA_FILE, JSON.stringify(nextState, null, 2), 'utf-8');
     return nextState;
   });

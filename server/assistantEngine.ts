@@ -15,6 +15,7 @@ import type {
 } from '../src/types/assistant.ts';
 import { readWorkspace, recordInteraction } from './memoryStore.ts';
 import { researchExternalWeb, shouldTriggerExternalSearch } from './webSearchEngine.ts';
+import { resolveAssistantRouting } from '../src/utils/assistantRouter.ts';
 
 function getClient(apiVersion?: string): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -81,28 +82,7 @@ function detectRequestedAssistant(
   message: string,
   explicitMode: InteractionMode
 ): AssistantId | 'ambos' | 'todos' {
-  if (explicitMode !== 'auto') {
-    return explicitMode;
-  }
-  const lower = message.toLowerCase();
-  const mentionsJarvis = /\b(jarvis|j\.a\.r\.v\.i\.s|já vis|jarves)\b/i.test(lower);
-  const mentionsFriday = /\b(sexta[\s-]?feira|sexta|friday|f\.r\.i\.d\.a\.y)\b/i.test(lower);
-  const mentionsUltron = /\b(ultron|[uú]ltron)\b/i.test(lower);
-  const mentionsAll = /\b(todos|os tr[eê]s|tr[eê]s|conselho|equipe completa)\b/i.test(lower);
-  const mentionsBoth = /\b(vocês dois|os dois|ambos|juntos)\b/i.test(lower);
-
-  if (
-    mentionsAll ||
-    (mentionsUltron && (mentionsJarvis || mentionsFriday)) ||
-    (mentionsJarvis && mentionsFriday && mentionsUltron)
-  ) {
-    return 'todos';
-  }
-  if (mentionsUltron) return 'ultron';
-  if (mentionsBoth || (mentionsJarvis && mentionsFriday)) return 'ambos';
-  if (mentionsJarvis) return 'jarvis';
-  if (mentionsFriday) return 'sexta-feira';
-  return 'todos';
+  return resolveAssistantRouting(message, explicitMode).resolvedMode;
 }
 
 interface StructuredAIResult {
@@ -125,7 +105,6 @@ export async function processAssistantInteraction(params: {
 }) {
   const startedAt = Date.now();
   const ai = getClient();
-  const workspace = await readWorkspace();
   const resolvedTarget = detectRequestedAssistant(params.message, params.targetMode);
 
   const now = params.clientTimeIso ? new Date(params.clientTimeIso) : new Date();
@@ -152,29 +131,25 @@ export async function processAssistantInteraction(params: {
     searchSetting === 'always' ||
     (searchSetting === 'auto' && shouldTriggerExternalSearch(params.message));
 
-  let groundedContext = '';
-  let sources: GroundingSource[] = [];
-  let searchEnginesUsed: string[] = [];
+  const [workspace, researchResult] = await Promise.all([
+    readWorkspace(),
+    shouldSearch
+      ? researchExternalWeb(params.message).catch(() => null)
+      : Promise.resolve(null),
+  ]);
 
-  if (shouldSearch) {
-    try {
-      const research = await researchExternalWeb(params.message);
-      groundedContext = research.summaryText;
-      sources = research.sources;
-      searchEnginesUsed = research.enginesUsed;
-    } catch {
-      groundedContext = '';
-    }
-  }
+  const groundedContext = researchResult?.summaryText ?? '';
+  const sources: GroundingSource[] = researchResult?.sources ?? [];
+  const searchEnginesUsed: string[] = researchResult?.enginesUsed ?? [];
 
   const recentMemoriesText = workspace.memories
-    .slice(0, 14)
+    .slice(0, 10)
     .map((m) => `- [${m.category.toUpperCase()} | ${m.importance}] ${m.title}: ${m.content}`)
     .join('\n');
 
   const activeTasksText = workspace.tasks
     .filter((t) => t.status !== 'concluida')
-    .slice(0, 10)
+    .slice(0, 8)
     .map(
       (t) =>
         `- [${t.priority.toUpperCase()} | ${t.status} | ${t.assignedTo}] ${t.title}: ${t.description}`
@@ -183,12 +158,12 @@ export async function processAssistantInteraction(params: {
 
   const unresolvedAlertsText = workspace.alerts
     .filter((a) => !a.resolved)
-    .slice(0, 8)
+    .slice(0, 6)
     .map((a) => `- [${a.severity.toUpperCase()} | ${a.type}] ${a.title}: ${a.detail}`)
     .join('\n');
 
   const recentHistoryText = workspace.conversations
-    .slice(-6)
+    .slice(-4)
     .map((c) => {
       const replies = c.responses.map((r) => `${r.speaker.toUpperCase()}: ${r.text}`).join(' | ');
       return `Patrick (${c.detectedEmotion.label}): ${c.userMessage}\nRespostas: ${replies}`;
@@ -258,6 +233,10 @@ Mensagem de Patrick Pessoa: """${params.message}"""`;
       contents: promptPayload,
       config: {
         systemInstruction,
+        temperature: 0.7,
+        thinkingConfig: {
+          thinkingBudget: 0,
+        },
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
@@ -433,6 +412,19 @@ Mensagem de Patrick Pessoa: """${params.message}"""`;
   };
 }
 
+const TTS_CACHE = new Map<string, { audioBase64: string; mimeType: string }>();
+
+function trimSpokenScript(text: string, maxChars = 460): string {
+  if (text.length <= maxChars) return text;
+  const sliced = text.slice(0, maxChars);
+  const lastPeriod = Math.max(
+    sliced.lastIndexOf('. '),
+    sliced.lastIndexOf('! '),
+    sliced.lastIndexOf('? ')
+  );
+  return lastPeriod > 140 ? sliced.slice(0, lastPeriod + 1).trim() : `${sliced.trim()}...`;
+}
+
 export async function synthesizeAssistantSpeech(params: {
   turns: Array<{ speaker: AssistantId; text: string }>;
   jarvisVoice?: string;
@@ -443,7 +435,9 @@ export async function synthesizeAssistantSpeech(params: {
   const cleanTurns = params.turns
     .map((t) => ({
       speaker: t.speaker,
-      text: t.text.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
+      text: trimSpokenScript(
+        t.text.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim()
+      ),
     }))
     .filter((t) => t.text.length > 0);
 
@@ -461,12 +455,18 @@ export async function synthesizeAssistantSpeech(params: {
     return ultronVoiceName;
   };
 
-  // Single-speaker synthesis using flagship gemini-3.8-flash-tts first for richer persona timbre
   const primary = cleanTurns[0];
   const combinedText = cleanTurns.map((t) => t.text).join(' ');
   const voiceName = getVoiceForSpeaker(primary.speaker);
 
-  const models = ['gemini-3.8-flash-tts', 'gemini-3.8-flash-lite-tts'];
+  const cacheKey = `${voiceName}::${combinedText}`;
+  const cachedAudio = TTS_CACHE.get(cacheKey);
+  if (cachedAudio) {
+    return cachedAudio;
+  }
+
+  // Prioritize ultra-fast gemini-3.8-flash-lite-tts with fallback to gemini-3.8-flash-tts
+  const models = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'];
   let lastErr: unknown = null;
 
   for (const model of models) {
@@ -499,7 +499,13 @@ export async function synthesizeAssistantSpeech(params: {
 
       const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (base64Audio) {
-        return { audioBase64: base64Audio, mimeType: 'audio/wav' };
+        const result = { audioBase64: base64Audio, mimeType: 'audio/wav' };
+        if (TTS_CACHE.size > 60) {
+          const firstKey = TTS_CACHE.keys().next().value;
+          if (firstKey) TTS_CACHE.delete(firstKey);
+        }
+        TTS_CACHE.set(cacheKey, result);
+        return result;
       }
     } catch (err) {
       lastErr = err;

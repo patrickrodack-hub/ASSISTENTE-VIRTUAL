@@ -665,6 +665,10 @@ export function useVoiceEngine({
     [startPlaybackAnalyser, stopPlaybackAnalyser]
   );
 
+  const clientTtsCacheRef = useRef<Map<string, { audioBase64: string; mimeType: string }>>(
+    new Map()
+  );
+
   const playTurnsAudio = useCallback(
     async (
       turns: AssistantTurn[],
@@ -694,66 +698,105 @@ export function useVoiceEngine({
         }
       }
 
-      try {
-        const audioPayloads = await Promise.all(
-          turns.map(async (turn) => {
-            const res = await safeFetchJson<{ audioBase64?: string; mimeType?: string }>(
-              '/api/assistant/tts',
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  turns: [
-                    {
-                      speaker: turn.speaker,
-                      text: turn.ttsScript || turn.text,
-                    },
-                  ],
-                  jarvisVoice: overrideVoices?.jarvisVoice ?? jarvisVoice,
-                  fridayVoice: overrideVoices?.fridayVoice ?? fridayVoice,
-                  ultronVoice: overrideVoices?.ultronVoice ?? ultronVoice,
-                }),
-              }
-            );
-            if (!res.ok || !res.data?.audioBase64) {
-              throw new Error(res.errorMessage || 'Falha na síntese vocal Gemini');
-            }
-            return {
-              turn,
-              url: base64ToBlobUrl(res.data.audioBase64, res.data.mimeType || 'audio/wav'),
-            };
-          })
-        );
+      const activeJarvisVoice = overrideVoices?.jarvisVoice ?? jarvisVoice;
+      const activeFridayVoice = overrideVoices?.fridayVoice ?? fridayVoice;
+      const activeUltronVoice = overrideVoices?.ultronVoice ?? ultronVoice;
 
-        if (sessionId !== playbackSessionRef.current) {
-          audioPayloads.forEach((p) => URL.revokeObjectURL(p.url));
-          return;
+      // Launch all TTS synthesis tasks in parallel immediately so turn[0] can start playing
+      // while turn[1] and turn[2] finish synthesizing in the background
+      const synthesisPromises = turns.map(async (turn) => {
+        const spokenText = (turn.ttsScript || turn.text).trim();
+        const voiceKey =
+          turn.speaker === 'jarvis'
+            ? activeJarvisVoice
+            : turn.speaker === 'sexta-feira'
+            ? activeFridayVoice
+            : activeUltronVoice;
+        const cacheKey = `${turn.speaker}:${voiceKey}:${spokenText}`;
+
+        const cached = clientTtsCacheRef.current.get(cacheKey);
+        if (cached) {
+          return {
+            turn,
+            audioBase64: cached.audioBase64,
+            mimeType: cached.mimeType,
+          };
         }
 
-        setIsSynthesizingAudio(false);
+        const res = await safeFetchJson<{ audioBase64?: string; mimeType?: string }>(
+          '/api/assistant/tts',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              turns: [
+                {
+                  speaker: turn.speaker,
+                  text: spokenText,
+                },
+              ],
+              jarvisVoice: activeJarvisVoice,
+              fridayVoice: activeFridayVoice,
+              ultronVoice: activeUltronVoice,
+            }),
+          },
+          0
+        );
 
-        for (let i = 0; i < audioPayloads.length; i++) {
-          if (sessionId !== playbackSessionRef.current) {
-            for (let j = i; j < audioPayloads.length; j++) {
-              URL.revokeObjectURL(audioPayloads[j].url);
-            }
-            return;
+        if (!res.ok || !res.data?.audioBase64) {
+          return {
+            turn,
+            audioBase64: null,
+            mimeType: 'audio/wav',
+          };
+        }
+
+        const payload = {
+          audioBase64: res.data.audioBase64,
+          mimeType: res.data.mimeType || 'audio/wav',
+        };
+        if (clientTtsCacheRef.current.size > 40) {
+          const oldest = clientTtsCacheRef.current.keys().next().value;
+          if (oldest) clientTtsCacheRef.current.delete(oldest);
+        }
+        clientTtsCacheRef.current.set(cacheKey, payload);
+
+        return {
+          turn,
+          audioBase64: payload.audioBase64,
+          mimeType: payload.mimeType,
+        };
+      });
+
+      try {
+        for (let i = 0; i < synthesisPromises.length; i++) {
+          if (sessionId !== playbackSessionRef.current) return;
+
+          if (i === 0) {
+            setIsSynthesizingAudio(true);
           }
-          const { turn, url } = audioPayloads[i];
-          setSpeakingSpeaker(turn.speaker);
-          setSpeakingText(turn.text);
-          try {
-            await playBlobUrl(url, turn.speaker);
-          } catch (playErr) {
-            const name = (playErr as { name?: string })?.name;
-            if (name === 'NotAllowedError') {
-              setAudioBlockedByBrowser(true);
-              for (let j = i + 1; j < audioPayloads.length; j++) {
-                URL.revokeObjectURL(audioPayloads[j].url);
+
+          const synthesized = await synthesisPromises[i];
+          if (sessionId !== playbackSessionRef.current) return;
+
+          setIsSynthesizingAudio(false);
+          setSpeakingSpeaker(synthesized.turn.speaker);
+          setSpeakingText(synthesized.turn.text);
+
+          if (synthesized.audioBase64) {
+            const url = base64ToBlobUrl(synthesized.audioBase64, synthesized.mimeType);
+            try {
+              await playBlobUrl(url, synthesized.turn.speaker);
+            } catch (playErr) {
+              const name = (playErr as { name?: string })?.name;
+              if (name === 'NotAllowedError') {
+                setAudioBlockedByBrowser(true);
+                break;
               }
-              break;
+              await speakSingleTurnWithBrowserFallback(synthesized.turn);
             }
-            await speakSingleTurnWithBrowserFallback(turn);
+          } else {
+            await speakSingleTurnWithBrowserFallback(synthesized.turn);
           }
         }
       } catch {

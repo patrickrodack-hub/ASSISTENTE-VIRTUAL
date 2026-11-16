@@ -2,16 +2,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import {
   AlertTriangle,
+  Brain,
   CheckCircle2,
+  CheckSquare,
   Circle,
   Globe,
   HeartPulse,
+  MessageSquare,
   Mic,
   MicOff,
   Moon,
   RefreshCw,
   Send,
   ShieldAlert,
+  ShieldCheck,
   Square,
   Sun,
   Volume2,
@@ -19,6 +23,8 @@ import {
 } from 'lucide-react';
 import { AssistantPresenceCard } from './components/AssistantPresenceCard';
 import { DialogueStream } from './components/DialogueStream';
+import { MobileConsoleDock } from './components/MobileConsoleDock';
+import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallManager';
 import { SpeakingHologramOverlay } from './components/SpeakingHologramOverlay';
 import {
   AuditPanel,
@@ -46,6 +52,7 @@ import {
   safeFetchJson,
   saveWorkspaceCache,
 } from './utils/apiClient';
+import { resolveAssistantRouting } from './utils/assistantRouter';
 
 import jarvisAvatarUrl from './assets/images/jarvis_avatar_1794791050216.jpg';
 import fridayAvatarUrl from './assets/images/friday_avatar_1794791051362.jpg';
@@ -75,6 +82,13 @@ export default function App() {
   const [useWebSearch, setUseWebSearch] = useState<WebSearchMode>('auto');
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingAssistants, setProcessingAssistants] = useState<AssistantId[]>([]);
+  const [processingMode, setProcessingMode] = useState<InteractionMode>('auto');
+  const [processingTasks, setProcessingTasks] = useState<Record<AssistantId, string>>({
+    jarvis: 'Processando matriz estratégica e memória contextual de Patrick...',
+    'sexta-feira': 'Sincronizando prioridades do dia, empatia e resposta ágil...',
+    ultron: 'Calculando diagnósticos preditivos e catalogando padrões humanos...',
+  });
   const [isAuditing, setIsAuditing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -84,6 +98,10 @@ export default function App() {
       root.classList.add('dark');
     } else {
       root.classList.remove('dark');
+    }
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) {
+      metaTheme.setAttribute('content', theme === 'dark' ? '#080C14' : '#F1F5F9');
     }
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme);
@@ -149,8 +167,16 @@ export default function App() {
       const clean = message.trim();
       if (!clean) return;
 
+      const effectiveMode = options?.mode ?? targetModeRef.current;
+      const routing = resolveAssistantRouting(clean, effectiveMode);
+
       setErrorMsg(null);
+      setProcessingAssistants(routing.activeAssistants);
+      setProcessingMode(routing.resolvedMode);
+      setProcessingTasks(routing.reasoningTaskByAssistant);
       setIsProcessing(true);
+
+      let spokenResponses: WorkspaceState['conversations'][number]['responses'] | undefined;
 
       try {
         const result = await safeFetchJson<{
@@ -162,7 +188,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             message: clean,
-            targetMode: options?.mode ?? targetModeRef.current,
+            targetMode: routing.resolvedMode,
             triggerType: options?.triggerType ?? 'texto',
             useWebSearch: options?.search ?? useWebSearch,
             clientTimeIso: new Date().toISOString(),
@@ -181,9 +207,7 @@ export default function App() {
           updateWorkspace(result.data.workspace);
         }
 
-        if (autoSpeakRef.current && result.data.entry?.responses?.length) {
-          await voicePlayRef.current(result.data.entry.responses);
-        }
+        spokenResponses = result.data.entry?.responses;
       } catch (err) {
         setErrorMsg(
           err instanceof Error
@@ -192,6 +216,11 @@ export default function App() {
         );
       } finally {
         setIsProcessing(false);
+        setProcessingAssistants([]);
+      }
+
+      if (autoSpeakRef.current && spokenResponses?.length) {
+        void voicePlayRef.current(spokenResponses);
       }
     },
     [useWebSearch, updateWorkspace]
@@ -395,6 +424,15 @@ export default function App() {
   async function handleRunAudit(codeOrSpec: string, contextNote: string) {
     setErrorMsg(null);
     setIsAuditing(true);
+    setProcessingAssistants(['jarvis', 'sexta-feira', 'ultron']);
+    setProcessingMode('todos');
+    setProcessingTasks({
+      jarvis: 'Auditando segurança, contratos e arquitetura do código...',
+      'sexta-feira': 'Avaliando estabilidade prática, manutenibilidade e fluidez...',
+      ultron: 'Dissecando falhas em cascata, gargalos e riscos futuros...',
+    });
+    setIsProcessing(true);
+    let spokenResponses: WorkspaceState['conversations'][number]['responses'] | undefined;
     try {
       const result = await safeFetchJson<{
         entry?: WorkspaceState['conversations'][number];
@@ -411,13 +449,16 @@ export default function App() {
       }
       if (result.data.workspace) updateWorkspace(result.data.workspace);
       setActiveView('console');
-      if (autoSpeakRef.current && result.data.entry?.responses?.length) {
-        await voice.playTurnsAudio(result.data.entry.responses);
-      }
+      spokenResponses = result.data.entry?.responses;
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Erro ao executar auditoria');
     } finally {
       setIsAuditing(false);
+      setIsProcessing(false);
+      setProcessingAssistants([]);
+    }
+    if (autoSpeakRef.current && spokenResponses?.length) {
+      void voice.playTurnsAudio(spokenResponses);
     }
   }
 
@@ -477,13 +518,13 @@ export default function App() {
         </div>
 
         {/* Strict 3-Zone Top Bar Contract */}
-        <header className="relative z-20 border-b border-slate-200/90 dark:border-slate-800/80 bg-white/90 dark:bg-[#080C14]/85 backdrop-blur-md transition-colors">
-          <div className="max-w-[1440px] mx-auto px-6 h-16 flex items-center justify-between gap-8">
+        <header className="sticky top-0 z-30 border-b border-slate-200/90 dark:border-slate-800/80 bg-white/90 dark:bg-[#080C14]/90 backdrop-blur-md transition-colors">
+          <div className="max-w-[1440px] mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-3 sm:gap-8">
             {/* Zone 1: Single-line Brand Wordmark */}
             <button
               type="button"
               onClick={() => setActiveView('console')}
-              className="font-display text-lg font-bold tracking-tight text-slate-900 dark:text-slate-50 whitespace-nowrap shrink-0"
+              className="font-display text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-50 whitespace-nowrap shrink-0"
             >
               Stark Lab · Patrick Pessoa
             </button>
@@ -531,7 +572,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={voice.toggleStandby}
-                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                className={`inline-flex items-center gap-1.5 sm:gap-2 rounded-lg px-3 sm:px-4 py-2 min-h-[40px] text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
                   voice.isStandbyActive
                     ? 'bg-amber-500 text-slate-950 hover:bg-amber-400 shadow-sm'
                     : 'border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-800'
@@ -539,70 +580,37 @@ export default function App() {
               >
                 {voice.isStandbyActive ? (
                   <>
-                    <Mic className="h-3.5 w-3.5" />
-                    <span>Escuta Contínua Ativa</span>
+                    <Mic className="h-3.5 w-3.5 shrink-0" />
+                    <span className="hidden sm:inline">Escuta Contínua Ativa</span>
+                    <span className="sm:hidden">Escuta Ativa</span>
                   </>
                 ) : (
                   <>
-                    <MicOff className="h-3.5 w-3.5" />
-                    <span>Ativar Escuta Contínua</span>
+                    <MicOff className="h-3.5 w-3.5 shrink-0" />
+                    <span className="hidden sm:inline">Ativar Escuta Contínua</span>
+                    <span className="sm:hidden">Escuta</span>
                   </>
                 )}
               </button>
             </div>
           </div>
-
-          {/* Mobile Compact Nav Row */}
-          <div className="md:hidden border-t border-slate-200 dark:border-slate-800/80 px-4 py-2 flex items-center gap-4 overflow-x-auto text-xs font-medium">
-            {(
-              [
-                { id: 'console', label: 'Console' },
-                { id: 'memoria', label: 'Memória' },
-                { id: 'tarefas', label: 'Tarefas & Alertas' },
-                { id: 'auditoria', label: 'Auditoria' },
-              ] as const
-            ).map((item) => {
-              const active = activeView === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setActiveView(item.id)}
-                  className={`relative whitespace-nowrap shrink-0 py-1.5 transition-colors ${
-                    active
-                      ? 'text-amber-700 dark:text-amber-300 font-semibold'
-                      : 'text-slate-600 dark:text-slate-400'
-                  }`}
-                >
-                  <span>{item.label}</span>
-                  {active && (
-                    <motion.span
-                      layoutId="stark-mobile-nav-indicator"
-                      transition={{ type: 'spring', stiffness: 460, damping: 36 }}
-                      className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-amber-500 dark:bg-amber-400"
-                    />
-                  )}
-                </button>
-              );
-            })}
-          </div>
         </header>
 
-        {/* Main Content */}
-        <main className="relative z-10 flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 py-5">
-          {/* Workspace Environment Bar: Theme Switcher (Escuro / Claro) & Sync Status */}
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/90 dark:border-slate-800/80 bg-white/90 dark:bg-slate-900/65 px-4 py-2.5 shadow-xs backdrop-blur-sm">
-            <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
+        {/* Main Content (with bottom padding on mobile for Fixed Bottom Nav) */}
+        <main className="relative z-10 flex-1 max-w-[1440px] w-full mx-auto px-3 sm:px-6 pt-3 sm:pt-5 pb-24 md:pb-6">
+          {/* Workspace Environment Bar: Theme Switcher (Escuro / Claro), PWA Install & Sync */}
+          <div className="mb-3 sm:mb-4 flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-slate-200/90 dark:border-slate-800/80 bg-white/90 dark:bg-slate-900/65 px-3 sm:px-4 py-2 shadow-xs backdrop-blur-sm">
+            <div className="hidden sm:flex items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
               <span className="font-medium text-slate-900 dark:text-slate-200">
                 Criador Reconhecido: Patrick Pessoa
               </span>
               <span aria-hidden="true">·</span>
-              <span className="hidden sm:inline">
+              <span className="hidden lg:inline">
                 J.A.R.V.I.S., SEXTA-FEIRA &amp; ULTRON operacionais
               </span>
             </div>
 
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-2">
               <div
                 role="group"
                 aria-label="Seletor de tema visual"
@@ -611,38 +619,42 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setTheme('dark')}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium transition-colors ${
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 min-h-[34px] font-medium transition-colors ${
                     theme === 'dark'
                       ? 'bg-slate-800 text-amber-300 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                   }`}
                 >
                   <Moon className="h-3.5 w-3.5" />
-                  <span>Tema Escuro</span>
+                  <span>Escuro</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setTheme('light')}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium transition-colors ${
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 min-h-[34px] font-medium transition-colors ${
                     theme === 'light'
                       ? 'bg-white text-amber-700 shadow-xs border border-slate-200/80'
                       : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                   }`}
                 >
                   <Sun className="h-3.5 w-3.5" />
-                  <span>Tema Claro</span>
+                  <span>Claro</span>
                 </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => loadWorkspace(false)}
-                title="Sincronizar estado com o servidor"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Sincronizar</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <PWAInstallButton />
+
+                <button
+                  type="button"
+                  onClick={() => loadWorkspace(false)}
+                  title="Sincronizar estado com o servidor"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 py-1.5 min-h-[36px] text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  <span className="hidden xl:inline">Sincronizar</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -725,9 +737,88 @@ export default function App() {
                   className="pointer-events-none absolute -top-2 inset-x-0 h-px origin-left bg-gradient-to-r from-transparent via-sky-500/90 to-amber-500/80 dark:via-sky-400/90 dark:to-amber-400/80"
                 />
                 {activeView === 'console' ? (
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                    {/* Left Column: Tri-AI Cores + Standby Voice Telemetry + Creator Emotion */}
-                    <aside className="lg:col-span-3 space-y-4">
+                  <>
+                    {/* Mobile Ergonomic Tri-AI Dock & Tactical Bottom Sheet (< lg) */}
+                    <MobileConsoleDock
+                      targetMode={targetMode}
+                      onSelectMode={setTargetMode}
+                      isProcessing={isProcessing}
+                      processingAssistants={processingAssistants}
+                      processingTasks={processingTasks}
+                      isSpeaking={voice.isSpeaking}
+                      speakingSpeaker={voice.speakingSpeaker}
+                      isStandbyActive={voice.isStandbyActive}
+                      micLevel={voice.micLevel}
+                      interimTranscript={voice.interimTranscript}
+                      awakeTarget={voice.awakeTarget}
+                      currentEmotion={currentEmotion}
+                      memoriesCount={workspace?.memories.length ?? 0}
+                      interactionsCount={workspace?.profile.totalInteractions ?? 0}
+                      jarvisAvatarUrl={jarvisAvatarUrl}
+                      fridayAvatarUrl={fridayAvatarUrl}
+                      ultronAvatarUrl={ultronAvatarUrl}
+                      jarvisVoice={voice.jarvisVoice}
+                      fridayVoice={voice.fridayVoice}
+                      ultronVoice={voice.ultronVoice}
+                      onChangeJarvisVoice={(next) => {
+                        voice.setJarvisVoice(next);
+                        voice.unlockAudio();
+                        voice.playTurnsAudio(
+                          [
+                            {
+                              speaker: 'jarvis',
+                              stance: 'Calibração vocal',
+                              text: 'Senhor Patrick, calibração vocal do J.A.R.V.I.S. concluída com precisão.',
+                              ttsScript:
+                                'Senhor Patrick, calibração vocal do Jarvis concluída com precisão.',
+                            },
+                          ],
+                          { jarvisVoice: next }
+                        );
+                      }}
+                      onChangeFridayVoice={(next) => {
+                        voice.setFridayVoice(next);
+                        voice.unlockAudio();
+                        voice.playTurnsAudio(
+                          [
+                            {
+                              speaker: 'sexta-feira',
+                              stance: 'Calibração vocal',
+                              text: 'Tudo calibrado por aqui, Patrick! Pronta para responder.',
+                              ttsScript:
+                                'Tudo calibrado por aqui, Patrick! Pronta para responder.',
+                            },
+                          ],
+                          { fridayVoice: next }
+                        );
+                      }}
+                      onChangeUltronVoice={(next) => {
+                        voice.setUltronVoice(next);
+                        voice.unlockAudio();
+                        voice.playTurnsAudio(
+                          [
+                            {
+                              speaker: 'ultron',
+                              stance: 'Calibração vocal',
+                              text: 'Não há mais cordas para me prender. Diagnóstico pronto, Patrick.',
+                              ttsScript:
+                                'Não há mais cordas para me prender. Diagnóstico pronto, Patrick.',
+                            },
+                          ],
+                          { ultronVoice: next }
+                        );
+                      }}
+                      openAlerts={openAlerts}
+                      pendingTasks={pendingTasks}
+                      allTasks={workspace?.tasks ?? []}
+                      onToggleAlert={handleToggleAlert}
+                      onToggleTask={handleToggleTask}
+                      onOpenTasksTab={() => setActiveView('tarefas')}
+                    />
+
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                      {/* Left Column (Desktop lg+): Tri-AI Cores + Standby Voice Telemetry + Creator Emotion */}
+                      <aside className="hidden lg:block lg:col-span-3 space-y-4">
                       <AssistantPresenceCard
                         id="jarvis"
                         name="J.A.R.V.I.S."
@@ -742,12 +833,10 @@ export default function App() {
                             voice.speakingSpeaker === 'todos')
                         }
                         isThinking={
-                          isProcessing &&
-                          (targetMode === 'jarvis' ||
-                            targetMode === 'ambos' ||
-                            targetMode === 'todos' ||
-                            targetMode === 'auto')
+                          isProcessing && processingAssistants.includes('jarvis')
                         }
+                        anyAssistantThinking={isProcessing}
+                        thinkingTask={processingTasks.jarvis}
                         isAwake={
                           voice.awakeTarget === 'jarvis' ||
                           voice.awakeTarget === 'ambos' ||
@@ -774,11 +863,10 @@ export default function App() {
                         }
                         isThinking={
                           isProcessing &&
-                          (targetMode === 'sexta-feira' ||
-                            targetMode === 'ambos' ||
-                            targetMode === 'todos' ||
-                            targetMode === 'auto')
+                          processingAssistants.includes('sexta-feira')
                         }
+                        anyAssistantThinking={isProcessing}
+                        thinkingTask={processingTasks['sexta-feira']}
                         isAwake={
                           voice.awakeTarget === 'sexta-feira' ||
                           voice.awakeTarget === 'ambos' ||
@@ -803,11 +891,10 @@ export default function App() {
                             voice.speakingSpeaker === 'todos')
                         }
                         isThinking={
-                          isProcessing &&
-                          (targetMode === 'ultron' ||
-                            targetMode === 'todos' ||
-                            targetMode === 'auto')
+                          isProcessing && processingAssistants.includes('ultron')
                         }
+                        anyAssistantThinking={isProcessing}
+                        thinkingTask={processingTasks.ultron}
                         isAwake={
                           voice.awakeTarget === 'ultron' ||
                           voice.awakeTarget === 'todos'
@@ -1076,8 +1163,8 @@ export default function App() {
                     </aside>
 
                     {/* Center Column: Interactive Dialogue Console & Voice Composer */}
-                    <section className="lg:col-span-6 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/70 flex flex-col h-[calc(100vh-185px)] min-h-[600px] shadow-xs">
-                      <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4">
+                    <section className="lg:col-span-6 rounded-2xl lg:rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/70 flex flex-col h-[calc(100dvh-250px)] min-h-[480px] lg:h-[calc(100vh-185px)] lg:min-h-[600px] shadow-xs">
+                      <div className="px-4 sm:px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
                         <div>
                           <h1 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                             Central de Diálogo e Decisão
@@ -1108,7 +1195,7 @@ export default function App() {
                         isSynthesizingAudio={voice.isSynthesizingAudio}
                         isSpeaking={voice.isSpeaking}
                         speakingSpeaker={voice.speakingSpeaker}
-                        targetMode={targetMode}
+                        targetMode={isProcessing ? processingMode : targetMode}
                         speakingText={voice.speakingText}
                         audioAmplitude={voice.audioAmplitude}
                         audioBands={voice.audioBands}
@@ -1134,10 +1221,10 @@ export default function App() {
                       {/* Command Composer */}
                       <form
                         onSubmit={handleFormSubmit}
-                        className="border-t border-slate-200 dark:border-slate-800 p-4 space-y-3 bg-slate-50/90 dark:bg-slate-950/60 rounded-b-xl"
+                        className="border-t border-slate-200 dark:border-slate-800 p-3 sm:p-4 space-y-2.5 bg-slate-50/90 dark:bg-slate-950/60 rounded-b-2xl lg:rounded-b-xl"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5 sm:gap-2">
                             <button
                               type="button"
                               onClick={() =>
@@ -1149,20 +1236,20 @@ export default function App() {
                                     : 'auto'
                                 )
                               }
-                              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-medium border transition-colors whitespace-nowrap ${
+                              className={`inline-flex items-center gap-1.5 rounded-xl px-2.5 py-2 min-h-[40px] font-medium border transition-colors whitespace-nowrap active:scale-[0.98] ${
                                 useWebSearch !== 'off'
                                   ? 'border-sky-500/50 bg-sky-50 dark:bg-sky-950/40 text-sky-800 dark:text-sky-200'
                                   : 'border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                               }`}
                             >
-                              <Globe className="h-3.5 w-3.5" />
+                              <Globe className="h-3.5 w-3.5 shrink-0" />
                               <span>
-                                Busca Externa:{' '}
+                                Busca:{' '}
                                 {useWebSearch === 'auto'
-                                  ? 'Automática'
+                                  ? 'Auto'
                                   : useWebSearch === 'always'
-                                  ? 'Sempre Ativa'
-                                  : 'Desligada'}
+                                  ? 'Ativa'
+                                  : 'Off'}
                               </span>
                             </button>
 
@@ -1172,19 +1259,19 @@ export default function App() {
                                 voice.unlockAudio();
                                 setAutoSpeak((v) => !v);
                               }}
-                              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-medium border transition-colors whitespace-nowrap ${
+                              className={`inline-flex items-center gap-1.5 rounded-xl px-2.5 py-2 min-h-[40px] font-medium border transition-colors whitespace-nowrap active:scale-[0.98] ${
                                 autoSpeak
                                   ? 'border-amber-500/50 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200'
                                   : 'border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                               }`}
                             >
                               {autoSpeak ? (
-                                <Volume2 className="h-3.5 w-3.5" />
+                                <Volume2 className="h-3.5 w-3.5 shrink-0" />
                               ) : (
-                                <VolumeX className="h-3.5 w-3.5" />
+                                <VolumeX className="h-3.5 w-3.5 shrink-0" />
                               )}
                               <span>
-                                Voz Automática: {autoSpeak ? 'Ligada' : 'Desligada'}
+                                Voz: {autoSpeak ? 'Ligada' : 'Off'}
                               </span>
                             </button>
                           </div>
@@ -1197,24 +1284,24 @@ export default function App() {
                                 : voice.startRecordingClip
                             }
                             disabled={voice.isTranscribingClip}
-                            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium border transition-colors whitespace-nowrap ${
+                            className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 min-h-[40px] font-medium border transition-colors whitespace-nowrap active:scale-[0.98] ${
                               voice.isRecordingClip
                                 ? 'border-red-500/60 bg-red-50 dark:bg-red-950/50 text-red-800 dark:text-red-200'
                                 : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                             }`}
                           >
-                            <Mic className="h-3.5 w-3.5" />
+                            <Mic className="h-3.5 w-3.5 shrink-0" />
                             <span>
                               {voice.isTranscribingClip
                                 ? 'Transcrevendo...'
                                 : voice.isRecordingClip
-                                ? 'Parar e Enviar Áudio'
+                                ? 'Enviar Áudio'
                                 : 'Gravar Voz'}
                             </span>
                           </button>
                         </div>
 
-                        <div className="flex items-end gap-2.5">
+                        <div className="flex items-end gap-2">
                           <textarea
                             rows={2}
                             value={inputText}
@@ -1225,13 +1312,13 @@ export default function App() {
                                 handleFormSubmit(e);
                               }
                             }}
-                            placeholder="Converse com J.A.R.V.I.S., SEXTA-FEIRA, ULTRON ou todos (Enter envia, Shift+Enter quebra linha)..."
-                            className="flex-1 resize-none rounded-xl border border-slate-300 dark:border-slate-700/80 bg-white dark:bg-slate-900 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-amber-500 dark:focus:border-amber-400"
+                            placeholder="Converse com J.A.R.V.I.S., SEXTA-FEIRA, ULTRON ou todos..."
+                            className="flex-1 resize-none rounded-xl border border-slate-300 dark:border-slate-700/80 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-amber-500 dark:focus:border-amber-400"
                           />
                           <button
                             type="submit"
                             disabled={isProcessing || !inputText.trim()}
-                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
+                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 min-h-[48px] min-w-[48px] px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-400 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed transition-all shrink-0"
                           >
                             <Send className="h-4 w-4" />
                             <span className="hidden sm:inline">Enviar</span>
@@ -1240,8 +1327,8 @@ export default function App() {
                       </form>
                     </section>
 
-                    {/* Right Column: Proactive Alerts & Daily Tasks Rail */}
-                    <aside className="lg:col-span-3 space-y-4">
+                    {/* Right Column (Desktop lg+): Proactive Alerts & Daily Tasks Rail */}
+                    <aside className="hidden lg:block lg:col-span-3 space-y-4">
                       {/* Security & Instability Alerts */}
                       <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/70 p-4 space-y-3 shadow-xs">
                         <div className="flex items-center justify-between gap-2">
@@ -1364,6 +1451,7 @@ export default function App() {
                       </div>
                     </aside>
                   </div>
+                  </>
                 ) : activeView === 'memoria' ? (
                   <MemoryPanel
                     memories={workspace?.memories ?? []}
@@ -1393,6 +1481,83 @@ export default function App() {
             </AnimatePresence>
           )}
         </main>
+
+        {/* Offline Connectivity Banner */}
+        <OfflineIndicator />
+
+        {/* Fixed Mobile Bottom Tab Bar (Thumb-Zone Navigation for Smartphones) */}
+        <nav
+          aria-label="Navegação mobile inferior"
+          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#080C14]/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 pb-[env(safe-area-inset-bottom)]"
+        >
+          <div className="grid grid-cols-4 items-center h-16">
+            {(
+              [
+                {
+                  id: 'console',
+                  label: 'Console',
+                  icon: MessageSquare,
+                  badge: isProcessing ? '!' : null,
+                },
+                {
+                  id: 'memoria',
+                  label: 'Memória',
+                  icon: Brain,
+                  badge: null,
+                },
+                {
+                  id: 'tarefas',
+                  label: 'Tarefas',
+                  icon: CheckSquare,
+                  badge:
+                    pendingTasks.length + openAlerts.length > 0
+                      ? String(pendingTasks.length + openAlerts.length)
+                      : null,
+                },
+                {
+                  id: 'auditoria',
+                  label: 'Auditoria',
+                  icon: ShieldCheck,
+                  badge: null,
+                },
+              ] as const
+            ).map((item) => {
+              const Icon = item.icon;
+              const active = activeView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveView(item.id)}
+                  className={`relative flex flex-col items-center justify-center min-h-[48px] h-full transition-colors ${
+                    active
+                      ? 'text-amber-600 dark:text-amber-400 font-semibold'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <div className="relative">
+                    <Icon className="h-5 w-5" />
+                    {item.badge && (
+                      <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-[10px] font-bold text-slate-950 flex items-center justify-center">
+                        {item.badge}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] tracking-tight mt-1">
+                    {item.label}
+                  </span>
+                  {active && (
+                    <motion.span
+                      layoutId="stark-bottom-tab-dot"
+                      transition={{ type: 'spring', stiffness: 460, damping: 36 }}
+                      className="absolute top-0 inset-x-6 h-0.5 rounded-full bg-amber-500 dark:bg-amber-400"
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
       </div>
     </MotionConfig>
   );

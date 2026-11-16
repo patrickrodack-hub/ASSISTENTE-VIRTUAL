@@ -26,7 +26,7 @@ function decodeHtmlEntities(input: string): string {
 async function fetchWithTimeout(
   url: string,
   options: RequestInit = {},
-  timeoutMs = 2500
+  timeoutMs = 1450
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -77,7 +77,7 @@ function stripQueryForSearch(rawMessage: string): string {
   return rawMessage
     .replace(/https?:\/\/[^\s]+/gi, ' ')
     .replace(
-      /\b(jarvis|sexta[\s-]?feira|friday|por favor|pesquise|pesquisa|busque|busca|procure|procura|na internet|na web|nas redes sociais|para mim|me diga|o que vocês acham|analisem|consultem)\b/gi,
+      /\b(jarvis|sexta[\s-]?feira|friday|ultron|[uú]ltron|todos|por favor|pesquise|pesquisa|busque|busca|procure|procura|na internet|na web|nas redes sociais|para mim|me diga|o que vocês acham|analisem|consultem)\b/gi,
       ' '
     )
     .replace(/[?!.,;:]+/g, ' ')
@@ -217,7 +217,7 @@ async function fetchPageReadableExcerpt(
         },
         redirect: 'follow',
       },
-      4000
+      2200
     );
     if (!res.ok) return null;
     const contentType = res.headers.get('content-type') || '';
@@ -254,9 +254,21 @@ export function shouldTriggerExternalSearch(message: string): boolean {
   );
 }
 
+const SEARCH_CACHE = new Map<
+  string,
+  { expiresAt: number; result: ExternalResearchResult }
+>();
+const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
+
 export async function researchExternalWeb(rawMessage: string): Promise<ExternalResearchResult> {
   const explicitUrls = extractUrlsFromText(rawMessage);
   const cleanQuery = stripQueryForSearch(rawMessage) || rawMessage.slice(0, 100);
+  const cacheKey = `${cleanQuery.toLowerCase()}::${explicitUrls.join(',')}`;
+  const cached = SEARCH_CACHE.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.result;
+  }
+
   const lower = rawMessage.toLowerCase();
 
   const wantsSocial =
@@ -272,8 +284,18 @@ export async function researchExternalWeb(rawMessage: string): Promise<ExternalR
       lower
     );
 
-  // Run multi-source external searches in parallel
-  const tasks: Array<Promise<Array<{ title: string; uri: string; snippet: string; sourceType: string; date?: string }>>> = [
+  // Run multi-source external searches in a single fast parallel round
+  const tasks: Array<
+    Promise<
+      Array<{
+        title: string;
+        uri: string;
+        snippet: string;
+        sourceType: string;
+        date?: string;
+      }>
+    >
+  > = [
     searchBingWeb(cleanQuery, 'Web', 5),
     searchGoogleNews(cleanQuery, wantsNews ? 5 : 3),
     searchWikipedia(cleanQuery),
@@ -282,10 +304,8 @@ export async function researchExternalWeb(rawMessage: string): Promise<ExternalR
   if (wantsSocial) {
     tasks.push(searchBingWeb(`site:reddit.com ${cleanQuery}`, 'Reddit', 3));
     tasks.push(searchBingWeb(`site:x.com ${cleanQuery}`, 'X / Social', 2));
-    tasks.push(searchBingWeb(`site:youtube.com ${cleanQuery}`, 'YouTube', 2));
     tasks.push(searchHackerNews(cleanQuery));
   } else {
-    // Always include a lightweight social/community pulse too
     tasks.push(searchBingWeb(`site:reddit.com ${cleanQuery}`, 'Social / Reddit', 2));
   }
 
@@ -310,21 +330,7 @@ export async function researchExternalWeb(rawMessage: string): Promise<ExternalR
     }
   }
 
-  // Deep-read top 2 general web pages when no explicit URLs were pasted, so assistants have full article facts
-  const deepReadTargets =
-    explicitUrls.length === 0
-      ? dedupedItems
-          .filter((i) => i.sourceType === 'Web' && !i.uri.includes('youtube.com'))
-          .slice(0, 2)
-          .map((i) => i.uri)
-      : [];
-
-  const deepReadPages =
-    deepReadTargets.length > 0
-      ? await Promise.all(deepReadTargets.map((u) => fetchPageReadableExcerpt(u)))
-      : [];
-
-  const allPages = [...explicitPages, ...deepReadPages].filter(
+  const allPages = explicitPages.filter(
     (p): p is NonNullable<typeof p> => p !== null
   );
 
@@ -338,7 +344,7 @@ export async function researchExternalWeb(rawMessage: string): Promise<ExternalR
     enginesUsed.add('Leitura de Páginas');
   }
 
-  for (const item of dedupedItems.slice(0, 12)) {
+  for (const item of dedupedItems.slice(0, 10)) {
     if (!sources.some((s) => s.uri === item.uri)) {
       sources.push({
         title: item.title,
@@ -360,16 +366,27 @@ export async function researchExternalWeb(rawMessage: string): Promise<ExternalR
 
   if (dedupedItems.length > 0) {
     lines.push('=== RESULTADOS DE PESQUISA EXTERNA (WEB, NOTÍCIAS, REDES SOCIAIS & COMUNIDADES) ===');
-    for (const item of dedupedItems.slice(0, 12)) {
+    for (const item of dedupedItems.slice(0, 10)) {
       lines.push(
         `- [${item.sourceType}${item.date ? ` · ${item.date}` : ''}] ${item.title}\n  URL: ${item.uri}\n  Resumo: ${item.snippet}`
       );
     }
   }
 
-  return {
+  const finalResult: ExternalResearchResult = {
     summaryText: lines.join('\n\n'),
     sources: sources.slice(0, 10),
     enginesUsed: Array.from(enginesUsed),
   };
+
+  if (SEARCH_CACHE.size > 60) {
+    const oldestKey = SEARCH_CACHE.keys().next().value;
+    if (oldestKey) SEARCH_CACHE.delete(oldestKey);
+  }
+  SEARCH_CACHE.set(cacheKey, {
+    expiresAt: Date.now() + SEARCH_CACHE_TTL_MS,
+    result: finalResult,
+  });
+
+  return finalResult;
 }
