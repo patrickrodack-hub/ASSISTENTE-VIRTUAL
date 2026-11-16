@@ -1,0 +1,6 @@
+{
+  "name": "J.A.R.V.I.S. & SEXTA-FEIRA · Comando Patrick Pessoa",
+  "description": "Sistema duplo de inteligência artificial personalizada inspirado em J.A.R.V.I.S. e SEXTA-FEIRA, desenvolvido para Patrick Pessoa com escuta contínua em segundo plano, síntese de voz, inteligência emocional, colaboração e memória persistente.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
