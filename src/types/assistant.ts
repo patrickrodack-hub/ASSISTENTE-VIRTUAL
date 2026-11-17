@@ -47,6 +47,117 @@ export interface AlertItem {
   createdAt: string;
 }
 
+export type AgendaCategory =
+  | 'reuniao'
+  | 'foco_dev'
+  | 'rotina'
+  | 'entrega'
+  | 'pessoal';
+
+export interface AgendaEventItem {
+  id: string;
+  title: string;
+  date: string; // YYYY-MM-DD
+  startTime: string; // HH:mm
+  endTime?: string; // HH:mm
+  category: AgendaCategory;
+  locationOrLink?: string;
+  notes?: string;
+  assignedAssistant: AssistantId | 'todos';
+  completed: boolean;
+  autoCallOnTime: boolean;
+  lastCalledAt?: string;
+  createdAt: string;
+}
+
+export interface RoutineRuleItem {
+  id: string;
+  title: string;
+  time: string; // HH:mm
+  frequencyLabel: string; // ex: 'Diário', 'Seg a Sex'
+  leadAssistant: AssistantId | 'todos';
+  instructions: string;
+  enabled: boolean;
+  lastTriggeredDate?: string; // YYYY-MM-DD
+}
+
+export interface SocialProfileLink {
+  id: string;
+  platform:
+    | 'GitHub'
+    | 'LinkedIn'
+    | 'Instagram'
+    | 'X / Twitter'
+    | 'YouTube'
+    | 'Portfólio / Web';
+  handleOrUrl: string;
+  verifiedNotes?: string;
+  lastScannedAt?: string;
+}
+
+export interface CreatorQuestionItem {
+  id: string;
+  askedBy: AssistantId;
+  question: string;
+  contextReason: string;
+  answered: boolean;
+  answerText?: string;
+  createdAt: string;
+}
+
+export interface CreatorDossier {
+  fullName: string;
+  brandSystemName: string;
+  email: string;
+  city: string;
+  stateCountry: string;
+  roleTitle: string;
+  workHours: string;
+  focusAreas: string[];
+  socialProfiles: SocialProfileLink[];
+  openQuestions: CreatorQuestionItem[];
+  lastOnlineScanAt?: string;
+}
+
+export interface LiveWeatherForecastDay {
+  date: string;
+  tempMaxC: number;
+  tempMinC: number;
+  precipitationProb: number;
+  conditionLabel: string;
+}
+
+export interface LiveWeatherReport {
+  city: string;
+  temperatureC: number;
+  apparentTemperatureC: number;
+  humidityPercent: number;
+  windSpeedKmh: number;
+  conditionLabel: string;
+  isDay: boolean;
+  updatedAt: string;
+  forecast: LiveWeatherForecastDay[];
+}
+
+export interface LiveNewsItem {
+  id: string;
+  region: 'rio' | 'brasil' | 'mundo';
+  title: string;
+  link: string;
+  source: string;
+  pubDate?: string;
+}
+
+export interface LiveIntelBriefing {
+  weather: LiveWeatherReport;
+  news: {
+    rio: LiveNewsItem[];
+    brasil: LiveNewsItem[];
+    mundo: LiveNewsItem[];
+  };
+  fetchedAt: string;
+}
+
 export interface DetectedEmotion {
   label: string;
   intensity: 'baixa' | 'media' | 'alta';
@@ -81,7 +192,7 @@ export interface ConversationEntry {
   id: string;
   timestamp: string;
   userMessage: string;
-  triggerType: 'voz' | 'texto' | 'auditoria';
+  triggerType: 'voz' | 'texto' | 'auditoria' | 'proativo';
   requestedMode: InteractionMode;
   resolvedMode: AssistantId | 'ambos' | 'todos';
   detectedEmotion: DetectedEmotion;
@@ -92,7 +203,9 @@ export interface ConversationEntry {
   createdMemoriesCount?: number;
   createdTasksCount?: number;
   createdAlertsCount?: number;
+  createdEventsCount?: number;
   durationMs?: number;
+  proactiveReason?: string;
 }
 
 export interface TelemetryTurnRecord {
@@ -103,7 +216,7 @@ export interface TelemetryTurnRecord {
 export interface TelemetryEntry {
   id: string;
   timestamp: string;
-  triggerType: 'voz' | 'texto' | 'auditoria';
+  triggerType: 'voz' | 'texto' | 'auditoria' | 'proativo';
   resolvedMode: AssistantId | 'ambos' | 'todos';
   durationMs: number;
   promptPreview: string;
@@ -122,6 +235,9 @@ export interface WorkspaceState {
   memories: MemoryItem[];
   tasks: TaskItem[];
   alerts: AlertItem[];
+  agenda?: AgendaEventItem[];
+  routines?: RoutineRuleItem[];
+  creatorDossier?: CreatorDossier;
   conversations: ConversationEntry[];
   telemetryLog?: TelemetryEntry[];
 }

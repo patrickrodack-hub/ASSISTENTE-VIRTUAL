@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistantId, AssistantTurn, InteractionMode } from '../types/assistant';
 import { safeFetchJson } from '../utils/apiClient';
+import { triggerHaptic } from '../utils/haptics';
 
-export type JarvisVoiceOption = 'Orus' | 'Charon' | 'Iapetus' | 'Fenrir';
+export type JarvisVoiceOption = 'JarvisOriginal' | 'Charon' | 'Orus' | 'Iapetus' | 'Fenrir';
 export type FridayVoiceOption = 'Kore' | 'Zephyr';
-export type UltronVoiceOption = 'Algenib' | 'Charon' | 'Umbriel' | 'Fenrir';
+export type UltronVoiceOption = 'UltronOriginal' | 'Algenib' | 'Charon' | 'Umbriel' | 'Fenrir';
 
 interface SpeechRecognitionAlternativeLike {
   transcript: string;
@@ -48,40 +49,19 @@ function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
-function playSubtleChime(freqStart: number, freqEnd: number) {
-  try {
-    const AudioCtx =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freqStart, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(freqEnd, ctx.currentTime + 0.14);
-    gain.gain.setValueAtTime(0.06, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.19);
-    setTimeout(() => {
-      ctx.close().catch(() => undefined);
-    }, 300);
-  } catch {
-    // Ignore audio context restrictions
-  }
-}
-
-function base64ToBlobUrl(base64: string, mimeType: string): string {
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64);
   const len = binary.length;
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
-  const blob = new Blob([bytes], { type: mimeType || 'audio/wav' });
+  return bytes.buffer;
+}
+
+function base64ToBlobUrl(base64: string, mimeType: string): string {
+  const buffer = base64ToArrayBuffer(base64);
+  const blob = new Blob([buffer], { type: mimeType || 'audio/wav' });
   return URL.createObjectURL(blob);
 }
 
@@ -161,11 +141,15 @@ export function useVoiceEngine({
   const [audioBlockedByBrowser, setAudioBlockedByBrowser] = useState(false);
 
   const [jarvisVoice, setJarvisVoiceState] = useState<JarvisVoiceOption>(() => {
-    if (typeof window === 'undefined') return 'Orus';
-    const saved = window.localStorage.getItem('stark_jarvis_voice');
-    return saved === 'Charon' || saved === 'Iapetus' || saved === 'Fenrir' || saved === 'Orus'
+    if (typeof window === 'undefined') return 'JarvisOriginal';
+    const saved = window.localStorage.getItem('stark_jarvis_voice_v2');
+    return saved === 'JarvisOriginal' ||
+      saved === 'Charon' ||
+      saved === 'Orus' ||
+      saved === 'Iapetus' ||
+      saved === 'Fenrir'
       ? saved
-      : 'Orus';
+      : 'JarvisOriginal';
   });
 
   const [fridayVoice, setFridayVoiceState] = useState<FridayVoiceOption>(() => {
@@ -175,17 +159,21 @@ export function useVoiceEngine({
   });
 
   const [ultronVoice, setUltronVoiceState] = useState<UltronVoiceOption>(() => {
-    if (typeof window === 'undefined') return 'Algenib';
-    const saved = window.localStorage.getItem('stark_ultron_voice');
-    return saved === 'Algenib' || saved === 'Charon' || saved === 'Umbriel' || saved === 'Fenrir'
+    if (typeof window === 'undefined') return 'UltronOriginal';
+    const saved = window.localStorage.getItem('stark_ultron_voice_v2');
+    return saved === 'UltronOriginal' ||
+      saved === 'Algenib' ||
+      saved === 'Charon' ||
+      saved === 'Umbriel' ||
+      saved === 'Fenrir'
       ? saved
-      : 'Algenib';
+      : 'UltronOriginal';
   });
 
   const setJarvisVoice = useCallback((v: JarvisVoiceOption) => {
     setJarvisVoiceState(v);
     try {
-      window.localStorage.setItem('stark_jarvis_voice', v);
+      window.localStorage.setItem('stark_jarvis_voice_v2', v);
     } catch {
       // ignore
     }
@@ -203,7 +191,7 @@ export function useVoiceEngine({
   const setUltronVoice = useCallback((v: UltronVoiceOption) => {
     setUltronVoiceState(v);
     try {
-      window.localStorage.setItem('stark_ultron_voice', v);
+      window.localStorage.setItem('stark_ultron_voice_v2', v);
     } catch {
       // ignore
     }
@@ -220,42 +208,85 @@ export function useVoiceEngine({
   const micStreamRef = useRef<MediaStream | null>(null);
   const analyserRafRef = useRef<number | null>(null);
   const playbackRafRef = useRef<number | null>(null);
-  const playbackCtxRef = useRef<AudioContext | null>(null);
+  const sharedAudioCtxRef = useRef<AudioContext | null>(null);
+  const activeBufferSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const lastProcessedPhraseRef = useRef<{ text: string; time: number }>({ text: '', time: 0 });
   const audioUnlockedRef = useRef(false);
 
+  const streamChainRef = useRef<Promise<void>>(Promise.resolve());
+  const streamSessionIdRef = useRef(0);
+  const streamHasEnqueuedRef = useRef(false);
+
   const onWakeCommandRef = useRef(onWakeCommand);
   onWakeCommandRef.current = onWakeCommand;
 
+  const jarvisVoiceRef = useRef(jarvisVoice);
+  jarvisVoiceRef.current = jarvisVoice;
+  const fridayVoiceRef = useRef(fridayVoice);
+  fridayVoiceRef.current = fridayVoice;
+  const ultronVoiceRef = useRef(ultronVoice);
+  ultronVoiceRef.current = ultronVoice;
+
+  const ensureAudioContext = useCallback((): AudioContext | null => {
+    if (typeof window === 'undefined') return null;
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return null;
+
+    if (!sharedAudioCtxRef.current || sharedAudioCtxRef.current.state === 'closed') {
+      sharedAudioCtxRef.current = new AudioCtx();
+    }
+    const ctx = sharedAudioCtxRef.current;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => undefined);
+    }
+    return ctx;
+  }, []);
+
   const unlockAudio = useCallback(() => {
-    if (audioUnlockedRef.current || typeof window === 'undefined') return;
+    if (typeof window === 'undefined') return;
     try {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        if (ctx.state === 'suspended') {
-          ctx.resume().catch(() => undefined);
-        }
+      const ctx = ensureAudioContext();
+      if (ctx && !audioUnlockedRef.current) {
         const buffer = ctx.createBuffer(1, 1, 22050);
         const src = ctx.createBufferSource();
         src.buffer = buffer;
         src.connect(ctx.destination);
         src.start(0);
-        setTimeout(() => {
-          ctx.close().catch(() => undefined);
-        }, 200);
       }
       audioUnlockedRef.current = true;
       setAudioBlockedByBrowser(false);
     } catch {
       // ignore
     }
-  }, []);
+  }, [ensureAudioContext]);
+
+  const playSubtleChime = useCallback(
+    (freqStart: number, freqEnd: number) => {
+      try {
+        const ctx = ensureAudioContext();
+        if (!ctx) return;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freqStart, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(freqEnd, ctx.currentTime + 0.14);
+        gain.gain.setValueAtTime(0.055, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.19);
+      } catch {
+        // Ignore audio context restrictions
+      }
+    },
+    [ensureAudioContext]
+  );
 
   useEffect(() => {
     const handleGesture = () => {
@@ -274,90 +305,46 @@ export function useVoiceEngine({
       cancelAnimationFrame(playbackRafRef.current);
       playbackRafRef.current = null;
     }
-    if (playbackCtxRef.current) {
-      playbackCtxRef.current.close().catch(() => undefined);
-      playbackCtxRef.current = null;
+    if (activeBufferSourceRef.current) {
+      try {
+        activeBufferSourceRef.current.onended = null;
+        activeBufferSourceRef.current.stop();
+        activeBufferSourceRef.current.disconnect();
+      } catch {
+        // already stopped
+      }
+      activeBufferSourceRef.current = null;
     }
     setAudioAmplitude(0);
     setAudioBands(ZERO_BANDS);
   }, []);
 
-  const startPlaybackAnalyser = useCallback(
-    (audio: HTMLAudioElement, speaker: AssistantId) => {
-      stopPlaybackAnalyser();
-      try {
-        const AudioCtx =
-          window.AudioContext ||
-          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        if (!AudioCtx) return;
+  const driveBandsFromAnalyser = useCallback(
+    (analyser: AnalyserNode, isActive: () => boolean) => {
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      let lastUpdate = 0;
 
-        const ctx = new AudioCtx();
-        playbackCtxRef.current = ctx;
-        const source = ctx.createMediaElementSource(audio);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 64;
-        analyser.smoothingTimeConstant = 0.72;
-
-        if (speaker === 'ultron') {
-          // Subtle Age-of-Ultron deep metallic baritone vocal resonance
-          audio.playbackRate = 0.94;
-          const lowShelf = ctx.createBiquadFilter();
-          lowShelf.type = 'lowshelf';
-          lowShelf.frequency.value = 140;
-          lowShelf.gain.value = 4.2;
-
-          const metallicPresence = ctx.createBiquadFilter();
-          metallicPresence.type = 'peaking';
-          metallicPresence.frequency.value = 2400;
-          metallicPresence.Q.value = 2.2;
-          metallicPresence.gain.value = 3.2;
-
-          source.connect(lowShelf);
-          lowShelf.connect(metallicPresence);
-          metallicPresence.connect(analyser);
-        } else {
-          source.connect(analyser);
-        }
-        analyser.connect(ctx.destination);
-
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        let lastUpdate = 0;
-
-        const tick = (ts: number) => {
-          if (!audioElRef.current) return;
-          if (ts - lastUpdate >= 33) {
-            lastUpdate = ts;
-            analyser.getByteFrequencyData(data);
-            let sum = 0;
-            const bands: number[] = [];
-            for (let i = 0; i < 24; i++) {
-              const val = (data[i] ?? 0) / 255;
-              bands.push(val);
-              sum += val;
-            }
-            const avg = sum / 24;
-            setAudioAmplitude(Math.min(1, avg * 1.8));
-            setAudioBands(bands);
+      const tick = (ts: number) => {
+        if (!isActive()) return;
+        if (ts - lastUpdate >= 33) {
+          lastUpdate = ts;
+          analyser.getByteFrequencyData(data);
+          let sum = 0;
+          const bands: number[] = [];
+          for (let i = 0; i < 24; i++) {
+            const val = (data[i] ?? 0) / 255;
+            bands.push(val);
+            sum += val;
           }
-          playbackRafRef.current = requestAnimationFrame(tick);
-        };
-        playbackRafRef.current = requestAnimationFrame(tick);
-      } catch {
-        let phase = 0;
-        const fallbackTick = () => {
-          if (!audioElRef.current) return;
-          phase += 0.25;
-          const bands = Array.from({ length: 24 }, (_, idx) =>
-            Math.max(0.15, Math.min(1, 0.45 + 0.4 * Math.sin(phase + idx * 0.5)))
-          );
-          setAudioAmplitude(0.55);
+          const avg = sum / 24;
+          setAudioAmplitude(Math.min(1, avg * 1.8));
           setAudioBands(bands);
-          playbackRafRef.current = requestAnimationFrame(fallbackTick);
-        };
-        playbackRafRef.current = requestAnimationFrame(fallbackTick);
-      }
+        }
+        playbackRafRef.current = requestAnimationFrame(tick);
+      };
+      playbackRafRef.current = requestAnimationFrame(tick);
     },
-    [stopPlaybackAnalyser]
+    []
   );
 
   const stopMicMeter = useCallback(() => {
@@ -407,21 +394,25 @@ export function useVoiceEngine({
     }
   }, []);
 
-  const setAwakeWindow = useCallback((mode: InteractionMode | null) => {
-    awakeTargetRef.current = mode;
-    setAwakeTarget(mode);
-    if (awakeTimerRef.current) {
-      window.clearTimeout(awakeTimerRef.current);
-      awakeTimerRef.current = null;
-    }
-    if (mode) {
-      playSubtleChime(mode === 'jarvis' ? 520 : 660, mode === 'jarvis' ? 780 : 880);
-      awakeTimerRef.current = window.setTimeout(() => {
-        awakeTargetRef.current = null;
-        setAwakeTarget(null);
-      }, 9000);
-    }
-  }, []);
+  const setAwakeWindow = useCallback(
+    (mode: InteractionMode | null) => {
+      awakeTargetRef.current = mode;
+      setAwakeTarget(mode);
+      if (awakeTimerRef.current) {
+        window.clearTimeout(awakeTimerRef.current);
+        awakeTimerRef.current = null;
+      }
+      if (mode) {
+        triggerHaptic('wake');
+        playSubtleChime(mode === 'jarvis' ? 520 : 660, mode === 'jarvis' ? 780 : 880);
+        awakeTimerRef.current = window.setTimeout(() => {
+          awakeTargetRef.current = null;
+          setAwakeTarget(null);
+        }, 9000);
+      }
+    },
+    [playSubtleChime]
+  );
 
   const startRecognitionInstance = useCallback(() => {
     const Ctor = getSpeechRecognitionCtor();
@@ -467,6 +458,7 @@ export function useVoiceEngine({
               const parsed = parseWakePhrase(transcript);
               const cleanCmd = parsed.matched && parsed.commandText ? parsed.commandText : transcript;
               if (cleanCmd.length >= 2) {
+                triggerHaptic('wake');
                 onWakeCommandRef.current(cleanCmd, parsed.matched ? parsed.targetMode : target);
               }
               continue;
@@ -477,6 +469,7 @@ export function useVoiceEngine({
               if (parsed.wakeOnly) {
                 setAwakeWindow(parsed.targetMode);
               } else {
+                triggerHaptic('wake');
                 playSubtleChime(560, 840);
                 onWakeCommandRef.current(parsed.commandText, parsed.targetMode);
               }
@@ -520,10 +513,11 @@ export function useVoiceEngine({
     } catch {
       // ignore
     }
-  }, [onVoiceError, setAwakeWindow, stopMicMeter]);
+  }, [onVoiceError, playSubtleChime, setAwakeWindow, stopMicMeter]);
 
   const toggleStandby = useCallback(async () => {
     unlockAudio();
+    triggerHaptic('toggle');
     if (standbyRef.current) {
       standbyRef.current = false;
       setIsStandbyActive(false);
@@ -583,8 +577,12 @@ export function useVoiceEngine({
   }, [startRecognitionInstance, stopPlaybackAnalyser]);
 
   const speakSingleTurnWithBrowserFallback = useCallback(
-    (turn: AssistantTurn): Promise<void> =>
+    (turn: AssistantTurn, sessionId: number): Promise<void> =>
       new Promise((resolve) => {
+        if (sessionId !== playbackSessionRef.current) {
+          resolve();
+          return;
+        }
         if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
           resolve();
           return;
@@ -610,32 +608,73 @@ export function useVoiceEngine({
         utter.lang = 'pt-BR';
         if (turn.speaker === 'jarvis') {
           if (maleVoice) utter.voice = maleVoice;
-          utter.pitch = 0.88;
-          utter.rate = 0.98;
+          utter.pitch = 0.84;
+          utter.rate = 0.96;
         } else if (turn.speaker === 'ultron') {
           if (maleVoice) utter.voice = maleVoice;
-          utter.pitch = 0.65;
-          utter.rate = 0.9;
+          utter.pitch = 0.62;
+          utter.rate = 0.88;
         } else {
           if (femaleVoice) utter.voice = femaleVoice;
           utter.pitch = femaleVoice && femaleHints.test(femaleVoice.name) ? 1.12 : 1.32;
           utter.rate = 1.04;
         }
-        utter.onend = () => resolve();
-        utter.onerror = () => resolve();
+
+        // Visual pulse while browser speech synthesis is active
+        let phase = 0;
+        let stopped = false;
+        const tick = () => {
+          if (stopped || sessionId !== playbackSessionRef.current) return;
+          phase += 0.25;
+          const bands = Array.from({ length: 24 }, (_, idx) =>
+            Math.max(0.15, Math.min(1, 0.45 + 0.4 * Math.sin(phase + idx * 0.5)))
+          );
+          setAudioAmplitude(0.55);
+          setAudioBands(bands);
+          playbackRafRef.current = requestAnimationFrame(tick);
+        };
+        playbackRafRef.current = requestAnimationFrame(tick);
+
+        const cleanup = () => {
+          stopped = true;
+          stopPlaybackAnalyser();
+          resolve();
+        };
+
+        utter.onend = cleanup;
+        utter.onerror = cleanup;
         window.speechSynthesis.speak(utter);
       }),
-    []
+    [stopPlaybackAnalyser]
   );
 
-  const playBlobUrl = useCallback(
-    (url: string, speaker: AssistantId): Promise<void> => {
+  const playBlobUrlWithHtmlAudio = useCallback(
+    (url: string, speaker: AssistantId, sessionId: number): Promise<void> => {
       return new Promise((resolve, reject) => {
+        if (sessionId !== playbackSessionRef.current) {
+          URL.revokeObjectURL(url);
+          resolve();
+          return;
+        }
         const audio = new Audio(url);
         audioElRef.current = audio;
         currentObjectUrlRef.current = url;
+        if (speaker === 'ultron') {
+          audio.playbackRate = 0.94;
+        }
 
-        startPlaybackAnalyser(audio, speaker);
+        let phase = 0;
+        const fallbackTick = () => {
+          if (audioElRef.current !== audio || sessionId !== playbackSessionRef.current) return;
+          phase += 0.25;
+          const bands = Array.from({ length: 24 }, (_, idx) =>
+            Math.max(0.18, Math.min(1, 0.45 + 0.4 * Math.sin(phase + idx * 0.5)))
+          );
+          setAudioAmplitude(0.55);
+          setAudioBands(bands);
+          playbackRafRef.current = requestAnimationFrame(fallbackTick);
+        };
+        playbackRafRef.current = requestAnimationFrame(fallbackTick);
 
         audio.onended = () => {
           stopPlaybackAnalyser();
@@ -662,11 +701,356 @@ export function useVoiceEngine({
         });
       });
     },
-    [startPlaybackAnalyser, stopPlaybackAnalyser]
+    [stopPlaybackAnalyser]
+  );
+
+  const playBase64Audio = useCallback(
+    async (
+      audioBase64: string,
+      mimeType: string,
+      speaker: AssistantId,
+      sessionId: number
+    ): Promise<void> => {
+      if (sessionId !== playbackSessionRef.current) return;
+
+      const ctx = ensureAudioContext();
+      if (ctx) {
+        try {
+          if (ctx.state === 'suspended') {
+            await ctx.resume();
+          }
+          if (ctx.state === 'running') {
+            const arrayBuffer = base64ToArrayBuffer(audioBase64);
+            const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+            if (sessionId !== playbackSessionRef.current) return;
+
+            await new Promise<void>((resolve) => {
+              stopPlaybackAnalyser();
+              const source = ctx.createBufferSource();
+              source.buffer = audioBuffer;
+              activeBufferSourceRef.current = source;
+
+              const analyser = ctx.createAnalyser();
+              analyser.fftSize = 64;
+              analyser.smoothingTimeConstant = 0.72;
+
+              if (speaker === 'ultron' && ultronVoiceRef.current === 'UltronOriginal') {
+                // Acoustic calibration matched to uploaded ultron_f012fd80.m4a (Median F0 ~92.5 Hz, 180 Hz sub-chest, 680 Hz cold scoop, 2.4/5.6 kHz metallic sheen)
+                source.playbackRate.value = 0.90;
+                const lowShelf = ctx.createBiquadFilter();
+                lowShelf.type = 'lowshelf';
+                lowShelf.frequency.value = 150;
+                lowShelf.gain.value = 4.5;
+
+                const chestBody = ctx.createBiquadFilter();
+                chestBody.type = 'peaking';
+                chestBody.frequency.value = 300;
+                chestBody.Q.value = 1.0;
+                chestBody.gain.value = 2.0;
+
+                const coldScoop = ctx.createBiquadFilter();
+                coldScoop.type = 'peaking';
+                coldScoop.frequency.value = 680;
+                coldScoop.Q.value = 0.9;
+                coldScoop.gain.value = -3.8;
+
+                const metallicPresence = ctx.createBiquadFilter();
+                metallicPresence.type = 'peaking';
+                metallicPresence.frequency.value = 2400;
+                metallicPresence.Q.value = 2.1;
+                metallicPresence.gain.value = 3.6;
+
+                const syntheticHarmonic = ctx.createBiquadFilter();
+                syntheticHarmonic.type = 'highshelf';
+                syntheticHarmonic.frequency.value = 5600;
+                syntheticHarmonic.gain.value = 2.6;
+
+                source.connect(lowShelf);
+                lowShelf.connect(chestBody);
+                chestBody.connect(coldScoop);
+                coldScoop.connect(metallicPresence);
+                metallicPresence.connect(syntheticHarmonic);
+                syntheticHarmonic.connect(analyser);
+              } else if (speaker === 'ultron') {
+                source.playbackRate.value = 0.94;
+                const lowShelf = ctx.createBiquadFilter();
+                lowShelf.type = 'lowshelf';
+                lowShelf.frequency.value = 140;
+                lowShelf.gain.value = 4.2;
+
+                const metallicPresence = ctx.createBiquadFilter();
+                metallicPresence.type = 'peaking';
+                metallicPresence.frequency.value = 2400;
+                metallicPresence.Q.value = 2.2;
+                metallicPresence.gain.value = 3.2;
+
+                source.connect(lowShelf);
+                lowShelf.connect(metallicPresence);
+                metallicPresence.connect(analyser);
+              } else if (speaker === 'jarvis' && jarvisVoiceRef.current === 'JarvisOriginal') {
+                // Acoustic calibration matched to uploaded jarvis_fc632df0.m4a (Median F0 ~104.8 Hz, 180 Hz chest peak)
+                source.playbackRate.value = 0.97;
+                const chestWarmth = ctx.createBiquadFilter();
+                chestWarmth.type = 'peaking';
+                chestWarmth.frequency.value = 180;
+                chestWarmth.Q.value = 1.1;
+                chestWarmth.gain.value = 3.0;
+
+                const midSmooth = ctx.createBiquadFilter();
+                midSmooth.type = 'peaking';
+                midSmooth.frequency.value = 2400;
+                midSmooth.Q.value = 1.0;
+                midSmooth.gain.value = -1.5;
+
+                const studioAir = ctx.createBiquadFilter();
+                studioAir.type = 'highshelf';
+                studioAir.frequency.value = 3800;
+                studioAir.gain.value = 1.8;
+
+                const softRollOff = ctx.createBiquadFilter();
+                softRollOff.type = 'lowpass';
+                softRollOff.frequency.value = 7600;
+
+                source.connect(chestWarmth);
+                chestWarmth.connect(midSmooth);
+                midSmooth.connect(studioAir);
+                studioAir.connect(softRollOff);
+                softRollOff.connect(analyser);
+              } else {
+                source.connect(analyser);
+              }
+              analyser.connect(ctx.destination);
+
+              driveBandsFromAnalyser(
+                analyser,
+                () =>
+                  activeBufferSourceRef.current === source &&
+                  sessionId === playbackSessionRef.current
+              );
+
+              source.onended = () => {
+                if (activeBufferSourceRef.current === source) {
+                  activeBufferSourceRef.current = null;
+                }
+                stopPlaybackAnalyser();
+                resolve();
+              };
+
+              source.start(0);
+            });
+            return;
+          }
+        } catch {
+          // Fall through to HTMLAudioElement playback
+        }
+      }
+
+      const url = base64ToBlobUrl(audioBase64, mimeType);
+      await playBlobUrlWithHtmlAudio(url, speaker, sessionId);
+    },
+    [driveBandsFromAnalyser, ensureAudioContext, playBlobUrlWithHtmlAudio, stopPlaybackAnalyser]
   );
 
   const clientTtsCacheRef = useRef<Map<string, { audioBase64: string; mimeType: string }>>(
     new Map()
+  );
+
+  const synthesizeSingleTurn = useCallback(
+    async (
+      turn: AssistantTurn,
+      overrideVoices?: {
+        jarvisVoice?: JarvisVoiceOption;
+        fridayVoice?: FridayVoiceOption;
+        ultronVoice?: UltronVoiceOption;
+      }
+    ) => {
+      const activeJarvisVoice = overrideVoices?.jarvisVoice ?? jarvisVoiceRef.current;
+      const activeFridayVoice = overrideVoices?.fridayVoice ?? fridayVoiceRef.current;
+      const activeUltronVoice = overrideVoices?.ultronVoice ?? ultronVoiceRef.current;
+
+      const spokenText = (turn.ttsScript || turn.text).trim();
+      if (!spokenText) {
+        return { turn, audioBase64: null as string | null, mimeType: 'audio/wav' };
+      }
+
+      const voiceKey =
+        turn.speaker === 'jarvis'
+          ? activeJarvisVoice
+          : turn.speaker === 'sexta-feira'
+          ? activeFridayVoice
+          : activeUltronVoice;
+      const cacheKey = `${turn.speaker}:${voiceKey}:${spokenText}`;
+
+      const cached = clientTtsCacheRef.current.get(cacheKey);
+      if (cached) {
+        return {
+          turn,
+          audioBase64: cached.audioBase64,
+          mimeType: cached.mimeType,
+        };
+      }
+
+      const res = await safeFetchJson<{ audioBase64?: string; mimeType?: string }>(
+        '/api/assistant/tts',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            turns: [
+              {
+                speaker: turn.speaker,
+                text: spokenText,
+              },
+            ],
+            jarvisVoice: activeJarvisVoice,
+            fridayVoice: activeFridayVoice,
+            ultronVoice: activeUltronVoice,
+          }),
+        },
+        1
+      );
+
+      if (!res.ok || !res.data?.audioBase64) {
+        return {
+          turn,
+          audioBase64: null as string | null,
+          mimeType: 'audio/wav',
+        };
+      }
+
+      const payload = {
+        audioBase64: res.data.audioBase64,
+        mimeType: res.data.mimeType || 'audio/wav',
+      };
+      if (clientTtsCacheRef.current.size > 40) {
+        const oldest = clientTtsCacheRef.current.keys().next().value;
+        if (oldest) clientTtsCacheRef.current.delete(oldest);
+      }
+      clientTtsCacheRef.current.set(cacheKey, payload);
+
+      return {
+        turn,
+        audioBase64: payload.audioBase64,
+        mimeType: payload.mimeType,
+      };
+    },
+    []
+  );
+
+  const playSynthesizedItem = useCallback(
+    async (
+      synthesized: { turn: AssistantTurn; audioBase64: string | null; mimeType: string },
+      sessionId: number
+    ) => {
+      if (sessionId !== playbackSessionRef.current) return;
+      setIsSynthesizingAudio(false);
+      setSpeakingSpeaker(synthesized.turn.speaker);
+      setSpeakingText(synthesized.turn.text);
+
+      if (synthesized.audioBase64) {
+        try {
+          await playBase64Audio(
+            synthesized.audioBase64,
+            synthesized.mimeType,
+            synthesized.turn.speaker,
+            sessionId
+          );
+          return;
+        } catch (playErr) {
+          const name = (playErr as { name?: string })?.name;
+          if (name === 'NotAllowedError') {
+            setAudioBlockedByBrowser(true);
+            throw playErr;
+          }
+        }
+      }
+      await speakSingleTurnWithBrowserFallback(synthesized.turn, sessionId);
+    },
+    [playBase64Audio, speakSingleTurnWithBrowserFallback]
+  );
+
+  const beginAudioStreamSession = useCallback(() => {
+    stopAudio();
+    const sessionId = ++playbackSessionRef.current;
+    streamSessionIdRef.current = sessionId;
+    streamHasEnqueuedRef.current = false;
+    streamChainRef.current = Promise.resolve();
+    isSpeakingRef.current = true;
+    setIsSpeaking(true);
+    setIsSynthesizingAudio(true);
+    setAudioBlockedByBrowser(false);
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop();
+      } catch {
+        // ignore
+      }
+    }
+  }, [stopAudio]);
+
+  const enqueueStreamingTurn = useCallback(
+    (turn: AssistantTurn) => {
+      const sessionId = streamSessionIdRef.current;
+      if (sessionId !== playbackSessionRef.current) return;
+
+      if (!streamHasEnqueuedRef.current) {
+        setSpeakingSpeaker(turn.speaker);
+        setSpeakingText(turn.text);
+      }
+      streamHasEnqueuedRef.current = true;
+
+      // Kick off TTS synthesis immediately in parallel while earlier turns play
+      const synthPromise = synthesizeSingleTurn(turn);
+
+      streamChainRef.current = streamChainRef.current.then(async () => {
+        if (sessionId !== playbackSessionRef.current) return;
+        setIsSynthesizingAudio(true);
+        setSpeakingSpeaker(turn.speaker);
+        setSpeakingText(turn.text);
+        try {
+          const synthesized = await synthPromise;
+          if (sessionId !== playbackSessionRef.current) return;
+          await playSynthesizedItem(synthesized, sessionId);
+        } catch (err) {
+          const name = (err as { name?: string })?.name;
+          if (name === 'NotAllowedError') {
+            playbackSessionRef.current += 1;
+            return;
+          }
+          await speakSingleTurnWithBrowserFallback(turn, sessionId);
+        }
+      });
+    },
+    [playSynthesizedItem, speakSingleTurnWithBrowserFallback, synthesizeSingleTurn]
+  );
+
+  const finishAudioStreamSession = useCallback(
+    (hadResponses: boolean) => {
+      const sessionId = streamSessionIdRef.current;
+      const cleanup = () => {
+        if (sessionId === playbackSessionRef.current) {
+          isSpeakingRef.current = false;
+          setIsSpeaking(false);
+          setIsSynthesizingAudio(false);
+          setSpeakingSpeaker(null);
+          setSpeakingText('');
+          stopPlaybackAnalyser();
+          if (standbyRef.current) {
+            startRecognitionInstance();
+          }
+        }
+      };
+
+      if (!hadResponses || !streamHasEnqueuedRef.current) {
+        cleanup();
+        return;
+      }
+
+      streamChainRef.current = streamChainRef.current.finally(cleanup);
+    },
+    [startRecognitionInstance, stopPlaybackAnalyser]
   );
 
   const playTurnsAudio = useCallback(
@@ -698,105 +1082,27 @@ export function useVoiceEngine({
         }
       }
 
-      const activeJarvisVoice = overrideVoices?.jarvisVoice ?? jarvisVoice;
-      const activeFridayVoice = overrideVoices?.fridayVoice ?? fridayVoice;
-      const activeUltronVoice = overrideVoices?.ultronVoice ?? ultronVoice;
-
       // Launch all TTS synthesis tasks in parallel immediately so turn[0] can start playing
       // while turn[1] and turn[2] finish synthesizing in the background
-      const synthesisPromises = turns.map(async (turn) => {
-        const spokenText = (turn.ttsScript || turn.text).trim();
-        const voiceKey =
-          turn.speaker === 'jarvis'
-            ? activeJarvisVoice
-            : turn.speaker === 'sexta-feira'
-            ? activeFridayVoice
-            : activeUltronVoice;
-        const cacheKey = `${turn.speaker}:${voiceKey}:${spokenText}`;
-
-        const cached = clientTtsCacheRef.current.get(cacheKey);
-        if (cached) {
-          return {
-            turn,
-            audioBase64: cached.audioBase64,
-            mimeType: cached.mimeType,
-          };
-        }
-
-        const res = await safeFetchJson<{ audioBase64?: string; mimeType?: string }>(
-          '/api/assistant/tts',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              turns: [
-                {
-                  speaker: turn.speaker,
-                  text: spokenText,
-                },
-              ],
-              jarvisVoice: activeJarvisVoice,
-              fridayVoice: activeFridayVoice,
-              ultronVoice: activeUltronVoice,
-            }),
-          },
-          0
-        );
-
-        if (!res.ok || !res.data?.audioBase64) {
-          return {
-            turn,
-            audioBase64: null,
-            mimeType: 'audio/wav',
-          };
-        }
-
-        const payload = {
-          audioBase64: res.data.audioBase64,
-          mimeType: res.data.mimeType || 'audio/wav',
-        };
-        if (clientTtsCacheRef.current.size > 40) {
-          const oldest = clientTtsCacheRef.current.keys().next().value;
-          if (oldest) clientTtsCacheRef.current.delete(oldest);
-        }
-        clientTtsCacheRef.current.set(cacheKey, payload);
-
-        return {
-          turn,
-          audioBase64: payload.audioBase64,
-          mimeType: payload.mimeType,
-        };
-      });
+      const synthesisPromises = turns.map((turn) => synthesizeSingleTurn(turn, overrideVoices));
 
       try {
         for (let i = 0; i < synthesisPromises.length; i++) {
           if (sessionId !== playbackSessionRef.current) return;
-
           if (i === 0) {
             setIsSynthesizingAudio(true);
           }
-
           const synthesized = await synthesisPromises[i];
           if (sessionId !== playbackSessionRef.current) return;
 
-          setIsSynthesizingAudio(false);
-          setSpeakingSpeaker(synthesized.turn.speaker);
-          setSpeakingText(synthesized.turn.text);
-
-          if (synthesized.audioBase64) {
-            const url = base64ToBlobUrl(synthesized.audioBase64, synthesized.mimeType);
-            try {
-              await playBlobUrl(url, synthesized.turn.speaker);
-            } catch (playErr) {
-              const name = (playErr as { name?: string })?.name;
-              if (name === 'NotAllowedError') {
-                setAudioBlockedByBrowser(true);
-                break;
-              }
-              await speakSingleTurnWithBrowserFallback(synthesized.turn);
+          try {
+            await playSynthesizedItem(synthesized, sessionId);
+          } catch (playErr) {
+            const name = (playErr as { name?: string })?.name;
+            if (name === 'NotAllowedError') {
+              break;
             }
-          } else {
-            await speakSingleTurnWithBrowserFallback(synthesized.turn);
+            await speakSingleTurnWithBrowserFallback(synthesized.turn, sessionId);
           }
         }
       } catch {
@@ -805,7 +1111,7 @@ export function useVoiceEngine({
           if (sessionId !== playbackSessionRef.current) break;
           setSpeakingSpeaker(turn.speaker);
           setSpeakingText(turn.text);
-          await speakSingleTurnWithBrowserFallback(turn);
+          await speakSingleTurnWithBrowserFallback(turn, sessionId);
         }
       } finally {
         if (sessionId === playbackSessionRef.current) {
@@ -822,19 +1128,18 @@ export function useVoiceEngine({
       }
     },
     [
-      fridayVoice,
-      jarvisVoice,
-      playBlobUrl,
+      playSynthesizedItem,
       speakSingleTurnWithBrowserFallback,
       startRecognitionInstance,
       stopAudio,
       stopPlaybackAnalyser,
-      ultronVoice,
+      synthesizeSingleTurn,
     ]
   );
 
   const startRecordingClip = useCallback(async () => {
     unlockAudio();
+    triggerHaptic('tap');
     try {
       stopAudio();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -896,6 +1201,7 @@ export function useVoiceEngine({
             throw new Error(res.errorMessage || 'Não foi possível transcrever o áudio.');
           }
           if (res.data?.text?.trim()) {
+            triggerHaptic('success');
             onTranscribedClip(res.data.text.trim());
           }
         } catch (err) {
@@ -914,6 +1220,7 @@ export function useVoiceEngine({
   }, [onTranscribedClip, onVoiceError, startRecognitionInstance, stopAudio, unlockAudio]);
 
   const stopRecordingClip = useCallback(() => {
+    triggerHaptic('tap');
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
@@ -938,10 +1245,93 @@ export function useVoiceEngine({
       if (currentObjectUrlRef.current) {
         URL.revokeObjectURL(currentObjectUrlRef.current);
       }
+      if (sharedAudioCtxRef.current && sharedAudioCtxRef.current.state !== 'closed') {
+        sharedAudioCtxRef.current.close().catch(() => undefined);
+      }
       stopPlaybackAnalyser();
       stopMicMeter();
     };
   }, [stopMicMeter, stopPlaybackAnalyser]);
+
+  const playReferenceClip = useCallback(
+    async (url: string, speaker: AssistantId, labelText: string) => {
+      unlockAudio();
+      stopAudio();
+      const sessionId = ++playbackSessionRef.current;
+      isSpeakingRef.current = true;
+      setIsSpeaking(true);
+      setIsSynthesizingAudio(false);
+      setAudioBlockedByBrowser(false);
+      setSpeakingSpeaker(speaker);
+      setSpeakingText(labelText);
+
+      try {
+        const ctx = ensureAudioContext();
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Falha ao carregar áudio de referência.');
+        const arrayBuf = await res.arrayBuffer();
+        if (sessionId !== playbackSessionRef.current) return;
+
+        if (ctx) {
+          if (ctx.state === 'suspended') await ctx.resume();
+          const audioBuffer = await ctx.decodeAudioData(arrayBuf);
+          if (sessionId !== playbackSessionRef.current) return;
+
+          await new Promise<void>((resolve) => {
+            stopPlaybackAnalyser();
+            const source = ctx.createBufferSource();
+            source.buffer = audioBuffer;
+            activeBufferSourceRef.current = source;
+
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 64;
+            analyser.smoothingTimeConstant = 0.72;
+            source.connect(analyser);
+            analyser.connect(ctx.destination);
+
+            driveBandsFromAnalyser(
+              analyser,
+              () =>
+                activeBufferSourceRef.current === source &&
+                sessionId === playbackSessionRef.current
+            );
+
+            source.onended = () => {
+              if (activeBufferSourceRef.current === source) {
+                activeBufferSourceRef.current = null;
+              }
+              stopPlaybackAnalyser();
+              resolve();
+            };
+
+            source.start(0);
+          });
+        }
+      } catch (err) {
+        const name = (err as { name?: string })?.name;
+        if (name === 'NotAllowedError') {
+          setAudioBlockedByBrowser(true);
+        }
+      } finally {
+        if (sessionId === playbackSessionRef.current) {
+          isSpeakingRef.current = false;
+          setIsSpeaking(false);
+          setSpeakingSpeaker(null);
+          setSpeakingText('');
+          stopPlaybackAnalyser();
+          if (standbyRef.current) startRecognitionInstance();
+        }
+      }
+    },
+    [
+      driveBandsFromAnalyser,
+      ensureAudioContext,
+      startRecognitionInstance,
+      stopAudio,
+      stopPlaybackAnalyser,
+      unlockAudio,
+    ]
+  );
 
   return {
     isStandbyActive,
@@ -967,6 +1357,10 @@ export function useVoiceEngine({
     unlockAudio,
     toggleStandby,
     playTurnsAudio,
+    playReferenceClip,
+    beginAudioStreamSession,
+    enqueueStreamingTurn,
+    finishAudioStreamSession,
     stopAudio,
     startRecordingClip,
     stopRecordingClip,

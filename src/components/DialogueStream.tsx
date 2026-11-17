@@ -18,15 +18,32 @@ import type {
   AssistantId,
   AssistantTurn,
   ConversationEntry,
+  DetectedEmotion,
   TurnFeedback,
 } from '../types/assistant';
+import { triggerHaptic } from '../utils/haptics';
 
 import jarvisAvatarUrl from '../assets/images/jarvis_avatar_1794791050216.jpg';
 import fridayAvatarUrl from '../assets/images/friday_avatar_1794791051362.jpg';
 import ultronAvatarUrl from '../assets/images/ultron_avatar_1794797018006.jpg';
 
+export interface StreamingTurnItem extends AssistantTurn {
+  isComplete: boolean;
+}
+
+export interface StreamingConversationState {
+  id: string;
+  timestamp: string;
+  userMessage: string;
+  triggerType: 'voz' | 'texto' | 'auditoria' | 'proativo';
+  resolvedMode: AssistantId | 'ambos' | 'todos';
+  detectedEmotion?: DetectedEmotion;
+  turns: StreamingTurnItem[];
+}
+
 interface DialogueStreamProps {
   conversations: ConversationEntry[];
+  streamingEntry?: StreamingConversationState | null;
   isProcessing: boolean;
   isSpeaking: boolean;
   onPlayAudio: (turns: AssistantTurn[]) => void;
@@ -134,16 +151,17 @@ function highlightKeywords(text: string, tokens: string[]) {
 }
 
 const QUICK_PROMPTS = [
-  'Ultron, faça um diagnóstico implacável de riscos e previsões de falha no meu projeto atual.',
-  'Todos vocês: debatam os limites humanos versus eficiência de IA na arquitetura deste sistema.',
-  'Sexta-feira, como você avalia meu ritmo de tarefas hoje? Algum risco de sobrecarga?',
-  'Jarvis, busque as principais boas práticas atuais de segurança em APIs Node e Express.',
+  'Todos vocês: analisem o clima do Rio de Janeiro hoje, as principais notícias do RJ, Brasil e Mundo, e organizem minha rotina.',
+  'Jarvis, agende um compromisso técnico para hoje às 16:00 e me chame por voz no horário.',
+  'Sexta-feira, o que ainda falta vocês saberem sobre mim e minhas redes sociais para me auxiliarem melhor?',
+  'Ultron, faça um diagnóstico implacável de riscos, falhas em cascata e previsões no meu projeto atual.',
 ];
 
 type SpeakerFilter = 'todos' | AssistantId;
 
 export function DialogueStream({
   conversations,
+  streamingEntry,
   isProcessing,
   isSpeaking,
   onPlayAudio,
@@ -195,11 +213,13 @@ export function DialogueStream({
     });
   }, [conversations, hasActiveFilter, speakerFilter, searchTokens]);
 
+  const streamingTextLen = streamingEntry?.turns.reduce((acc, t) => acc + t.text.length, 0) ?? 0;
+
   useEffect(() => {
     if (!hasActiveFilter) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [conversations.length, isProcessing, hasActiveFilter]);
+  }, [conversations.length, isProcessing, streamingEntry?.turns.length, streamingTextLen, hasActiveFilter]);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -287,7 +307,7 @@ export function DialogueStream({
       )}
 
       <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
-        {conversations.length === 0 && !isProcessing ? (
+        {conversations.length === 0 && !isProcessing && !streamingEntry ? (
           <div className="flex flex-col items-center justify-center py-12 text-center max-w-xl mx-auto">
             <MessageSquare className="h-9 w-9 text-slate-400 dark:text-slate-500 mb-3" />
             <h3 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
@@ -332,14 +352,24 @@ export function DialogueStream({
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-slate-800 dark:text-slate-200">
-                      Patrick Pessoa
+                      {entry.triggerType === 'proativo'
+                        ? 'RODACK IA → Patrick Pessoa'
+                        : 'Patrick Pessoa'}
                     </span>
                     <span aria-hidden="true">·</span>
-                    <span>
+                    <span
+                      className={
+                        entry.triggerType === 'proativo'
+                          ? 'text-amber-700 dark:text-amber-300 font-medium'
+                          : ''
+                      }
+                    >
                       {entry.triggerType === 'voz'
                         ? 'Comando de voz'
                         : entry.triggerType === 'auditoria'
                         ? 'Auditoria técnica'
+                        : entry.triggerType === 'proativo'
+                        ? 'Chamada autônoma proativa'
                         : 'Comando escrito'}
                     </span>
                     <span aria-hidden="true">·</span>
@@ -430,13 +460,14 @@ export function DialogueStream({
                             <>
                               <button
                                 type="button"
-                                onClick={() =>
+                                onClick={() => {
+                                  triggerHaptic('tap');
                                   onRateTurn(
                                     entry.id,
                                     turn.speaker,
                                     turn.feedback === 'acerto' ? null : 'acerto'
-                                  )
-                                }
+                                  );
+                                }}
                                 aria-pressed={turn.feedback === 'acerto'}
                                 title="Marcar resposta como acerto"
                                 className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
@@ -454,13 +485,14 @@ export function DialogueStream({
                               </button>
                               <button
                                 type="button"
-                                onClick={() =>
+                                onClick={() => {
+                                  triggerHaptic('tap');
                                   onRateTurn(
                                     entry.id,
                                     turn.speaker,
                                     turn.feedback === 'revisar' ? null : 'revisar'
-                                  )
-                                }
+                                  );
+                                }}
                                 aria-pressed={turn.feedback === 'revisar'}
                                 title="Marcar resposta para revisão"
                                 className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
@@ -481,7 +513,11 @@ export function DialogueStream({
 
                           <button
                             type="button"
-                            onClick={() => (isSpeaking ? onStopAudio() : onPlayAudio([turn]))}
+                            onClick={() => {
+                              triggerHaptic('tap');
+                              if (isSpeaking) onStopAudio();
+                              else onPlayAudio([turn]);
+                            }}
                             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white/90 px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-100 dark:border-slate-700/80 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
                           >
                             {isSpeaking ? (
@@ -522,9 +558,11 @@ export function DialogueStream({
                     {entry.responses.length > 1 && (
                       <button
                         type="button"
-                        onClick={() =>
-                          isSpeaking ? onStopAudio() : onPlayAudio(entry.responses)
-                        }
+                        onClick={() => {
+                          triggerHaptic('tap');
+                          if (isSpeaking) onStopAudio();
+                          else onPlayAudio(entry.responses);
+                        }}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:hover:bg-slate-700 transition-colors whitespace-nowrap shrink-0"
                       >
                         <Volume2 className="h-3.5 w-3.5" />
@@ -566,11 +604,13 @@ export function DialogueStream({
               {((entry.createdMemoriesCount ?? 0) > 0 ||
                 (entry.createdTasksCount ?? 0) > 0 ||
                 (entry.createdAlertsCount ?? 0) > 0 ||
+                (entry.createdEventsCount ?? 0) > 0 ||
                 (entry.sources && entry.sources.length > 0)) && (
                 <div className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400">
                   {((entry.createdMemoriesCount ?? 0) > 0 ||
                     (entry.createdTasksCount ?? 0) > 0 ||
-                    (entry.createdAlertsCount ?? 0) > 0) && (
+                    (entry.createdAlertsCount ?? 0) > 0 ||
+                    (entry.createdEventsCount ?? 0) > 0) && (
                     <div className="flex flex-wrap items-center gap-2 text-slate-700 dark:text-slate-300">
                       <span>Atualização automática:</span>
                       {(entry.createdMemoriesCount ?? 0) > 0 && (
@@ -581,6 +621,11 @@ export function DialogueStream({
                       {(entry.createdTasksCount ?? 0) > 0 && (
                         <span className="tabular-nums">
                           · +{entry.createdTasksCount} tarefa(s)
+                        </span>
+                      )}
+                      {(entry.createdEventsCount ?? 0) > 0 && (
+                        <span className="tabular-nums text-sky-700 dark:text-sky-300">
+                          · +{entry.createdEventsCount} compromisso(s) na agenda
                         </span>
                       )}
                       {(entry.createdAlertsCount ?? 0) > 0 && (
@@ -623,7 +668,155 @@ export function DialogueStream({
           ))
         )}
 
-        {isProcessing && (
+        {/* Live SSE Streaming Turn Entry */}
+        {streamingEntry && !hasActiveFilter && (
+          <motion.article
+            key={streamingEntry.id}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="space-y-4 pb-4"
+          >
+            <div className="flex flex-col gap-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-slate-800 dark:text-slate-200">
+                    Patrick Pessoa
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    {streamingEntry.triggerType === 'voz'
+                      ? 'Comando de voz'
+                      : streamingEntry.triggerType === 'auditoria'
+                      ? 'Auditoria técnica'
+                      : 'Comando escrito'}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span className="tabular-nums font-mono">
+                    {formatTime(streamingEntry.timestamp)}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                  <HeartHandshake className="h-3.5 w-3.5 text-amber-600 dark:text-amber-300/90 shrink-0" />
+                  <span>
+                    {streamingEntry.detectedEmotion
+                      ? `Estado percebido: ${streamingEntry.detectedEmotion.label}`
+                      : 'Analisando contexto e intenção...'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/70 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 leading-relaxed">
+                {streamingEntry.userMessage}
+              </div>
+
+              {streamingEntry.detectedEmotion?.empathyNote && (
+                <p className="text-xs text-slate-500 dark:text-slate-400 pl-1">
+                  Leitura emocional: {streamingEntry.detectedEmotion.empathyNote}
+                </p>
+              )}
+            </div>
+
+            {streamingEntry.turns.length === 0 ? (
+              <div className="rounded-xl border border-amber-500/30 dark:border-amber-400/25 bg-amber-50/40 dark:bg-slate-900/60 p-4 space-y-2.5">
+                <div className="flex items-center gap-2 text-xs font-medium text-amber-800 dark:text-amber-300">
+                  <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping" />
+                  <span>Conectando núcleos e iniciando streaming de resposta...</span>
+                </div>
+                <div className="h-3 w-5/6 rounded bg-slate-200/80 dark:bg-slate-800 animate-pulse" />
+                <div className="h-3 w-3/5 rounded bg-slate-200/80 dark:bg-slate-800 animate-pulse" />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {streamingEntry.turns.map((turn, idx) => {
+                  const isJarvis = turn.speaker === 'jarvis';
+                  const isUltron = turn.speaker === 'ultron';
+                  const avatarSrc = isJarvis
+                    ? jarvisAvatarUrl
+                    : isUltron
+                    ? ultronAvatarUrl
+                    : fridayAvatarUrl;
+                  const speakerName = isJarvis
+                    ? 'J.A.R.V.I.S.'
+                    : isUltron
+                    ? 'ULTRON'
+                    : 'SEXTA-FEIRA';
+
+                  return (
+                    <div
+                      key={`stream-${turn.speaker}-${idx}`}
+                      className={`rounded-xl border p-4 transition-colors ${
+                        isJarvis
+                          ? 'border-amber-500/35 bg-amber-50/60 dark:border-amber-500/25 dark:bg-amber-950/15'
+                          : isUltron
+                          ? 'border-red-500/40 bg-red-50/60 dark:border-red-500/35 dark:bg-red-950/20'
+                          : 'border-sky-500/35 bg-sky-50/60 dark:border-sky-500/25 dark:bg-sky-950/15'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2.5 text-xs min-w-0">
+                          <img
+                            src={avatarSrc}
+                            alt={speakerName}
+                            referrerPolicy="no-referrer"
+                            className={`h-7 w-7 rounded-full object-cover border shrink-0 ${
+                              isJarvis
+                                ? 'border-amber-500/70 dark:border-amber-400/60'
+                                : isUltron
+                                ? 'border-red-500/75 dark:border-red-500/70'
+                                : 'border-sky-500/70 dark:border-sky-400/60'
+                            }`}
+                          />
+                          <span
+                            className={`font-display text-sm font-semibold whitespace-nowrap ${
+                              isJarvis
+                                ? 'text-amber-800 dark:text-amber-300'
+                                : isUltron
+                                ? 'text-red-700 dark:text-red-400'
+                                : 'text-sky-800 dark:text-sky-300'
+                            }`}
+                          >
+                            {speakerName}
+                          </span>
+                          {turn.stance && (
+                            <>
+                              <span aria-hidden="true" className="text-slate-400 dark:text-slate-600">
+                                ·
+                              </span>
+                              <span className="text-slate-700 dark:text-slate-300 truncate">
+                                {turn.stance}
+                              </span>
+                            </>
+                          )}
+                        </div>
+
+                        {!turn.isComplete && (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                            <span className="h-1.5 w-1.5 rounded-full bg-current animate-ping" />
+                            <span>Transmitindo...</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-sm text-slate-900 dark:text-slate-100 leading-relaxed whitespace-pre-wrap">
+                        {turn.text}
+                        {!turn.isComplete && (
+                          <span
+                            aria-hidden="true"
+                            className="inline-block w-1.5 h-4 align-middle ml-1 rounded-xs bg-amber-500 dark:bg-amber-400 animate-pulse"
+                          />
+                        )}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </motion.article>
+        )}
+
+        {isProcessing && !streamingEntry && (
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/70 dark:bg-slate-900/60 p-4 space-y-2 animate-pulse">
             <div className="h-3 w-40 rounded bg-slate-200 dark:bg-slate-800" />
             <div className="h-3 w-full rounded bg-slate-200 dark:bg-slate-800" />
@@ -632,7 +825,7 @@ export function DialogueStream({
         )}
 
         {/* Quick suggestions when few interactions exist */}
-        {conversations.length <= 2 && !isProcessing && !hasActiveFilter && (
+        {conversations.length <= 2 && !isProcessing && !streamingEntry && !hasActiveFilter && (
           <div className="pt-2">
             <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2.5">
               Sugestões rápidas para testar colaboração, pesquisa e memória:
@@ -642,7 +835,10 @@ export function DialogueStream({
                 <button
                   key={prompt}
                   type="button"
-                  onClick={() => onQuickPrompt(prompt)}
+                  onClick={() => {
+                    triggerHaptic('tap');
+                    onQuickPrompt(prompt);
+                  }}
                   className="text-left rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700 px-3.5 py-2.5 text-xs text-slate-700 dark:text-slate-300 leading-relaxed transition-colors"
                 >
                   {prompt}

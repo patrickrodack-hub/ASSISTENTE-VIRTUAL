@@ -25,6 +25,7 @@ import type {
   JarvisVoiceOption,
   UltronVoiceOption,
 } from '../hooks/useVoiceEngine';
+import { triggerHaptic } from '../utils/haptics';
 
 interface MobileConsoleDockProps {
   targetMode: InteractionMode;
@@ -50,6 +51,8 @@ interface MobileConsoleDockProps {
   onChangeJarvisVoice: (v: JarvisVoiceOption) => void;
   onChangeFridayVoice: (v: FridayVoiceOption) => void;
   onChangeUltronVoice: (v: UltronVoiceOption) => void;
+  onPlayJarvisSample?: () => void;
+  onPlayUltronSample?: () => void;
   openAlerts: AlertItem[];
   pendingTasks: TaskItem[];
   allTasks: TaskItem[];
@@ -82,6 +85,8 @@ export function MobileConsoleDock({
   onChangeJarvisVoice,
   onChangeFridayVoice,
   onChangeUltronVoice,
+  onPlayJarvisSample,
+  onPlayUltronSample,
   openAlerts,
   pendingTasks,
   allTasks,
@@ -145,9 +150,10 @@ export function MobileConsoleDock({
               <button
                 key={a.id}
                 type="button"
-                onClick={() =>
-                  onSelectMode(targetMode === a.id ? 'auto' : a.id)
-                }
+                onClick={() => {
+                  triggerHaptic('tap');
+                  onSelectMode(targetMode === a.id ? 'auto' : a.id);
+                }}
                 className={`relative flex flex-col items-center justify-center rounded-xl border p-2 min-h-[64px] transition-all active:scale-[0.97] ${
                   thinking || speaking || selected
                     ? a.accentBorder
@@ -213,9 +219,10 @@ export function MobileConsoleDock({
           <div className="flex flex-col gap-1.5">
             <button
               type="button"
-              onClick={() =>
-                onSelectMode(targetMode === 'todos' ? 'auto' : 'todos')
-              }
+              onClick={() => {
+                triggerHaptic('toggle');
+                onSelectMode(targetMode === 'todos' ? 'auto' : 'todos');
+              }}
               className={`flex-1 flex items-center justify-center gap-1 rounded-xl border px-2 min-h-[30px] text-[10px] font-semibold transition-all active:scale-[0.97] ${
                 targetMode === 'todos' || targetMode === 'auto'
                   ? 'border-amber-500/60 bg-amber-500/15 text-amber-800 dark:text-amber-200'
@@ -228,7 +235,10 @@ export function MobileConsoleDock({
 
             <button
               type="button"
-              onClick={() => setDrawerOpen(true)}
+              onClick={() => {
+                triggerHaptic('tap');
+                setDrawerOpen(true);
+              }}
               className="flex-1 flex items-center justify-center gap-1 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-2 min-h-[30px] text-[10px] font-semibold text-slate-800 dark:text-slate-200 active:scale-[0.97]"
             >
               <SlidersHorizontal className="h-3 w-3 shrink-0" />
@@ -329,7 +339,10 @@ export function MobileConsoleDock({
                     <button
                       key={opt.id}
                       type="button"
-                      onClick={() => onSelectMode(opt.id)}
+                      onClick={() => {
+                        triggerHaptic('toggle');
+                        onSelectMode(opt.id);
+                      }}
                       className={`min-h-[44px] px-3 py-2 text-xs font-semibold rounded-xl border transition-colors ${
                         targetMode === opt.id
                           ? 'border-amber-500 bg-amber-500/15 text-amber-800 dark:text-amber-200'
@@ -349,26 +362,42 @@ export function MobileConsoleDock({
                 </div>
 
                 <div className="space-y-2.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <label
-                      htmlFor="mobile-jarvis-voice"
-                      className="text-xs font-semibold text-amber-700 dark:text-amber-300"
-                    >
-                      J.A.R.V.I.S.
-                    </label>
-                    <select
-                      id="mobile-jarvis-voice"
-                      value={jarvisVoice}
-                      onChange={(e) =>
-                        onChangeJarvisVoice(e.target.value as JarvisVoiceOption)
-                      }
-                      className="min-h-[40px] w-48 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
-                    >
-                      <option value="Orus">Orus (Articulado · Padrão)</option>
-                      <option value="Charon">Charon (Grave · Clássico)</option>
-                      <option value="Iapetus">Iapetus (Sereno · Polido)</option>
-                      <option value="Fenrir">Fenrir (Firme · Ágil)</option>
-                    </select>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <label
+                        htmlFor="mobile-jarvis-voice"
+                        className="text-xs font-semibold text-amber-700 dark:text-amber-300"
+                      >
+                        J.A.R.V.I.S.
+                      </label>
+                      <select
+                        id="mobile-jarvis-voice"
+                        value={jarvisVoice}
+                        onChange={(e) => {
+                          triggerHaptic('tap');
+                          onChangeJarvisVoice(e.target.value as JarvisVoiceOption);
+                        }}
+                        className="min-h-[40px] w-52 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                      >
+                        <option value="JarvisOriginal">
+                          Áudio Jarvis Extraído (Padrão · 105 Hz)
+                        </option>
+                        <option value="Charon">Charon (Grave · Clássico)</option>
+                        <option value="Orus">Orus (Articulado)</option>
+                        <option value="Iapetus">Iapetus (Sereno · Polido)</option>
+                        <option value="Fenrir">Fenrir (Firme · Ágil)</option>
+                      </select>
+                    </div>
+                    {onPlayJarvisSample && (
+                      <button
+                        type="button"
+                        onClick={onPlayJarvisSample}
+                        className="w-full min-h-[38px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:text-amber-200 active:scale-[0.98]"
+                      >
+                        <Volume2 className="h-3.5 w-3.5 shrink-0" />
+                        <span>Ouvir Amostra Original (105 Hz)</span>
+                      </button>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between gap-3">
@@ -391,26 +420,42 @@ export function MobileConsoleDock({
                     </select>
                   </div>
 
-                  <div className="flex items-center justify-between gap-3">
-                    <label
-                      htmlFor="mobile-ultron-voice"
-                      className="text-xs font-semibold text-red-600 dark:text-red-400"
-                    >
-                      ULTRON
-                    </label>
-                    <select
-                      id="mobile-ultron-voice"
-                      value={ultronVoice}
-                      onChange={(e) =>
-                        onChangeUltronVoice(e.target.value as UltronVoiceOption)
-                      }
-                      className="min-h-[40px] w-48 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
-                    >
-                      <option value="Algenib">Algenib (Metálico · Era de Ultron)</option>
-                      <option value="Charon">Charon (Grave · Sombrio)</option>
-                      <option value="Umbriel">Umbriel (Frio · Calculista)</option>
-                      <option value="Fenrir">Fenrir (Intenso · Implacável)</option>
-                    </select>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <label
+                        htmlFor="mobile-ultron-voice"
+                        className="text-xs font-semibold text-red-600 dark:text-red-400"
+                      >
+                        ULTRON
+                      </label>
+                      <select
+                        id="mobile-ultron-voice"
+                        value={ultronVoice}
+                        onChange={(e) => {
+                          triggerHaptic('tap');
+                          onChangeUltronVoice(e.target.value as UltronVoiceOption);
+                        }}
+                        className="min-h-[40px] w-52 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                      >
+                        <option value="UltronOriginal">
+                          Áudio Ultron Extraído (Padrão · 93 Hz)
+                        </option>
+                        <option value="Umbriel">Umbriel (Frio · Calculista)</option>
+                        <option value="Charon">Charon (Grave · Sombrio)</option>
+                        <option value="Algenib">Algenib (Metálico · Era de Ultron)</option>
+                        <option value="Fenrir">Fenrir (Intenso · Implacável)</option>
+                      </select>
+                    </div>
+                    {onPlayUltronSample && (
+                      <button
+                        type="button"
+                        onClick={onPlayUltronSample}
+                        className="w-full min-h-[38px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-red-500/35 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-700 dark:text-red-300 active:scale-[0.98]"
+                      >
+                        <Volume2 className="h-3.5 w-3.5 shrink-0" />
+                        <span>Ouvir Amostra Original (93 Hz)</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -481,7 +526,10 @@ export function MobileConsoleDock({
                     </div>
                     <button
                       type="button"
-                      onClick={() => onToggleAlert(alert)}
+                      onClick={() => {
+                        triggerHaptic('success');
+                        onToggleAlert(alert);
+                      }}
                       className="min-h-[36px] px-2.5 text-xs font-medium text-sky-600 dark:text-sky-300 shrink-0"
                     >
                       Resolver
@@ -495,7 +543,10 @@ export function MobileConsoleDock({
                     <button
                       key={task.id}
                       type="button"
-                      onClick={() => onToggleTask(task)}
+                      onClick={() => {
+                        triggerHaptic('success');
+                        onToggleTask(task);
+                      }}
                       className="w-full min-h-[48px] rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 px-3 py-2.5 flex items-center gap-3 text-left"
                     >
                       {done ? (

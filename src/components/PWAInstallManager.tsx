@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useOnlineStatus, usePWAInstall } from '../hooks/usePWAInstall';
+import { triggerHaptic } from '../utils/haptics';
 
 export function PWAInstallButton() {
   const { isInstallable, isInstalled, isIOS, isAndroid, isInIframe, install } =
@@ -28,9 +29,12 @@ export function PWAInstallButton() {
   }
 
   const handleInstallClick = async () => {
+    triggerHaptic('tap');
     if (isInstallable) {
       const accepted = await install();
-      if (!accepted) {
+      if (accepted) {
+        triggerHaptic('success');
+      } else {
         setShowModal(true);
       }
       return;
@@ -44,6 +48,7 @@ export function PWAInstallButton() {
   const handleCopyUrl = async () => {
     try {
       await navigator.clipboard.writeText(currentUrl);
+      triggerHaptic('success');
       setCopiedUrl(true);
       setTimeout(() => setCopiedUrl(false), 2200);
     } catch {

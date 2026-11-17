@@ -20,10 +20,10 @@ export default defineConfig(() => {
         ],
         manifest: {
           id: '/',
-          name: 'Stark Lab · Comando Patrick Pessoa',
-          short_name: 'StarkLab',
+          name: 'RODACK SISTEMA DE IA · Comando Patrick Pessoa',
+          short_name: 'RODACK IA',
           description:
-            'Central de inteligência artificial J.A.R.V.I.S., SEXTA-FEIRA e ULTRON desenvolvida para Patrick Pessoa com comando de voz, diagnósticos e memória contínua.',
+            'RODACK SISTEMA DE IA: Central autônoma com J.A.R.V.I.S., SEXTA-FEIRA e ULTRON para Patrick Pessoa com agenda, rotinas, clima, notícias ao vivo e execução em segundo plano.',
           theme_color: '#080C14',
           background_color: '#080C14',
           display: 'standalone',

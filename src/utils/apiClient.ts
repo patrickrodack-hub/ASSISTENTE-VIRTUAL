@@ -1,4 +1,12 @@
-import type { WorkspaceState } from '../types/assistant';
+import type {
+  AssistantId,
+  AssistantTurn,
+  ConversationEntry,
+  DetectedEmotion,
+  InteractionMode,
+  WebSearchMode,
+  WorkspaceState,
+} from '../types/assistant';
 
 const WORKSPACE_CACHE_KEY = 'stark_workspace_cache_v1';
 
@@ -279,5 +287,174 @@ export async function safeFetchJson<T = Record<string, unknown>>(
           'Conexão com o servidor local oscilou. Verifique sua conexão e tente novamente.',
       };
     }
+  }
+}
+
+export interface StreamSnapshotEvent {
+  type: 'snapshot';
+  resolvedMode: AssistantId | 'ambos' | 'todos';
+  detectedEmotion?: DetectedEmotion;
+  turns: Array<AssistantTurn & { isComplete: boolean }>;
+}
+
+export interface StreamStatusEvent {
+  type: 'status';
+  stage: 'reasoning';
+  activeAssistants: AssistantId[];
+  sourcesCount: number;
+}
+
+export interface StreamTurnReadyEvent {
+  type: 'turn_ready';
+  index: number;
+  turn: AssistantTurn;
+}
+
+export interface StreamCompleteEvent {
+  type: 'complete';
+  entry: ConversationEntry;
+  workspace: WorkspaceState;
+}
+
+export interface StreamInteractionCallbacks {
+  onStatus?: (event: StreamStatusEvent) => void;
+  onSnapshot?: (event: StreamSnapshotEvent) => void;
+  onTurnReady?: (event: StreamTurnReadyEvent) => void;
+  onComplete?: (event: StreamCompleteEvent) => void;
+}
+
+export async function streamAssistantInteraction(
+  payload: {
+    message: string;
+    targetMode: InteractionMode;
+    triggerType: 'voz' | 'texto' | 'auditoria';
+    useWebSearch: WebSearchMode;
+    clientTimeIso: string;
+    clientTimezone: string;
+  },
+  callbacks: StreamInteractionCallbacks
+): Promise<void> {
+  const res = await fetch('/api/assistant/interact/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const raw = await res.text();
+    let msg = 'Erro ao conectar com os assistentes.';
+    try {
+      const parsed = JSON.parse(raw) as { error?: string };
+      if (parsed?.error) msg = parsed.error;
+    } catch {
+      if (res.status === 429) {
+        msg = 'Limite de requisições atingido temporariamente. Aguarde alguns segundos.';
+      }
+    }
+    throw new Error(msg);
+  }
+
+  const contentType = res.headers.get('content-type') || '';
+  if (!res.body || contentType.includes('application/json')) {
+    // Fallback to standard JSON response if stream reader is unavailable
+    const fallback = await safeFetchJson<{
+      entry?: ConversationEntry;
+      workspace?: WorkspaceState;
+      error?: string;
+    }>('/api/assistant/interact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!fallback.ok || !fallback.data?.entry || !fallback.data?.workspace) {
+      throw new Error(
+        fallback.errorMessage || 'Erro ao processar solicitação com os assistentes.'
+      );
+    }
+    fallback.data.entry.responses.forEach((turn, index) => {
+      callbacks.onTurnReady?.({ type: 'turn_ready', index, turn });
+    });
+    callbacks.onComplete?.({
+      type: 'complete',
+      entry: fallback.data.entry,
+      workspace: fallback.data.workspace,
+    });
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  let receivedComplete = false;
+  let streamError: string | null = null;
+
+  const dispatchFrame = (rawFrame: string) => {
+    const lines = rawFrame.split(/\r?\n/);
+    let eventName = 'message';
+    const dataLines: string[] = [];
+
+    for (const line of lines) {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim();
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).trim());
+      }
+    }
+
+    if (dataLines.length === 0) return;
+    const rawData = dataLines.join('\n');
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(rawData) as Record<string, unknown>;
+    } catch {
+      return;
+    }
+
+    if (eventName === 'status') {
+      callbacks.onStatus?.(parsed as unknown as StreamStatusEvent);
+    } else if (eventName === 'snapshot') {
+      callbacks.onSnapshot?.(parsed as unknown as StreamSnapshotEvent);
+    } else if (eventName === 'turn_ready') {
+      callbacks.onTurnReady?.(parsed as unknown as StreamTurnReadyEvent);
+    } else if (eventName === 'complete') {
+      receivedComplete = true;
+      callbacks.onComplete?.(parsed as unknown as StreamCompleteEvent);
+    } else if (eventName === 'error') {
+      streamError =
+        typeof parsed.error === 'string'
+          ? parsed.error
+          : 'Falha ao processar resposta dos assistentes.';
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let separatorIdx = buffer.indexOf('\n\n');
+    while (separatorIdx !== -1) {
+      const frame = buffer.slice(0, separatorIdx).trim();
+      buffer = buffer.slice(separatorIdx + 2);
+      if (frame) {
+        dispatchFrame(frame);
+      }
+      separatorIdx = buffer.indexOf('\n\n');
+    }
+  }
+
+  const remainder = buffer.trim();
+  if (remainder) {
+    dispatchFrame(remainder);
+  }
+
+  if (streamError) {
+    throw new Error(streamError);
+  }
+  if (!receivedComplete) {
+    throw new Error('A conexão de streaming foi encerrada antes da resposta final.');
   }
 }

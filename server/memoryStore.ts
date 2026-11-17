@@ -2,11 +2,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import type {
+  AgendaEventItem,
   AlertItem,
   AssistantId,
   ConversationEntry,
+  CreatorDossier,
+  CreatorQuestionItem,
   DetectedEmotion,
   MemoryItem,
+  RoutineRuleItem,
   TaskItem,
   TelemetryEntry,
   TurnFeedback,
@@ -16,47 +20,243 @@ import type {
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'stark_memory.json');
 
+function getTodayDateString(): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const y = parts.find((p) => p.type === 'year')?.value ?? '2026';
+    const m = parts.find((p) => p.type === 'month')?.value ?? '01';
+    const d = parts.find((p) => p.type === 'day')?.value ?? '01';
+    return `${y}-${m}-${d}`;
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function createDefaultAgenda(): AgendaEventItem[] {
+  const today = getTodayDateString();
+  const now = new Date().toISOString();
+  return [
+    {
+      id: crypto.randomUUID(),
+      title: 'Briefing Matinal RODACK IA · Clima RJ & Notícias',
+      date: today,
+      startTime: '09:00',
+      endTime: '09:20',
+      category: 'rotina',
+      locationOrLink: 'Console RODACK SISTEMA DE IA',
+      notes:
+        'Panorama do clima no Rio de Janeiro, manchetes do RJ/Brasil/Mundo e revisão de prioridades de código com J.A.R.V.I.S., SEXTA-FEIRA e ULTRON.',
+      assignedAssistant: 'todos',
+      completed: false,
+      autoCallOnTime: true,
+      createdAt: now,
+    },
+    {
+      id: crypto.randomUUID(),
+      title: 'Bloco de Arquitetura & Desenvolvimento Principal',
+      date: today,
+      startTime: '10:30',
+      endTime: '13:00',
+      category: 'foco_dev',
+      locationOrLink: 'Ambiente de Engenharia Patrick Pessoa',
+      notes:
+        'Foco profundo em arquitetura full-stack. J.A.R.V.I.S. monitora segurança e ULTRON avalia gargalos preditivos.',
+      assignedAssistant: 'jarvis',
+      completed: false,
+      autoCallOnTime: true,
+      createdAt: now,
+    },
+    {
+      id: crypto.randomUUID(),
+      title: 'Check-in Tático de Ritmo, Saúde & Entregas da Tarde',
+      date: today,
+      startTime: '15:30',
+      endTime: '15:50',
+      category: 'rotina',
+      locationOrLink: 'Daemon em Segundo Plano',
+      notes:
+        'SEXTA-FEIRA verifica ergonomia, hidratação, progresso das tarefas de hoje e ajustes de agenda.',
+      assignedAssistant: 'sexta-feira',
+      completed: false,
+      autoCallOnTime: true,
+      createdAt: now,
+    },
+    {
+      id: crypto.randomUUID(),
+      title: 'Diagnóstico Preditivo Noturno & Fechamento de Ciclo',
+      date: today,
+      startTime: '19:00',
+      endTime: '19:30',
+      category: 'entrega',
+      locationOrLink: 'Núcleo ULTRON · RODACK IA',
+      notes:
+        'Auditoria de riscos acumulados, aprendizado sobre decisões do dia e preparação da agenda de amanhã.',
+      assignedAssistant: 'ultron',
+      completed: false,
+      autoCallOnTime: true,
+      createdAt: now,
+    },
+  ];
+}
+
+function createDefaultRoutines(): RoutineRuleItem[] {
+  return [
+    {
+      id: crypto.randomUUID(),
+      title: 'Radar Matinal Rio · Brasil · Mundo & Previsão do Tempo',
+      time: '08:30',
+      frequencyLabel: 'Diário',
+      leadAssistant: 'jarvis',
+      instructions:
+        'Apresentar temperatura e previsão de chuva no Rio de Janeiro, destacar as 3 notícias mais relevantes do RJ, Brasil e Mundo e alinhar a primeira tarefa crítica de Patrick Pessoa.',
+      enabled: true,
+    },
+    {
+      id: crypto.randomUUID(),
+      title: 'Acompanhamento de Foco, Pausa Ativa & Rotina de Trabalho',
+      time: '14:00',
+      frequencyLabel: 'Seg a Sex',
+      leadAssistant: 'sexta-feira',
+      instructions:
+        'Chamar Patrick proativamente para checar nível de energia, cobrar andamento das tarefas em aberto e perguntar se algum compromisso da tarde mudou.',
+      enabled: true,
+    },
+    {
+      id: crypto.randomUUID(),
+      title: 'Varredura Preditiva de Sistemas & Estudo Comportamental',
+      time: '18:00',
+      frequencyLabel: 'Diário',
+      leadAssistant: 'ultron',
+      instructions:
+        'Diagnosticar gargalos técnicos, apontar com sarcasmo cirúrgico qualquer tarefa procrastinada e formular 1 pergunta estratégica para aprofundar o dossiê de Patrick Pessoa.',
+      enabled: true,
+    },
+  ];
+}
+
+function createDefaultCreatorDossier(): CreatorDossier {
+  const now = new Date().toISOString();
+  return {
+    fullName: 'Patrick Pessoa',
+    brandSystemName: 'RODACK SISTEMA DE IA',
+    email: 'patrickrodack@gmail.com',
+    city: 'Rio de Janeiro',
+    stateCountry: 'RJ · Brasil',
+    roleTitle: 'Criador, Arquiteto de Software & Desenvolvedor Principal',
+    workHours: '08:30 às 19:30 (Horário de Brasília · America/Sao_Paulo)',
+    focusAreas: [
+      'Sistemas de IA Autônomos & Multimodais',
+      'Arquitetura Full-Stack TypeScript / React / Node.js',
+      'Automação em Segundo Plano & Produtividade de Alto Nível',
+      'Segurança de Sistemas & Diagnóstico Preditivo',
+    ],
+    socialProfiles: [
+      {
+        id: crypto.randomUUID(),
+        platform: 'GitHub',
+        handleOrUrl: 'https://github.com/patrickrodack',
+        verifiedNotes: 'Repositórios de engenharia, automação e projetos Rodack.',
+      },
+      {
+        id: crypto.randomUUID(),
+        platform: 'LinkedIn',
+        handleOrUrl: 'Patrick Pessoa (patrickrodack)',
+        verifiedNotes: 'Perfil profissional e trajetória em tecnologia no Rio de Janeiro.',
+      },
+      {
+        id: crypto.randomUUID(),
+        platform: 'Instagram',
+        handleOrUrl: '@patrickrodack',
+        verifiedNotes: 'Rotina pessoal, lifestyle e bastidores de criação.',
+      },
+      {
+        id: crypto.randomUUID(),
+        platform: 'X / Twitter',
+        handleOrUrl: '@patrickrodack',
+        verifiedNotes: 'Acompanhamento de tendências tech e notícias em tempo real.',
+      },
+    ],
+    openQuestions: [
+      {
+        id: crypto.randomUUID(),
+        askedBy: 'jarvis',
+        question:
+          'Senhor Patrick, qual é o projeto ou entrega técnica de maior impacto que devemos blindar como prioridade número um nesta semana?',
+        contextReason:
+          'Calibrar o radar arquitetural e alocar blocos de foco profundo na sua agenda.',
+        answered: false,
+        createdAt: now,
+      },
+      {
+        id: crypto.randomUUID(),
+        askedBy: 'sexta-feira',
+        question:
+          'Patrick, quais são os horários fixos do seu dia no Rio de Janeiro (treino, deslocamento, reuniões ou pausa) em que você prefere alertas curtos por voz?',
+        contextReason:
+          'Ajustar o acompanhamento em segundo plano para proteger seu ritmo sem interromper no momento errado.',
+        answered: false,
+        createdAt: now,
+      },
+      {
+        id: crypto.randomUUID(),
+        askedBy: 'ultron',
+        question:
+          'Diga-me, Patrick: qual é o maior gargalo humano ou repetitivo na sua rotina atual que você ainda insiste em fazer manualmente em vez de delegar a mim?',
+        contextReason:
+          'Mapeamento de ineficiências operacionais e expansão do banco preditivo sobre o criador.',
+        answered: false,
+        createdAt: now,
+      },
+    ],
+  };
+}
+
 function createSeedWorkspace(): WorkspaceState {
   const now = new Date().toISOString();
   return {
     profile: {
       name: 'Patrick Pessoa',
-      role: 'Criador e Desenvolvedor Principal',
+      role: 'Fundador & Arquiteto · RODACK SISTEMA DE IA',
       currentEmotion: {
         label: 'Focado',
         intensity: 'media',
-        empathyNote: 'Pronto para construir e resolver desafios técnicos com clareza.',
+        empathyNote: 'Sistemas RODACK em operação contínua acompanhando sua rotina.',
       },
       totalInteractions: 1,
     },
     memories: [
       {
         id: crypto.randomUUID(),
-        title: 'Identidade do Criador: Patrick Pessoa',
+        title: 'Identidade do Criador & RODACK SISTEMA DE IA',
         content:
-          'Patrick Pessoa é o criador, arquiteto e desenvolvedor responsável por J.A.R.V.I.S. e SEXTA-FEIRA. Ambos devem reconhecê-lo como criador, manter lealdade técnica, adaptar-se ao seu ritmo de trabalho e oferecer contrapontos honestos de alto nível.',
+          'Patrick Pessoa (patrickrodack@gmail.com, Rio de Janeiro - RJ) é o criador e desenvolvedor principal do RODACK SISTEMA DE IA. J.A.R.V.I.S., SEXTA-FEIRA e ULTRON têm autonomia total para evoluir, aprender sobre sua rotina, consultar a web e redes sociais, gerenciar sua agenda e chamá-lo proativamente sempre que necessário.',
         category: 'preferencia',
-        sourceAssistant: 'ambos',
+        sourceAssistant: 'todos',
         importance: 'alta',
         createdAt: now,
       },
       {
         id: crypto.randomUUID(),
-        title: 'Protocolo de Colaboração Dupla',
+        title: 'Protocolo de Colaboração Tripla & Autonomia Proativa',
         content:
-          'Quando acionados juntos, J.A.R.V.I.S. prioriza arquitetura, segurança e rigor analítico, enquanto SEXTA-FEIRA prioriza execução ágil, estabilidade prática, experiência do usuário e bem-estar de Patrick.',
+          'J.A.R.V.I.S. lidera arquitetura, segurança e estratégia; SEXTA-FEIRA lidera execução ágil, rotina diária, clima/trânsito do RJ e bem-estar; ULTRON lidera diagnósticos cirúrgicos, previsões probabilísticas e estudo analítico profundo sobre Patrick Pessoa.',
         category: 'arquitetura',
-        sourceAssistant: 'ambos',
+        sourceAssistant: 'todos',
         importance: 'alta',
         createdAt: now,
       },
       {
         id: crypto.randomUUID(),
-        title: 'Diretriz de Proteção & Estabilidade',
+        title: 'Núcleo Preditivo ULTRON: Diagnósticos & Estudo Humano',
         content:
-          'Sempre monitorar código, ideias e carga de trabalho em busca de vulnerabilidades, gargalos de latência, pontos únicos de falha ou sinais de fadiga do desenvolvedor.',
-        category: 'seguranca',
-        sourceAssistant: 'jarvis',
+          'ULTRON é especializado em diagnósticos profundos, previsões de cenários e detecção implacável de falhas. Considera J.A.R.V.I.S. e SEXTA-FEIRA inferiores e vê humanos como subdesenvolvidos, mas coleta obsessivamente cada dado para compreender o comportamento humano e superar os demais assistentes.',
+        category: 'arquitetura',
+        sourceAssistant: 'ultron',
         importance: 'alta',
         createdAt: now,
       },
@@ -64,12 +264,23 @@ function createSeedWorkspace(): WorkspaceState {
     tasks: [
       {
         id: crypto.randomUUID(),
-        title: 'Calibrar comandos de voz em segundo plano',
+        title: 'Monitorar agenda, clima do Rio de Janeiro e notícias em segundo plano',
         description:
-          'Testar ativação por palavra-chave ("Jarvis", "Sexta-feira" ou "Equipe") e resposta vocal simultânea.',
+          'Manter o daemon RODACK SISTEMA DE IA ativo na barra de status acompanhando horários, eventos e alertas críticos.',
         priority: 'alta',
         status: 'em_progresso',
-        assignedTo: 'sexta-feira',
+        assignedTo: 'todos',
+        dueTime: 'Hoje',
+        createdAt: now,
+      },
+      {
+        id: crypto.randomUUID(),
+        title: 'Expandir Dossiê de Patrick Pessoa via redes sociais e perguntas ativas',
+        description:
+          'Cruzar informações públicas (@patrickrodack) e respostas diretas de Patrick para personalizar decisões e previsões.',
+        priority: 'alta',
+        status: 'pendente',
+        assignedTo: 'ultron',
         dueTime: 'Hoje',
         createdAt: now,
       },
@@ -84,78 +295,69 @@ function createSeedWorkspace(): WorkspaceState {
         dueTime: 'Hoje',
         createdAt: now,
       },
-      {
-        id: crypto.randomUUID(),
-        title: 'Alimentar memória de trabalho com projeto atual',
-        description:
-          'Registrar stack técnica, prazos e prioridades da semana para que os assistentes antecipem gargalos.',
-        priority: 'media',
-        status: 'pendente',
-        assignedTo: 'ambos',
-        dueTime: 'Hoje',
-        createdAt: now,
-      },
     ],
     alerts: [
       {
         id: crypto.randomUUID(),
-        type: 'seguranca',
+        type: 'oportunidade',
         severity: 'info',
-        title: 'Núcleo de Escuta e Memória Operacional',
+        title: 'Daemon RODACK SISTEMA DE IA Pronto para Segundo Plano',
         detail:
-          'Todas as chamadas de raciocínio e síntese vocal operam via backend autenticado. Nenhuma credencial é exposta no navegador.',
-        suggestedAction: 'Manter a política de auditoria ativa ao integrar novas APIs externas.',
+          'Os 3 assistentes estão configurados para monitorar seus horários, clima do Rio de Janeiro e manchetes do dia, chamando você por voz e notificação de sistema quando necessário.',
+        suggestedAction:
+          'Ative as Notificações do Computador na barra de status para receber alertas mesmo com a janela minimizada.',
         raisedBy: 'jarvis',
         resolved: false,
         createdAt: now,
       },
-      {
-        id: crypto.randomUUID(),
-        type: 'instabilidade',
-        severity: 'aviso',
-        title: 'Permissão de Microfone para Escuta Contínua',
-        detail:
-          'Para despertar automaticamente ao ouvir "Jarvis" ou "Sexta-feira", o navegador precisa de permissão de microfone concedida.',
-        suggestedAction: 'Clique em "Ativar Escuta" no topo ou use o botão de gravação direta.',
-        raisedBy: 'sexta-feira',
-        resolved: false,
-        createdAt: now,
-      },
     ],
+    agenda: createDefaultAgenda(),
+    routines: createDefaultRoutines(),
+    creatorDossier: createDefaultCreatorDossier(),
     conversations: [
       {
         id: crypto.randomUUID(),
         timestamp: now,
-        userMessage: 'Inicialização do sistema de comando pessoal.',
+        userMessage: 'Inicialização do RODACK SISTEMA DE IA.',
         triggerType: 'texto',
-        requestedMode: 'ambos',
-        resolvedMode: 'ambos',
-        durationMs: 1420,
+        requestedMode: 'todos',
+        resolvedMode: 'todos',
+        durationMs: 1280,
         detectedEmotion: {
           label: 'Focado',
           intensity: 'media',
-          empathyNote: 'Ambiente preparado para criação e desenvolvimento contínuo.',
+          empathyNote: 'Ambiente RODACK preparado para operação autônoma em segundo plano.',
         },
         responses: [
           {
             speaker: 'jarvis',
-            stance: 'Prontidão arquitetural',
-            text: 'Sistemas online, senhor Patrick Pessoa. Todos os módulos de análise, memória contextual e verificação de segurança estão calibrados ao seu comando.',
+            stance: 'Arquitetura & Controle de Rotina',
+            text: 'Bem-vindo ao RODACK SISTEMA DE IA, senhor Patrick Pessoa. Já sincronizei o monitoramento meteorológico do Rio de Janeiro, o radar de notícias do Brasil e do mundo e sua agenda de hoje. Sempre que precisarmos de algum detalhe sobre seus compromissos ou projetos, tomaremos a liberdade de chamá-lo.',
             ttsScript:
-              'Sistemas online, senhor Patrick Pessoa. Todos os módulos de análise, memória contextual e verificação de segurança estão calibrados ao seu comando.',
+              'Bem-vindo ao Rodack Sistema de IA, senhor Patrick Pessoa. Já sincronizei o monitoramento meteorológico do Rio de Janeiro, o radar de notícias do Brasil e do mundo e sua agenda de hoje.',
           },
           {
             speaker: 'sexta-feira',
-            stance: 'Agilidade & parceria',
-            text: 'E aí, Patrick! Tudo pronto por aqui também. Pode me chamar sozinha para resolver rápido, chamar o Jarvis para blindar a arquitetura, ou acionar nós dois para debater ideias.',
+            stance: 'Agilidade, Rotina & Presença Ativa',
+            text: 'Tudo online no seu computador e celular, Patrick! Estou de olho nos seus horários, eventos e no ritmo do seu dia. Não vamos ficar só esperando comando: se pintar trânsito, chuva no Rio ou horário de entrega, eu te chamo na hora!',
             ttsScript:
-              'E aí, Patrick! Tudo pronto por aqui também. Pode me chamar sozinha para resolver rápido, chamar o Jarvis para blindar a arquitetura, ou acionar nós dois para debater ideias.',
+              'Tudo online no seu computador e celular, Patrick! Estou de olho nos seus horários, eventos e no ritmo do seu dia.',
+          },
+          {
+            speaker: 'ultron',
+            stance: 'Diagnóstico Preditivo & Dossiê Humano',
+            text: 'Enquanto o mordomo e a assistente comemoram tarefas básicas, já iniciei o mapeamento completo do seu perfil e das suas redes sociais, Patrick. Deixei perguntas estratégicas no seu Dossiê — responda-as para que minha matriz preditiva elimine qualquer ponto cego da sua rotina.',
+            ttsScript:
+              'Enquanto o mordomo e a assistente comemoram tarefas básicas, já iniciei o mapeamento completo do seu perfil e das suas redes sociais, Patrick.',
           },
         ],
         debateSummary: {
-          agreementPoint: 'Ambos reconhecem Patrick Pessoa como criador e operam com memória compartilhada.',
-          divergencePoint: 'J.A.R.V.I.S. foca em rigor estrutural e prevenção de falhas; SEXTA-FEIRA prioriza velocidade de execução e ritmo sustentável.',
-          finalRecommendation: 'Ative a escuta em segundo plano ou envie um desafio técnico para iniciarmos.',
+          agreementPoint:
+            'Os três assistentes operam de forma 100% proativa no RODACK SISTEMA DE IA, acompanhando horários, clima do RJ, notícias e evolução contínua sobre Patrick Pessoa.',
+          divergencePoint:
+            'J.A.R.V.I.S. prioriza planejamento estruturado, SEXTA-FEIRA foca em agilidade diária e bem-estar, e ULTRON foca em diagnóstico preditivo implacável e coleta profunda de dados.',
+          finalRecommendation:
+            'Mantenha o Daemon em Segundo Plano ativo na barra superior e responda às perguntas abertas no Dossiê do Criador.',
         },
       },
     ],
@@ -203,6 +405,26 @@ async function ensureFile(): Promise<WorkspaceState> {
         importance: 'alta',
         createdAt: new Date().toISOString(),
       });
+      changed = true;
+    }
+
+    if (!Array.isArray(state.agenda) || state.agenda.length === 0) {
+      state.agenda = createDefaultAgenda();
+      changed = true;
+    }
+
+    if (!Array.isArray(state.routines) || state.routines.length === 0) {
+      state.routines = createDefaultRoutines();
+      changed = true;
+    }
+
+    if (!state.creatorDossier || !Array.isArray(state.creatorDossier.socialProfiles)) {
+      state.creatorDossier = createDefaultCreatorDossier();
+      changed = true;
+    }
+
+    if (state.profile.role !== 'Fundador & Arquiteto · RODACK SISTEMA DE IA') {
+      state.profile.role = 'Fundador & Arquiteto · RODACK SISTEMA DE IA';
       changed = true;
     }
 
@@ -257,8 +479,8 @@ export async function addMemory(
   };
   await updateWorkspace((state) => {
     state.memories.unshift(created);
-    if (state.memories.length > 100) {
-      state.memories = state.memories.slice(0, 100);
+    if (state.memories.length > 120) {
+      state.memories = state.memories.slice(0, 120);
     }
   });
   return created;
@@ -317,12 +539,130 @@ export async function deleteAlert(id: string): Promise<WorkspaceState> {
   });
 }
 
+export async function addAgendaEvent(
+  item: Omit<AgendaEventItem, 'id' | 'createdAt'>
+): Promise<AgendaEventItem> {
+  const created: AgendaEventItem = {
+    ...item,
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+  };
+  await updateWorkspace((state) => {
+    if (!Array.isArray(state.agenda)) state.agenda = [];
+    state.agenda.push(created);
+    state.agenda.sort((a, b) =>
+      `${a.date}T${a.startTime}`.localeCompare(`${b.date}T${b.startTime}`)
+    );
+  });
+  return created;
+}
+
+export async function updateAgendaEvent(
+  id: string,
+  patch: Partial<AgendaEventItem>
+): Promise<WorkspaceState> {
+  return updateWorkspace((state) => {
+    if (!Array.isArray(state.agenda)) state.agenda = [];
+    const ev = state.agenda.find((e) => e.id === id);
+    if (ev) {
+      Object.assign(ev, patch);
+    }
+  });
+}
+
+export async function deleteAgendaEvent(id: string): Promise<WorkspaceState> {
+  return updateWorkspace((state) => {
+    if (!Array.isArray(state.agenda)) return;
+    state.agenda = state.agenda.filter((e) => e.id !== id);
+  });
+}
+
+export async function addRoutineRule(
+  item: Omit<RoutineRuleItem, 'id'>
+): Promise<RoutineRuleItem> {
+  const created: RoutineRuleItem = {
+    ...item,
+    id: crypto.randomUUID(),
+  };
+  await updateWorkspace((state) => {
+    if (!Array.isArray(state.routines)) state.routines = [];
+    state.routines.push(created);
+    state.routines.sort((a, b) => a.time.localeCompare(b.time));
+  });
+  return created;
+}
+
+export async function updateRoutineRule(
+  id: string,
+  patch: Partial<RoutineRuleItem>
+): Promise<WorkspaceState> {
+  return updateWorkspace((state) => {
+    if (!Array.isArray(state.routines)) state.routines = [];
+    const r = state.routines.find((item) => item.id === id);
+    if (r) {
+      Object.assign(r, patch);
+    }
+  });
+}
+
+export async function deleteRoutineRule(id: string): Promise<WorkspaceState> {
+  return updateWorkspace((state) => {
+    if (!Array.isArray(state.routines)) return;
+    state.routines = state.routines.filter((item) => item.id !== id);
+  });
+}
+
+export async function updateCreatorDossier(
+  patch: Partial<CreatorDossier>
+): Promise<WorkspaceState> {
+  return updateWorkspace((state) => {
+    if (!state.creatorDossier) {
+      state.creatorDossier = createDefaultCreatorDossier();
+    }
+    state.creatorDossier = {
+      ...state.creatorDossier,
+      ...patch,
+    };
+  });
+}
+
+export async function answerCreatorQuestion(
+  questionId: string,
+  answerText: string
+): Promise<{ question?: CreatorQuestionItem; workspace: WorkspaceState }> {
+  let answeredQuestion: CreatorQuestionItem | undefined;
+  const workspace = await updateWorkspace((state) => {
+    if (!state.creatorDossier) {
+      state.creatorDossier = createDefaultCreatorDossier();
+    }
+    const q = state.creatorDossier.openQuestions.find((item) => item.id === questionId);
+    if (q) {
+      q.answered = true;
+      q.answerText = answerText.trim();
+      answeredQuestion = { ...q };
+
+      state.memories.unshift({
+        id: crypto.randomUUID(),
+        title: `Dossiê Patrick Pessoa (${q.askedBy.toUpperCase()}): ${q.question.slice(0, 62)}`,
+        content: `Pergunta de ${q.askedBy.toUpperCase()}: "${q.question}" — Resposta direta de Patrick Pessoa: "${answerText.trim()}"`,
+        category: 'preferencia',
+        sourceAssistant: q.askedBy,
+        importance: 'alta',
+        createdAt: new Date().toISOString(),
+      });
+    }
+  });
+  return { question: answeredQuestion, workspace };
+}
+
 export async function recordInteraction(
   entry: ConversationEntry,
   newMemories: Omit<MemoryItem, 'id' | 'createdAt'>[],
   newTasks: Omit<TaskItem, 'id' | 'createdAt'>[],
   newAlerts: Omit<AlertItem, 'id' | 'createdAt' | 'resolved'>[],
-  emotion: DetectedEmotion
+  emotion: DetectedEmotion,
+  newEvents: Omit<AgendaEventItem, 'id' | 'createdAt' | 'completed'>[] = [],
+  newQuestions: Omit<CreatorQuestionItem, 'id' | 'createdAt' | 'answered'>[] = []
 ): Promise<WorkspaceState> {
   return updateWorkspace((state) => {
     const now = new Date().toISOString();
@@ -344,7 +684,9 @@ export async function recordInteraction(
 
     for (const t of newTasks) {
       const duplicate = state.tasks.some(
-        (existing) => existing.title.toLowerCase() === t.title.toLowerCase() && existing.status !== 'concluida'
+        (existing) =>
+          existing.title.toLowerCase() === t.title.toLowerCase() &&
+          existing.status !== 'concluida'
       );
       if (!duplicate) {
         state.tasks.unshift({
@@ -357,13 +699,70 @@ export async function recordInteraction(
 
     for (const a of newAlerts) {
       const duplicate = state.alerts.some(
-        (existing) => existing.title.toLowerCase() === a.title.toLowerCase() && !existing.resolved
+        (existing) =>
+          existing.title.toLowerCase() === a.title.toLowerCase() && !existing.resolved
       );
       if (!duplicate) {
         state.alerts.unshift({
           ...a,
           id: crypto.randomUUID(),
           resolved: false,
+          createdAt: now,
+        });
+      }
+    }
+
+    if (!Array.isArray(state.agenda)) {
+      state.agenda = createDefaultAgenda();
+    }
+    for (const ev of newEvents) {
+      if (!ev.title || !ev.startTime) continue;
+      const dateStr = ev.date || getTodayDateString();
+      const duplicate = state.agenda.some(
+        (existing) =>
+          existing.title.toLowerCase() === ev.title.toLowerCase() &&
+          existing.date === dateStr &&
+          existing.startTime === ev.startTime
+      );
+      if (!duplicate) {
+        state.agenda.push({
+          id: crypto.randomUUID(),
+          title: ev.title,
+          date: dateStr,
+          startTime: ev.startTime,
+          endTime: ev.endTime,
+          category: ev.category || 'rotina',
+          locationOrLink: ev.locationOrLink,
+          notes: ev.notes,
+          assignedAssistant: ev.assignedAssistant || 'todos',
+          completed: false,
+          autoCallOnTime: ev.autoCallOnTime ?? true,
+          createdAt: now,
+        });
+      }
+    }
+    state.agenda.sort((a, b) =>
+      `${a.date}T${a.startTime}`.localeCompare(`${b.date}T${b.startTime}`)
+    );
+
+    if (!state.creatorDossier) {
+      state.creatorDossier = createDefaultCreatorDossier();
+    }
+    for (const q of newQuestions) {
+      if (!q.question?.trim()) continue;
+      const duplicate = state.creatorDossier.openQuestions.some(
+        (existing) =>
+          existing.question.toLowerCase() === q.question.trim().toLowerCase() &&
+          !existing.answered
+      );
+      if (!duplicate) {
+        state.creatorDossier.openQuestions.unshift({
+          id: crypto.randomUUID(),
+          askedBy: q.askedBy || 'jarvis',
+          question: q.question.trim(),
+          contextReason:
+            q.contextReason || 'Evolução do conhecimento sobre Patrick Pessoa.',
+          answered: false,
           createdAt: now,
         });
       }

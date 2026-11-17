@@ -20,6 +20,7 @@ import type {
   WorkspaceState,
 } from '../types/assistant';
 import { AuditTelemetryPanel } from './AuditTelemetryPanel';
+import { triggerHaptic } from '../utils/haptics';
 
 interface MemoryPanelProps {
   memories: MemoryItem[];
@@ -67,6 +68,7 @@ export function MemoryPanel({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !content.trim()) return;
+    triggerHaptic('success');
     setIsSubmitting(true);
     try {
       await onAddMemory({
@@ -307,6 +309,7 @@ export function TasksAndAlertsPanel({
   async function handleCreateTask(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
+    triggerHaptic('success');
     await onAddTask({
       title: title.trim(),
       description: description.trim(),
@@ -622,6 +625,7 @@ export function AuditPanel({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!codeOrSpec.trim()) return;
+    triggerHaptic('tap');
     await onRunAudit(codeOrSpec.trim(), contextNote.trim());
   }
 

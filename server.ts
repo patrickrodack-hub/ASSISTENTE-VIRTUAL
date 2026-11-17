@@ -1,27 +1,43 @@
 import 'dotenv/config';
 import express from 'express';
+import { createServer as createHttpServer } from 'node:http';
 import path from 'node:path';
 import {
+  addAgendaEvent,
   addMemory,
+  addRoutineRule,
   addTask,
+  answerCreatorQuestion,
   clearConversations,
+  deleteAgendaEvent,
   deleteAlert,
   deleteMemory,
+  deleteRoutineRule,
   deleteTask,
   readWorkspace,
   setTurnFeedback,
   toggleAlertResolved,
+  updateAgendaEvent,
+  updateCreatorDossier,
+  updateRoutineRule,
   updateTask,
 } from './server/memoryStore.ts';
 import {
   formatGeminiErrorMessage,
+  generateProactiveInitiative,
   processAssistantInteraction,
+  processAssistantInteractionStream,
   synthesizeAssistantSpeech,
   transcribeUserAudio,
 } from './server/assistantEngine.ts';
+import {
+  getLiveIntelBriefing,
+  scanCreatorOnlinePresence,
+} from './server/liveIntelService.ts';
 
 async function startServer() {
   const app = express();
+  const httpServer = createHttpServer(app);
   const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: '15mb' }));
@@ -37,7 +53,24 @@ async function startServer() {
     }
   });
 
-  // Main dual-AI interaction
+  // Live Weather (Rio de Janeiro / custom city) + Rio, Brazil & World News Briefing
+  app.get('/api/intel/briefing', async (req, res) => {
+    try {
+      const city =
+        typeof req.query.city === 'string' && req.query.city.trim()
+          ? req.query.city.trim()
+          : 'Rio de Janeiro, RJ';
+      const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
+      const briefing = await getLiveIntelBriefing(city, forceRefresh);
+      res.json(briefing);
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao obter radar de clima e notícias.',
+      });
+    }
+  });
+
+  // Main tri-AI interaction (non-streaming)
   app.post('/api/assistant/interact', async (req, res) => {
     try {
       const {
@@ -65,6 +98,89 @@ async function startServer() {
       res.json(result);
     } catch (err) {
       res.status(500).json({ error: formatGeminiErrorMessage(err) });
+    }
+  });
+
+  // Proactive autonomous assistant call (initiated by background daemon, routine timer, or manual trigger)
+  app.post('/api/assistant/proactive', async (req, res) => {
+    try {
+      const {
+        reason,
+        preferredMode = 'todos',
+        eventOrRoutineTitle,
+        clientTimeIso,
+        clientTimezone,
+      } = req.body ?? {};
+
+      const result = await generateProactiveInitiative({
+        reason,
+        preferredMode,
+        eventOrRoutineTitle,
+        clientTimeIso,
+        clientTimezone,
+      });
+
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: formatGeminiErrorMessage(err) });
+    }
+  });
+
+  // Main tri-AI interaction (Server-Sent Events streaming)
+  app.post('/api/assistant/interact/stream', async (req, res) => {
+    const {
+      message,
+      targetMode = 'auto',
+      triggerType = 'texto',
+      useWebSearch = 'auto',
+      clientTimeIso,
+      clientTimezone,
+    } = req.body ?? {};
+
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      res.status(400).json({ error: 'Envie uma mensagem válida para os assistentes.' });
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
+    let clientClosed = false;
+    res.on('close', () => {
+      clientClosed = true;
+    });
+
+    const sendEvent = (eventName: string, data: unknown) => {
+      if (clientClosed || res.writableEnded) return;
+      res.write(`event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    try {
+      await processAssistantInteractionStream(
+        {
+          message: message.trim(),
+          targetMode,
+          triggerType,
+          useWebSearch,
+          clientTimeIso,
+          clientTimezone,
+        },
+        (event) => {
+          sendEvent(event.type, event);
+        }
+      );
+    } catch (err) {
+      sendEvent('error', {
+        type: 'error',
+        error: formatGeminiErrorMessage(err),
+      });
+    } finally {
+      if (!res.writableEnded) {
+        res.end();
+      }
     }
   });
 
@@ -124,6 +240,204 @@ async function startServer() {
       }
       const text = await transcribeUserAudio({ audioBase64, mimeType });
       res.json({ text });
+    } catch (err) {
+      res.status(500).json({ error: formatGeminiErrorMessage(err) });
+    }
+  });
+
+  // Agenda & Calendar Events CRUD
+  app.post('/api/agenda', async (req, res) => {
+    try {
+      const {
+        title,
+        date,
+        startTime,
+        endTime = '',
+        category = 'rotina',
+        locationOrLink = '',
+        notes = '',
+        assignedAssistant = 'todos',
+        autoCallOnTime = true,
+      } = req.body ?? {};
+      if (!title?.trim() || !date?.trim() || !startTime?.trim()) {
+        res.status(400).json({ error: 'Título, data e horário são obrigatórios.' });
+        return;
+      }
+      const created = await addAgendaEvent({
+        title: title.trim(),
+        date: date.trim(),
+        startTime: startTime.trim(),
+        endTime: endTime ? String(endTime).trim() : undefined,
+        category,
+        locationOrLink: locationOrLink ? String(locationOrLink).trim() : undefined,
+        notes: notes ? String(notes).trim() : undefined,
+        assignedAssistant,
+        completed: false,
+        autoCallOnTime: Boolean(autoCallOnTime),
+      });
+      const workspace = await readWorkspace();
+      res.json({ created, workspace });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao criar evento na agenda.',
+      });
+    }
+  });
+
+  app.patch('/api/agenda/:id', async (req, res) => {
+    try {
+      const workspace = await updateAgendaEvent(req.params.id, req.body ?? {});
+      res.json({ workspace });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao atualizar evento da agenda.',
+      });
+    }
+  });
+
+  app.delete('/api/agenda/:id', async (req, res) => {
+    try {
+      const workspace = await deleteAgendaEvent(req.params.id);
+      res.json({ workspace });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao remover evento da agenda.',
+      });
+    }
+  });
+
+  // Routines CRUD
+  app.post('/api/routines', async (req, res) => {
+    try {
+      const {
+        title,
+        time,
+        frequencyLabel = 'Diário',
+        leadAssistant = 'todos',
+        instructions = '',
+        enabled = true,
+      } = req.body ?? {};
+      if (!title?.trim() || !time?.trim()) {
+        res.status(400).json({ error: 'Título e horário da rotina são obrigatórios.' });
+        return;
+      }
+      const created = await addRoutineRule({
+        title: title.trim(),
+        time: time.trim(),
+        frequencyLabel: String(frequencyLabel).trim(),
+        leadAssistant,
+        instructions: String(instructions).trim(),
+        enabled: Boolean(enabled),
+      });
+      const workspace = await readWorkspace();
+      res.json({ created, workspace });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao adicionar rotina.',
+      });
+    }
+  });
+
+  app.patch('/api/routines/:id', async (req, res) => {
+    try {
+      const workspace = await updateRoutineRule(req.params.id, req.body ?? {});
+      res.json({ workspace });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao atualizar rotina.',
+      });
+    }
+  });
+
+  app.delete('/api/routines/:id', async (req, res) => {
+    try {
+      const workspace = await deleteRoutineRule(req.params.id);
+      res.json({ workspace });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao excluir rotina.',
+      });
+    }
+  });
+
+  // Creator Dossier & Online Social Scan
+  app.patch('/api/dossier', async (req, res) => {
+    try {
+      const workspace = await updateCreatorDossier(req.body ?? {});
+      res.json({ workspace });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao atualizar dossiê do criador.',
+      });
+    }
+  });
+
+  app.post('/api/dossier/questions/:id/answer', async (req, res) => {
+    try {
+      const { answerText } = req.body ?? {};
+      if (!answerText || typeof answerText !== 'string' || !answerText.trim()) {
+        res.status(400).json({ error: 'Forneça uma resposta válida.' });
+        return;
+      }
+      const { question, workspace } = await answerCreatorQuestion(
+        req.params.id,
+        answerText.trim()
+      );
+
+      // Also let the asking assistant acknowledge and evolve based on the answer
+      if (question) {
+        const result = await processAssistantInteraction({
+          message: `Respondendo à pergunta de ${question.askedBy.toUpperCase()} ("${question.question}"): ${answerText.trim()}`,
+          targetMode: question.askedBy,
+          triggerType: 'texto',
+          useWebSearch: false,
+        });
+        res.json(result);
+        return;
+      }
+
+      res.json({ workspace });
+    } catch (err) {
+      res.status(500).json({ error: formatGeminiErrorMessage(err) });
+    }
+  });
+
+  app.post('/api/dossier/scan-socials', async (req, res) => {
+    try {
+      const { extraQuery = '' } = req.body ?? {};
+      const currentWorkspace = await readWorkspace();
+      const dossier = currentWorkspace.creatorDossier;
+      if (!dossier) {
+        res.status(400).json({ error: 'Dossiê não inicializado.' });
+        return;
+      }
+
+      const scan = await scanCreatorOnlinePresence(dossier, String(extraQuery));
+      await updateCreatorDossier({
+        socialProfiles: scan.updatedProfiles,
+        lastOnlineScanAt: new Date().toISOString(),
+      });
+
+      const factsSummary =
+        scan.discoveredFacts.length > 0
+          ? scan.discoveredFacts.join('\n- ')
+          : 'Perfis verificados (@patrickrodack / Patrick Pessoa).';
+
+      const result = await processAssistantInteraction({
+        message: `[VARREDURA ONLINE DE REDES SOCIAIS & PERFIL DE PATRICK PESSOA] Analisem os dados encontrados online sobre o criador Patrick Pessoa (${
+          extraQuery ? `foco adicional: ${extraQuery}` : 'GitHub, LinkedIn, Instagram, X e Web'
+        }):\n- ${factsSummary}\nConsolidem aprendizados úteis em newMemories e formulem novas perguntas estratégicas em newQuestions para expandir nosso banco de informações sobre ele.`,
+        targetMode: 'todos',
+        triggerType: 'proativo',
+        useWebSearch: true,
+        proactiveReason: 'Varredura Online de Redes Sociais & Dossiê Patrick Pessoa',
+      });
+
+      res.json({
+        ...result,
+        discoveredFacts: scan.discoveredFacts,
+        sources: scan.sources,
+      });
     } catch (err) {
       res.status(500).json({ error: formatGeminiErrorMessage(err) });
     }
@@ -290,7 +604,11 @@ async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        ws: { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -302,8 +620,8 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Servidor Stark Lab ativo na porta ${PORT}`);
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`Servidor RODACK SISTEMA DE IA ativo na porta ${PORT}`);
   });
 }
 
