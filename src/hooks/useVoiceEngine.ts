@@ -116,12 +116,14 @@ interface UseVoiceEngineOptions {
   onWakeCommand: (command: string, mode: InteractionMode) => void;
   onTranscribedClip: (text: string) => void;
   onVoiceError: (message: string) => void;
+  onAssistantActivated?: (mode: InteractionMode, source: 'wake_word' | 'standby_on') => void;
 }
 
 export function useVoiceEngine({
   onWakeCommand,
   onTranscribedClip,
   onVoiceError,
+  onAssistantActivated,
 }: UseVoiceEngineOptions) {
   const [isStandbyActive, setIsStandbyActive] = useState(false);
   const [speechSupported] = useState(() => Boolean(getSpeechRecognitionCtor()));
@@ -224,6 +226,8 @@ export function useVoiceEngine({
 
   const onWakeCommandRef = useRef(onWakeCommand);
   onWakeCommandRef.current = onWakeCommand;
+  const onAssistantActivatedRef = useRef(onAssistantActivated);
+  onAssistantActivatedRef.current = onAssistantActivated;
 
   const jarvisVoiceRef = useRef(jarvisVoice);
   jarvisVoiceRef.current = jarvisVoice;
@@ -470,6 +474,7 @@ export function useVoiceEngine({
             if (parsed.matched) {
               if (parsed.wakeOnly) {
                 setAwakeWindow(parsed.targetMode);
+                onAssistantActivatedRef.current?.(parsed.targetMode, 'wake_word');
               } else {
                 triggerHaptic('wake');
                 playSubtleChime(560, 840);
@@ -549,6 +554,7 @@ export function useVoiceEngine({
     setIsStandbyActive(true);
     await startMicMeter();
     startRecognitionInstance();
+    onAssistantActivatedRef.current?.('auto', 'standby_on');
   }, [onVoiceError, setAwakeWindow, startMicMeter, startRecognitionInstance, stopMicMeter, unlockAudio]);
 
   const stopAudio = useCallback(() => {

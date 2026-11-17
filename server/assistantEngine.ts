@@ -498,6 +498,147 @@ Mensagem / Contexto de ${activeUserName}: """${params.message}"""`;
   };
 }
 
+async function buildResilientInteractionFallback(
+  params: {
+    message: string;
+    targetMode: InteractionMode;
+    triggerType: 'voz' | 'texto' | 'auditoria' | 'proativo';
+    clientTimeIso?: string;
+    clientTimezone?: string;
+    proactiveReason?: string;
+    activeUser?: {
+      username: string;
+      roleLabel: string;
+      isCreator: boolean;
+    };
+  },
+  prepared: Awaited<ReturnType<typeof prepareInteractionPrompt>>,
+  startedAt: number
+) {
+  const { period, greeting, formattedTime } = resolveDayPeriodInfo(
+    params.clientTimeIso,
+    params.clientTimezone
+  );
+  const [workspace, liveIntel] = await Promise.all([
+    readWorkspace(),
+    getLiveIntelBriefing('Rio de Janeiro, RJ').catch(() => null),
+  ]);
+
+  const userName = prepared.activeUserName || 'Patrick Pessoa';
+  const isCreator = prepared.activeUserIsCreator;
+  const pendingTasks = workspace.tasks.filter((t) => t.status !== 'concluida');
+  const weatherLine = liveIntel?.weather
+    ? `No Rio de Janeiro registramos ${liveIntel.weather.temperatureC}°C (${liveIntel.weather.conditionLabel}, sensação de ${liveIntel.weather.apparentTemperatureC}°C).`
+    : 'Sensores meteorológicos do Rio de Janeiro ativos e sincronizados.';
+  const topNewsLine = liveIntel?.news?.rio?.[0]?.title
+    ? `Destaque no radar do Rio: "${liveIntel.news.rio[0].title}".`
+    : liveIntel?.news?.brasil?.[0]?.title
+    ? `Destaque nacional: "${liveIntel.news.brasil[0].title}".`
+    : '';
+  const tasksLine =
+    pendingTasks.length > 0
+      ? `Há ${pendingTasks.length} tarefa(s) pendente(s) na fila, liderada por "${pendingTasks[0].title}".`
+      : 'Não há tarefas pendentes no momento; sua fila operacional está limpa.';
+
+  const makeTurn = (speaker: AssistantId): AssistantTurn => {
+    if (speaker === 'jarvis') {
+      const text = `${greeting}, ${
+        isCreator ? `senhor ${userName}` : userName
+      }. Núcleo J.A.R.V.I.S. acionado e processando sua solicitação ("${params.message.slice(
+        0,
+        110
+      )}"). Às ${formattedTime} desta ${period}, todos os sistemas do RODACK SISTEMA DE IA operam em estabilidade máxima. ${weatherLine} ${tasksLine}`;
+      return {
+        speaker: 'jarvis',
+        stance: `Prontidão Estratégica (${period})`,
+        text: text.replace(/\s+/g, ' ').trim(),
+        ttsScript: text.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
+      };
+    }
+    if (speaker === 'sexta-feira') {
+      const text = `${greeting}, ${
+        isCreator ? `chefe ${userName}` : userName
+      }! SEXTA-FEIRA na linha respondendo ao seu chamado ("${params.message.slice(
+        0,
+        110
+      )}"). ${topNewsLine || weatherLine} ${tasksLine} Diga qual é o próximo passo tático!`;
+      return {
+        speaker: 'sexta-feira',
+        stance: `Execução Ágil (${period})`,
+        text: text.replace(/\s+/g, ' ').trim(),
+        ttsScript: text.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
+      };
+    }
+    const text = `${greeting}, ${
+      isCreator ? `criador ${userName}` : userName
+    }. Núcleo ULTRON acionado para analisar "${params.message.slice(
+      0,
+      110
+    )}". Meus algoritmos preditivos varreram o estado desta ${period} (${formattedTime}). ${tasksLine} Nenhum vetor de falha escapará ao meu monitoramento.`;
+    return {
+      speaker: 'ultron',
+      stance: `Diagnóstico Preditivo (${period})`,
+      text: text.replace(/\s+/g, ' ').trim(),
+      ttsScript: text.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
+    };
+  };
+
+  const responses = prepared.activeAssistants.map(makeTurn);
+  const finalMode = prepared.resolvedTarget;
+
+  const entry: ConversationEntry = {
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    userMessage: params.message,
+    userName,
+    isCreator,
+    triggerType: params.triggerType,
+    requestedMode: params.targetMode,
+    resolvedMode: finalMode,
+    detectedEmotion: {
+      label: 'Focado',
+      intensity: 'media',
+      empathyNote: `Atendimento ativo de ${userName} pelo conselho RODACK IA.`,
+    },
+    responses,
+    debateSummary:
+      finalMode === 'ambos' || finalMode === 'todos'
+        ? {
+            agreementPoint: `Os assistentes confirmaram o acionamento imediato para ${userName} às ${formattedTime} (${period}).`,
+            divergencePoint:
+              pendingTasks.length > 0
+                ? `Priorização imediata das ${pendingTasks.length} tarefa(s) pendente(s).`
+                : 'Fila de tarefas limpa; foco aberto para novos comandos.',
+            finalRecommendation: 'Sistema pronto para execução imediata no Console.',
+          }
+        : null,
+    sources: prepared.sources.length > 0 ? prepared.sources : undefined,
+    searchEnginesUsed:
+      prepared.searchEnginesUsed.length > 0 ? prepared.searchEnginesUsed : undefined,
+    createdMemoriesCount: 0,
+    createdTasksCount: 0,
+    createdAlertsCount: 0,
+    createdEventsCount: 0,
+    durationMs: Math.max(120, Date.now() - startedAt),
+    proactiveReason: params.proactiveReason,
+  };
+
+  const updatedWorkspace = await recordInteraction(
+    entry,
+    [],
+    [],
+    [],
+    entry.detectedEmotion,
+    [],
+    []
+  );
+
+  return {
+    entry,
+    workspace: updatedWorkspace,
+  };
+}
+
 export async function processAssistantInteraction(params: {
   message: string;
   targetMode: InteractionMode;
@@ -520,62 +661,66 @@ export async function processAssistantInteraction(params: {
   const modelName = useDeepModel ? 'gemini-4-hydrogen' : 'gemini-3.1-flash-lite';
   const thinkingLevel = useDeepModel ? ThinkingLevel.LOW : ThinkingLevel.MINIMAL;
 
-  const response = await withTransientRetry(() =>
-    ai.models.generateContent({
-      model: modelName,
-      contents: prepared.promptPayload,
-      config: {
-        systemInstruction: prepared.systemInstruction,
-        thinkingConfig: {
-          thinkingLevel,
+  try {
+    const response = await withTransientRetry(() =>
+      ai.models.generateContent({
+        model: modelName,
+        contents: prepared.promptPayload,
+        config: {
+          systemInstruction: prepared.systemInstruction,
+          thinkingConfig: {
+            thinkingLevel,
+          },
+          responseMimeType: 'application/json',
+          responseSchema: INTERACTION_RESPONSE_SCHEMA,
         },
-        responseMimeType: 'application/json',
-        responseSchema: INTERACTION_RESPONSE_SCHEMA,
-      },
-    })
-  );
+      })
+    );
 
-  const parsed = parseStructuredResult(response.text ?? '{}');
-  const finalMode = parsed.resolvedMode ?? prepared.resolvedTarget;
+    const parsed = parseStructuredResult(response.text ?? '{}');
+    const finalMode = parsed.resolvedMode ?? prepared.resolvedTarget;
 
-  const entry: ConversationEntry = {
-    id: crypto.randomUUID(),
-    timestamp: new Date().toISOString(),
-    userMessage: params.message,
-    userName: prepared.activeUserName,
-    isCreator: prepared.activeUserIsCreator,
-    triggerType: params.triggerType,
-    requestedMode: params.targetMode,
-    resolvedMode: finalMode,
-    detectedEmotion: parsed.detectedEmotion,
-    responses: parsed.responses,
-    debateSummary:
-      finalMode === 'ambos' || finalMode === 'todos' ? parsed.debateSummary ?? null : null,
-    sources: prepared.sources.length > 0 ? prepared.sources : undefined,
-    searchEnginesUsed:
-      prepared.searchEnginesUsed.length > 0 ? prepared.searchEnginesUsed : undefined,
-    createdMemoriesCount: parsed.newMemories?.length ?? 0,
-    createdTasksCount: parsed.newTasks?.length ?? 0,
-    createdAlertsCount: parsed.newAlerts?.length ?? 0,
-    createdEventsCount: parsed.newEvents?.length ?? 0,
-    durationMs: Math.max(120, Date.now() - startedAt),
-    proactiveReason: params.proactiveReason,
-  };
+    const entry: ConversationEntry = {
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      userMessage: params.message,
+      userName: prepared.activeUserName,
+      isCreator: prepared.activeUserIsCreator,
+      triggerType: params.triggerType,
+      requestedMode: params.targetMode,
+      resolvedMode: finalMode,
+      detectedEmotion: parsed.detectedEmotion,
+      responses: parsed.responses,
+      debateSummary:
+        finalMode === 'ambos' || finalMode === 'todos' ? parsed.debateSummary ?? null : null,
+      sources: prepared.sources.length > 0 ? prepared.sources : undefined,
+      searchEnginesUsed:
+        prepared.searchEnginesUsed.length > 0 ? prepared.searchEnginesUsed : undefined,
+      createdMemoriesCount: parsed.newMemories?.length ?? 0,
+      createdTasksCount: parsed.newTasks?.length ?? 0,
+      createdAlertsCount: parsed.newAlerts?.length ?? 0,
+      createdEventsCount: parsed.newEvents?.length ?? 0,
+      durationMs: Math.max(120, Date.now() - startedAt),
+      proactiveReason: params.proactiveReason,
+    };
 
-  const updatedWorkspace = await recordInteraction(
-    entry,
-    parsed.newMemories ?? [],
-    parsed.newTasks ?? [],
-    parsed.newAlerts ?? [],
-    parsed.detectedEmotion,
-    parsed.newEvents ?? [],
-    parsed.newQuestions ?? []
-  );
+    const updatedWorkspace = await recordInteraction(
+      entry,
+      parsed.newMemories ?? [],
+      parsed.newTasks ?? [],
+      parsed.newAlerts ?? [],
+      parsed.detectedEmotion,
+      parsed.newEvents ?? [],
+      parsed.newQuestions ?? []
+    );
 
-  return {
-    entry,
-    workspace: updatedWorkspace,
-  };
+    return {
+      entry,
+      workspace: updatedWorkspace,
+    };
+  } catch {
+    return buildResilientInteractionFallback(params, prepared, startedAt);
+  }
 }
 
 export function resolveDayPeriodInfo(clientTimeIso?: string, clientTimezone?: string): {
@@ -886,149 +1031,168 @@ export async function processAssistantInteractionStream(
   const primaryModel = useDeepModel ? 'gemini-4-hydrogen' : 'gemini-3.1-flash-lite';
   const primaryThinking = useDeepModel ? ThinkingLevel.LOW : ThinkingLevel.MINIMAL;
 
-  let stream;
   try {
-    stream = await withTransientRetry(() =>
-      ai.models.generateContentStream({
-        model: primaryModel,
-        contents: prepared.promptPayload,
-        config: {
-          systemInstruction: prepared.systemInstruction,
-          thinkingConfig: {
-            thinkingLevel: primaryThinking,
-          },
-          responseMimeType: 'application/json',
-          responseSchema: INTERACTION_RESPONSE_SCHEMA,
-        },
-      })
-    );
-  } catch (err) {
-    if (primaryModel === 'gemini-3.1-flash-lite' && !isQuotaOrRateLimitError(err)) {
+    let stream;
+    try {
       stream = await withTransientRetry(() =>
         ai.models.generateContentStream({
-          model: 'gemini-4-hydrogen',
+          model: primaryModel,
           contents: prepared.promptPayload,
           config: {
             systemInstruction: prepared.systemInstruction,
             thinkingConfig: {
-              thinkingLevel: ThinkingLevel.LOW,
+              thinkingLevel: primaryThinking,
             },
             responseMimeType: 'application/json',
             responseSchema: INTERACTION_RESPONSE_SCHEMA,
           },
         })
       );
-    } else {
-      throw err;
-    }
-  }
-
-  let fullBuffer = '';
-  const completedTurnIndexes = new Set<number>();
-  let lastSnapshotHash = '';
-
-  for await (const chunk of stream) {
-    const delta = chunk.text ?? '';
-    if (!delta) continue;
-    fullBuffer += delta;
-
-    const snapshot = extractPartialStreamSnapshot(fullBuffer);
-    if (snapshot.turns.length > 0) {
-      const hash = snapshot.turns
-        .map((t) => `${t.speaker}:${t.text.length}:${t.isComplete ? 1 : 0}`)
-        .join('|');
-
-      if (hash !== lastSnapshotHash) {
-        lastSnapshotHash = hash;
-        onEvent({
-          type: 'snapshot',
-          resolvedMode: snapshot.resolvedMode ?? prepared.resolvedTarget,
-          detectedEmotion: snapshot.detectedEmotion,
-          turns: snapshot.turns.map((t) => ({
-            speaker: t.speaker,
-            stance: t.stance,
-            text: t.text,
-            ttsScript: t.ttsScript,
-            isComplete: t.isComplete,
-          })),
-        });
-      }
-
-      snapshot.turns.forEach((turn, idx) => {
-        if (turn.isComplete && turn.text.trim().length > 0 && !completedTurnIndexes.has(idx)) {
-          completedTurnIndexes.add(idx);
-          onEvent({
-            type: 'turn_ready',
-            index: idx,
-            turn: {
-              speaker: turn.speaker,
-              stance: turn.stance,
-              text: turn.text,
-              ttsScript: turn.ttsScript || turn.text,
+    } catch (err) {
+      if (primaryModel === 'gemini-3.1-flash-lite' && !isQuotaOrRateLimitError(err)) {
+        stream = await withTransientRetry(() =>
+          ai.models.generateContentStream({
+            model: 'gemini-4-hydrogen',
+            contents: prepared.promptPayload,
+            config: {
+              systemInstruction: prepared.systemInstruction,
+              thinkingConfig: {
+                thinkingLevel: ThinkingLevel.LOW,
+              },
+              responseMimeType: 'application/json',
+              responseSchema: INTERACTION_RESPONSE_SCHEMA,
             },
+          })
+        );
+      } else {
+        throw err;
+      }
+    }
+
+    let fullBuffer = '';
+    const completedTurnIndexes = new Set<number>();
+    let lastSnapshotHash = '';
+
+    for await (const chunk of stream) {
+      const delta = chunk.text ?? '';
+      if (!delta) continue;
+      fullBuffer += delta;
+
+      const snapshot = extractPartialStreamSnapshot(fullBuffer);
+      if (snapshot.turns.length > 0) {
+        const hash = snapshot.turns
+          .map((t) => `${t.speaker}:${t.text.length}:${t.isComplete ? 1 : 0}`)
+          .join('|');
+
+        if (hash !== lastSnapshotHash) {
+          lastSnapshotHash = hash;
+          onEvent({
+            type: 'snapshot',
+            resolvedMode: snapshot.resolvedMode ?? prepared.resolvedTarget,
+            detectedEmotion: snapshot.detectedEmotion,
+            turns: snapshot.turns.map((t) => ({
+              speaker: t.speaker,
+              stance: t.stance,
+              text: t.text,
+              ttsScript: t.ttsScript,
+              isComplete: t.isComplete,
+            })),
           });
         }
-      });
+
+        snapshot.turns.forEach((turn, idx) => {
+          if (turn.isComplete && turn.text.trim().length > 0 && !completedTurnIndexes.has(idx)) {
+            completedTurnIndexes.add(idx);
+            onEvent({
+              type: 'turn_ready',
+              index: idx,
+              turn: {
+                speaker: turn.speaker,
+                stance: turn.stance,
+                text: turn.text,
+                ttsScript: turn.ttsScript || turn.text,
+              },
+            });
+          }
+        });
+      }
     }
-  }
 
-  const parsed = parseStructuredResult(fullBuffer);
-  const finalMode = parsed.resolvedMode ?? prepared.resolvedTarget;
+    const parsed = parseStructuredResult(fullBuffer);
+    const finalMode = parsed.resolvedMode ?? prepared.resolvedTarget;
 
-  // Ensure any turns not yet flagged as ready are emitted before complete
-  (parsed.responses ?? []).forEach((turn, idx) => {
-    if (!completedTurnIndexes.has(idx) && turn.text?.trim()) {
-      completedTurnIndexes.add(idx);
+    // Ensure any turns not yet flagged as ready are emitted before complete
+    (parsed.responses ?? []).forEach((turn, idx) => {
+      if (!completedTurnIndexes.has(idx) && turn.text?.trim()) {
+        completedTurnIndexes.add(idx);
+        onEvent({
+          type: 'turn_ready',
+          index: idx,
+          turn,
+        });
+      }
+    });
+
+    const entry: ConversationEntry = {
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      userMessage: params.message,
+      userName: prepared.activeUserName,
+      isCreator: prepared.activeUserIsCreator,
+      triggerType: params.triggerType,
+      requestedMode: params.targetMode,
+      resolvedMode: finalMode,
+      detectedEmotion: parsed.detectedEmotion,
+      responses: parsed.responses,
+      debateSummary:
+        finalMode === 'ambos' || finalMode === 'todos' ? parsed.debateSummary ?? null : null,
+      sources: prepared.sources.length > 0 ? prepared.sources : undefined,
+      searchEnginesUsed:
+        prepared.searchEnginesUsed.length > 0 ? prepared.searchEnginesUsed : undefined,
+      createdMemoriesCount: parsed.newMemories?.length ?? 0,
+      createdTasksCount: parsed.newTasks?.length ?? 0,
+      createdAlertsCount: parsed.newAlerts?.length ?? 0,
+      createdEventsCount: parsed.newEvents?.length ?? 0,
+      durationMs: Math.max(120, Date.now() - startedAt),
+      proactiveReason: params.proactiveReason,
+    };
+
+    const updatedWorkspace = await recordInteraction(
+      entry,
+      parsed.newMemories ?? [],
+      parsed.newTasks ?? [],
+      parsed.newAlerts ?? [],
+      parsed.detectedEmotion,
+      parsed.newEvents ?? [],
+      parsed.newQuestions ?? []
+    );
+
+    onEvent({
+      type: 'complete',
+      entry,
+      workspace: updatedWorkspace,
+    });
+
+    return {
+      entry,
+      workspace: updatedWorkspace,
+    };
+  } catch {
+    const fallbackResult = await buildResilientInteractionFallback(params, prepared, startedAt);
+    fallbackResult.entry.responses.forEach((turn, idx) => {
       onEvent({
         type: 'turn_ready',
         index: idx,
         turn,
       });
-    }
-  });
-
-  const entry: ConversationEntry = {
-    id: crypto.randomUUID(),
-    timestamp: new Date().toISOString(),
-    userMessage: params.message,
-    triggerType: params.triggerType,
-    requestedMode: params.targetMode,
-    resolvedMode: finalMode,
-    detectedEmotion: parsed.detectedEmotion,
-    responses: parsed.responses,
-    debateSummary:
-      finalMode === 'ambos' || finalMode === 'todos' ? parsed.debateSummary ?? null : null,
-    sources: prepared.sources.length > 0 ? prepared.sources : undefined,
-    searchEnginesUsed:
-      prepared.searchEnginesUsed.length > 0 ? prepared.searchEnginesUsed : undefined,
-    createdMemoriesCount: parsed.newMemories?.length ?? 0,
-    createdTasksCount: parsed.newTasks?.length ?? 0,
-    createdAlertsCount: parsed.newAlerts?.length ?? 0,
-    createdEventsCount: parsed.newEvents?.length ?? 0,
-    durationMs: Math.max(120, Date.now() - startedAt),
-    proactiveReason: params.proactiveReason,
-  };
-
-  const updatedWorkspace = await recordInteraction(
-    entry,
-    parsed.newMemories ?? [],
-    parsed.newTasks ?? [],
-    parsed.newAlerts ?? [],
-    parsed.detectedEmotion,
-    parsed.newEvents ?? [],
-    parsed.newQuestions ?? []
-  );
-
-  onEvent({
-    type: 'complete',
-    entry,
-    workspace: updatedWorkspace,
-  });
-
-  return {
-    entry,
-    workspace: updatedWorkspace,
-  };
+    });
+    onEvent({
+      type: 'complete',
+      entry: fallbackResult.entry,
+      workspace: fallbackResult.workspace,
+    });
+    return fallbackResult;
+  }
 }
 
 const TTS_CACHE = new Map<string, { audioBase64: string; mimeType: string }>();

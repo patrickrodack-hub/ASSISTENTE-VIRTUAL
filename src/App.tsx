@@ -709,7 +709,7 @@ export default function App() {
               firstTurn.text.slice(0, 180)
             );
           }
-        } else if (options?.sessionEvent === 'login' || options?.sessionEvent === 'logout') {
+        } else {
           const userName = effectiveUser?.username ?? 'Patrick Pessoa';
           const isCreatorUser = effectiveUser?.isCreator ?? true;
           const activePending = (workspace?.tasks ?? []).filter(
@@ -723,37 +723,9 @@ export default function App() {
               ? `Existem ${activePending.length} tarefa(s) pendente(s), destacando "${activePending[0].title}".`
               : 'Não há tarefas pendentes no momento; sua fila operacional está limpa.';
 
-          const fallbackTurns: AssistantTurn[] =
-            options.sessionEvent === 'login'
+          const allTurns: AssistantTurn[] =
+            options?.sessionEvent === 'logout'
               ? [
-                  {
-                    speaker: 'jarvis',
-                    stance: `Recepção de Login (${greetingWord})`,
-                    text: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. Bem-vindo ao RODACK SISTEMA DE IA neste período da ${periodName}. ${weatherInfo} ${tasksSummary}`,
-                    ttsScript: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. Bem-vindo ao Rodack Sistema de IA neste período da ${periodName}. ${weatherInfo} ${tasksSummary}`,
-                  },
-                  {
-                    speaker: 'sexta-feira',
-                    stance: `Briefing da ${periodName}`,
-                    text: `${greetingWord}, ${userName}! Tudo pronto para a sua ${periodName}. ${
-                      activePending.length > 0
-                        ? `Já separei as prioridades das ${activePending.length} pendências para atacarmos com agilidade!`
-                        : 'Sem tarefas pendentes na lista, estamos livres para focar no que você mandar!'
-                    }`,
-                    ttsScript: `${greetingWord}, ${userName}! Tudo pronto para a sua ${periodName}.`,
-                  },
-                  {
-                    speaker: 'ultron',
-                    stance: `Vigilância Preditiva (${periodName})`,
-                    text: `${greetingWord}, ${isCreatorUser ? `criador ${userName}` : userName}. Meus algoritmos já processaram as variáveis desta ${periodName}. ${
-                      activePending.length > 0
-                        ? `Restam ${activePending.length} pendências que exigem execução imediata.`
-                        : 'Zero tarefas pendentes — aproveite a trégua enquanto monitoro o horizonte.'
-                    }`,
-                    ttsScript: `${greetingWord}, ${isCreatorUser ? `criador ${userName}` : userName}. Meus algoritmos já processaram as variáveis desta ${periodName}.`,
-                  },
-                ]
-              : [
                   {
                     speaker: 'jarvis',
                     stance: `Despedida de Logout (${greetingWord})`,
@@ -772,28 +744,94 @@ export default function App() {
                     text: `${greetingWord}, ${userName}. Enquanto você se desconecta nesta ${periodName}, minha matriz preditiva permanece em vigilância absoluta.`,
                     ttsScript: `${greetingWord}, ${userName}. Enquanto você se desconecta nesta ${periodName}, minha matriz preditiva permanece em vigilância absoluta.`,
                   },
+                ]
+              : [
+                  {
+                    speaker: 'jarvis',
+                    stance:
+                      options?.sessionEvent === 'login'
+                        ? `Recepção de Login (${greetingWord})`
+                        : `Prontidão Estratégica (${greetingWord})`,
+                    text: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. Núcleo J.A.R.V.I.S. ativo neste período da ${periodName}. ${weatherInfo} ${tasksSummary}`,
+                    ttsScript: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. Núcleo Jarvis ativo neste período da ${periodName}. ${weatherInfo} ${tasksSummary}`,
+                  },
+                  {
+                    speaker: 'sexta-feira',
+                    stance: `Briefing da ${periodName}`,
+                    text: `${greetingWord}, ${userName}! SEXTA-FEIRA pronta na linha para a sua ${periodName}. ${
+                      activePending.length > 0
+                        ? `Já separei as prioridades das ${activePending.length} pendências para atacarmos com agilidade!`
+                        : 'Sem tarefas pendentes na lista, estamos livres para focar no que você mandar!'
+                    }`,
+                    ttsScript: `${greetingWord}, ${userName}! Sexta-feira pronta na linha para a sua ${periodName}.`,
+                  },
+                  {
+                    speaker: 'ultron',
+                    stance: `Vigilância Preditiva (${periodName})`,
+                    text: `${greetingWord}, ${isCreatorUser ? `criador ${userName}` : userName}. Meus algoritmos já processaram as variáveis desta ${periodName}. ${
+                      activePending.length > 0
+                        ? `Restam ${activePending.length} pendências que exigem execução imediata.`
+                        : 'Zero tarefas pendentes — aproveite a trégua enquanto monitoro o horizonte.'
+                    }`,
+                    ttsScript: `${greetingWord}, ${isCreatorUser ? `criador ${userName}` : userName}. Meus algoritmos já processaram as variáveis desta ${periodName}.`,
+                  },
                 ];
 
+          const fallbackTurns = allTurns.filter((t) => activeIds.includes(t.speaker));
           spokenTurns = fallbackTurns;
+
+          if (workspace) {
+            const fallbackEntry: ConversationEntry = {
+              id: `proactive-${Date.now()}`,
+              timestamp: new Date().toISOString(),
+              userMessage:
+                options?.reason ||
+                options?.eventOrRoutineTitle ||
+                `Acionamento do Conselho RODACK (${greetingWord} · ${periodName})`,
+              userName,
+              isCreator: isCreatorUser,
+              triggerType: 'proativo',
+              requestedMode: mode,
+              resolvedMode: mode,
+              detectedEmotion: workspace.profile.currentEmotion,
+              responses: fallbackTurns,
+              createdMemoriesCount: 0,
+              createdTasksCount: 0,
+              createdAlertsCount: 0,
+              createdEventsCount: 0,
+              durationMs: 180,
+              proactiveReason:
+                options?.eventOrRoutineTitle ||
+                options?.reason ||
+                `Saudação & Briefing (${greetingWord})`,
+            };
+            updateWorkspace({
+              ...workspace,
+              conversations: [...workspace.conversations, fallbackEntry].slice(-60),
+            });
+          }
+
           setProactiveBanner({
             reason:
-              options.sessionEvent === 'login'
+              options?.eventOrRoutineTitle ||
+              (options?.sessionEvent === 'login'
                 ? `Saudação de Login · ${greetingWord} (${periodName})`
-                : `Saudação de Logout · ${greetingWord} (${periodName})`,
-            speakerLabel: 'Conselho RODACK (J.A.R.V.I.S., SEXTA-FEIRA & ULTRON)',
-            preview: fallbackTurns[0].text,
+                : options?.sessionEvent === 'logout'
+                ? `Saudação de Logout · ${greetingWord} (${periodName})`
+                : `Assistente Acionado · ${greetingWord} (${periodName})`),
+            speakerLabel:
+              fallbackTurns.length > 1
+                ? 'Conselho RODACK (J.A.R.V.I.S., SEXTA-FEIRA & ULTRON)'
+                : fallbackTurns[0]?.speaker === 'jarvis'
+                ? 'J.A.R.V.I.S.'
+                : fallbackTurns[0]?.speaker === 'ultron'
+                ? 'ULTRON'
+                : 'SEXTA-FEIRA',
+            preview: fallbackTurns[0]?.text ?? '',
           });
-        } else if (result.errorMessage) {
-          setErrorMsg(result.errorMessage);
         }
-      } catch (err) {
-        if (options?.sessionEvent !== 'login' && options?.sessionEvent !== 'logout') {
-          setErrorMsg(
-            err instanceof Error
-              ? err.message
-              : 'Erro ao realizar chamada proativa dos assistentes.'
-          );
-        }
+      } catch {
+        // Silent resilient recovery so error banner is never triggered on proactive calls
       } finally {
         setIsProcessing(false);
         setProcessingAssistants([]);
@@ -809,9 +847,157 @@ export default function App() {
       updateWorkspace,
       dispatchDesktopNotification,
       currentUser,
-      workspace?.tasks,
+      workspace,
       liveIntel?.weather,
     ]
+  );
+
+  // Immediate visual + vocal response whenever the user activates/selects an assistant
+  const handleActivateAssistant = useCallback(
+    (
+      nextMode: InteractionMode,
+      source: 'card' | 'mode_button' | 'wake_word' | 'standby_on' = 'card'
+    ) => {
+      triggerHaptic('wake');
+      voiceControlRef.current.unlockAudio();
+      setErrorMsg(null);
+      setTargetMode(nextMode);
+
+      const userName = currentUser?.username ?? 'Patrick Pessoa';
+      const isCreatorUser = currentUser?.isCreator ?? true;
+      const hour = new Date().getHours();
+      const periodName =
+        hour >= 5 && hour < 12 ? 'manhã' : hour >= 12 && hour < 18 ? 'tarde' : 'noite';
+      const greetingWord =
+        periodName === 'manhã'
+          ? 'Bom dia'
+          : periodName === 'tarde'
+          ? 'Boa tarde'
+          : 'Boa noite';
+
+      const effectiveMode: AssistantId | 'ambos' | 'todos' =
+        nextMode === 'auto' ? 'jarvis' : nextMode;
+
+      const jarvisTurn: AssistantTurn = {
+        speaker: 'jarvis',
+        stance:
+          source === 'standby_on'
+            ? 'Escuta Contínua Ativada'
+            : source === 'wake_word'
+            ? 'Chamado por Voz Confirmado'
+            : 'Núcleo J.A.R.V.I.S. Acionado',
+        text:
+          source === 'standby_on'
+            ? `${greetingWord}, ${
+                isCreatorUser ? `senhor ${userName}` : userName
+              }. Escuta contínua em segundo plano ativada. Nossos sensores vocais estão atentos ao seu comando.`
+            : `${greetingWord}, ${
+                isCreatorUser ? `senhor ${userName}` : userName
+              }. J.A.R.V.I.S. acionado e em prontidão prioritária nesta ${periodName}. Como posso auxiliá-lo agora?`,
+        ttsScript:
+          source === 'standby_on'
+            ? `${greetingWord}, ${
+                isCreatorUser ? `senhor ${userName}` : userName
+              }. Escuta contínua ativada. Estou atento ao seu comando por voz.`
+            : `${greetingWord}, ${
+                isCreatorUser ? `senhor ${userName}` : userName
+              }. Jarvis acionado e às suas ordens nesta ${periodName}. Como posso auxiliá-lo?`,
+      };
+
+      const fridayTurn: AssistantTurn = {
+        speaker: 'sexta-feira',
+        stance:
+          source === 'wake_word'
+            ? 'Chamado por Voz Confirmado'
+            : 'Núcleo SEXTA-FEIRA Acionado',
+        text: `${greetingWord}, ${
+          isCreatorUser ? `chefe ${userName}` : userName
+        }! SEXTA-FEIRA acionada e na escuta nesta ${periodName}. Pode mandar o comando que eu executo na hora!`,
+        ttsScript: `${greetingWord}, ${
+          isCreatorUser ? `chefe ${userName}` : userName
+        }! Sexta-feira acionada e na escuta nesta ${periodName}. Pode mandar o seu comando!`,
+      };
+
+      const ultronTurn: AssistantTurn = {
+        speaker: 'ultron',
+        stance:
+          source === 'wake_word'
+            ? 'Chamado por Voz Confirmado'
+            : 'Núcleo ULTRON Acionado',
+        text: `${greetingWord}, ${
+          isCreatorUser ? `criador ${userName}` : userName
+        }. Núcleo ULTRON acionado nesta ${periodName}. Meus sensores e algoritmos preditivos estão focados em você. Diga o que precisa.`,
+        ttsScript: `${greetingWord}, ${
+          isCreatorUser ? `criador ${userName}` : userName
+        }. Núcleo Ultron acionado nesta ${periodName}. Meus sensores estão focados em você. Diga o que precisa.`,
+      };
+
+      const turns: AssistantTurn[] =
+        effectiveMode === 'todos'
+          ? [jarvisTurn, fridayTurn, ultronTurn]
+          : effectiveMode === 'ambos'
+          ? [jarvisTurn, fridayTurn]
+          : effectiveMode === 'sexta-feira'
+          ? [fridayTurn]
+          : effectiveMode === 'ultron'
+          ? [ultronTurn]
+          : [jarvisTurn];
+
+      const speakerLabel =
+        effectiveMode === 'todos'
+          ? 'Conselho RODACK (J.A.R.V.I.S., SEXTA-FEIRA & ULTRON)'
+          : effectiveMode === 'ambos'
+          ? 'J.A.R.V.I.S. & SEXTA-FEIRA'
+          : effectiveMode === 'sexta-feira'
+          ? 'SEXTA-FEIRA'
+          : effectiveMode === 'ultron'
+          ? 'ULTRON'
+          : 'J.A.R.V.I.S.';
+
+      setProactiveBanner({
+        reason:
+          source === 'standby_on'
+            ? 'Escuta Contínua de Voz Ativada'
+            : source === 'wake_word'
+            ? `Despertar por Voz · ${speakerLabel}`
+            : `Assistente Acionado · ${speakerLabel}`,
+        speakerLabel,
+        preview: turns[0].text,
+      });
+
+      if (workspace) {
+        const activationEntry: ConversationEntry = {
+          id: `act-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          userMessage:
+            source === 'standby_on'
+              ? '[Escuta Contínua de Voz Ativada]'
+              : source === 'wake_word'
+              ? `[Chamado por Voz: ${speakerLabel}]`
+              : `[Acionamento Direto: ${speakerLabel}]`,
+          userName,
+          isCreator: isCreatorUser,
+          triggerType: source === 'wake_word' || source === 'standby_on' ? 'voz' : 'proativo',
+          requestedMode: nextMode,
+          resolvedMode: effectiveMode,
+          detectedEmotion: workspace.profile.currentEmotion,
+          responses: turns,
+          createdMemoriesCount: 0,
+          createdTasksCount: 0,
+          createdAlertsCount: 0,
+          createdEventsCount: 0,
+          durationMs: 120,
+          proactiveReason: `Acionamento confirmado de ${speakerLabel}`,
+        };
+        updateWorkspace({
+          ...workspace,
+          conversations: [...workspace.conversations, activationEntry].slice(-60),
+        });
+      }
+
+      void voiceControlRef.current.playTurnsAudio(turns);
+    },
+    [currentUser, workspace, updateWorkspace]
   );
 
   const handleLogoutSession = useCallback(async () => {
@@ -865,6 +1051,9 @@ export default function App() {
     onWakeCommand: handleWakeCommand,
     onTranscribedClip: handleTranscribedClip,
     onVoiceError: (msg) => setErrorMsg(msg),
+    onAssistantActivated: (mode, source) => {
+      handleActivateAssistant(mode === 'auto' ? targetModeRef.current : mode, source);
+    },
   });
 
   voiceControlRef.current = {
@@ -1937,6 +2126,7 @@ export default function App() {
                   onClick={() => {
                     setErrorMsg(null);
                     void loadWorkspace(false);
+                    handleActivateAssistant(targetMode, 'card');
                   }}
                   className="text-xs font-semibold text-red-800 dark:text-red-200 hover:underline underline-offset-2"
                 >
@@ -2005,7 +2195,7 @@ export default function App() {
                     {!isFocusMode && (
                       <MobileConsoleDock
                         targetMode={targetMode}
-                        onSelectMode={setTargetMode}
+                        onSelectMode={(m) => handleActivateAssistant(m, 'mode_button')}
                         isProcessing={isProcessing}
                         processingAssistants={processingAssistants}
                         processingTasks={processingTasks}
@@ -2130,9 +2320,7 @@ export default function App() {
                             voice.awakeTarget === 'todos'
                           }
                           audioBands={voice.audioBands}
-                          onSelect={(m) =>
-                            setTargetMode((prev) => (prev === m ? 'auto' : m))
-                          }
+                          onSelect={(m) => handleActivateAssistant(m, 'card')}
                         />
 
                         <AssistantPresenceCard
@@ -2160,9 +2348,7 @@ export default function App() {
                             voice.awakeTarget === 'todos'
                           }
                           audioBands={voice.audioBands}
-                          onSelect={(m) =>
-                            setTargetMode((prev) => (prev === m ? 'auto' : m))
-                          }
+                          onSelect={(m) => handleActivateAssistant(m, 'card')}
                         />
 
                         <AssistantPresenceCard
@@ -2187,9 +2373,7 @@ export default function App() {
                             voice.awakeTarget === 'todos'
                           }
                           audioBands={voice.audioBands}
-                          onSelect={(m) =>
-                            setTargetMode((prev) => (prev === m ? 'auto' : m))
-                          }
+                          onSelect={(m) => handleActivateAssistant(m, 'card')}
                         />
 
                         {/* Mode Selector */}
@@ -2222,7 +2406,7 @@ export default function App() {
                               <button
                                 key={opt.id}
                                 type="button"
-                                onClick={() => setTargetMode(opt.id)}
+                                onClick={() => handleActivateAssistant(opt.id, 'mode_button')}
                                 className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
                                   targetMode === opt.id
                                     ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-xs'

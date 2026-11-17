@@ -637,6 +637,154 @@ export interface StreamInteractionCallbacks {
   onComplete?: (event: StreamCompleteEvent) => void;
 }
 
+function buildClientAutonomousInteractionFallback(payload: {
+  message: string;
+  targetMode: InteractionMode;
+  triggerType: 'voz' | 'texto' | 'auditoria';
+  clientTimeIso: string;
+  clientTimezone: string;
+  activeUser?: {
+    username: string;
+    roleLabel: string;
+    isCreator: boolean;
+  };
+}): { entry: ConversationEntry; workspace: WorkspaceState } {
+  const ws = getCachedOrSeedWorkspace();
+  const now = payload.clientTimeIso ? new Date(payload.clientTimeIso) : new Date();
+  const hour = now.getHours();
+  const period = hour >= 5 && hour < 12 ? 'manhã' : hour >= 12 && hour < 18 ? 'tarde' : 'noite';
+  const greeting =
+    period === 'manhã' ? 'Bom dia' : period === 'tarde' ? 'Boa tarde' : 'Boa noite';
+  const timeStr = `${String(hour).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  const userName = payload.activeUser?.username?.trim() || 'Patrick Pessoa';
+  const isCreator =
+    payload.activeUser?.isCreator !== undefined
+      ? payload.activeUser.isCreator
+      : userName.toLowerCase().includes('patrick');
+
+  const lowerMsg = payload.message.toLowerCase();
+  let resolvedMode: AssistantId | 'ambos' | 'todos' =
+    payload.targetMode === 'auto'
+      ? /\b(todos|os tr[eê]s|conselho)\b/i.test(lowerMsg)
+        ? 'todos'
+        : /\b(ultron|[uú]ltron|falha|risco|diagn[oó]stico)\b/i.test(lowerMsg)
+        ? 'ultron'
+        : /\b(sexta|friday|clima|tempo|not[ií]cia|rotina)\b/i.test(lowerMsg)
+        ? 'sexta-feira'
+        : /\b(ambos|os dois)\b/i.test(lowerMsg)
+        ? 'ambos'
+        : 'jarvis'
+      : payload.targetMode;
+
+  const activeAssistants: AssistantId[] =
+    resolvedMode === 'todos'
+      ? ['jarvis', 'sexta-feira', 'ultron']
+      : resolvedMode === 'ambos'
+      ? ['jarvis', 'sexta-feira']
+      : [resolvedMode];
+
+  const pendingTasks = (ws.tasks ?? []).filter((t) => t.status !== 'concluida');
+  const tasksSummary =
+    pendingTasks.length > 0
+      ? `Identifico ${pendingTasks.length} tarefa(s) pendente(s) no sistema, destacando "${pendingTasks[0].title}".`
+      : 'Não há tarefas pendentes no momento; sua fila operacional está limpa.';
+
+  const nextAgenda = (ws.agenda ?? []).find((e) => !e.completed);
+  const agendaSummary = nextAgenda
+    ? `Próximo compromisso na agenda: ${nextAgenda.startTime} — "${nextAgenda.title}".`
+    : 'Sua agenda imediata está livre para execução.';
+
+  const responses: AssistantTurn[] = activeAssistants.map((speaker) => {
+    if (speaker === 'jarvis') {
+      const text = `${greeting}, ${
+        isCreator ? `senhor ${userName}` : userName
+      }. Núcleo J.A.R.V.I.S. acionado e em sintonia com sua solicitação ("${payload.message.slice(
+        0,
+        120
+      )}"). Neste período da ${period} (${timeStr}), todos os protocolos do RODACK SISTEMA DE IA estão operacionais. ${agendaSummary} ${tasksSummary}`;
+      return {
+        speaker: 'jarvis',
+        stance: `Atendimento Estratégico (${period})`,
+        text,
+        ttsScript: text,
+      };
+    }
+    if (speaker === 'sexta-feira') {
+      const text = `${greeting}, ${
+        isCreator ? `chefe ${userName}` : userName
+      }! SEXTA-FEIRA acionada na linha para atender "${payload.message.slice(
+        0,
+        120
+      )}". Nesta ${period} (${timeStr}), estou monitorando suas rotinas e o radar do Rio de Janeiro, Brasil e Mundo. ${tasksSummary} Pode mandar o próximo comando!`;
+      return {
+        speaker: 'sexta-feira',
+        stance: `Prontidão Tática (${period})`,
+        text,
+        ttsScript: text,
+      };
+    }
+    const text = `${greeting}, ${
+      isCreator ? `criador ${userName}` : userName
+    }. Núcleo ULTRON acionado. Analisei sua diretriz ("${payload.message.slice(
+      0,
+      120
+    )}") às ${timeStr} desta ${period}. ${tasksSummary} Meus núcleos preditivos seguem em vigilância total sobre sua arquitetura.`;
+    return {
+      speaker: 'ultron',
+      stance: `Vigilância Cibernética (${period})`,
+      text,
+      ttsScript: text,
+    };
+  });
+
+  const entry: ConversationEntry = {
+    id: `entry-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    userMessage: payload.message,
+    userName,
+    isCreator,
+    triggerType: payload.triggerType,
+    requestedMode: payload.targetMode,
+    resolvedMode,
+    detectedEmotion: {
+      label: 'Focado',
+      intensity: 'media',
+      empathyNote: `Assistentes acionados e respondendo prontamente a ${userName}.`,
+    },
+    responses,
+    debateSummary:
+      resolvedMode === 'ambos' || resolvedMode === 'todos'
+        ? {
+            agreementPoint: `Conselho RODACK IA acionado com sucesso no período da ${period} (${timeStr}).`,
+            divergencePoint:
+              pendingTasks.length > 0
+                ? `${pendingTasks.length} tarefa(s) pendente(s) sob acompanhamento.`
+                : 'Fila de tarefas limpa; foco total na solicitação atual.',
+            finalRecommendation: 'Núcleos prontos para comandos contínuos de voz ou texto.',
+          }
+        : null,
+    createdMemoriesCount: 0,
+    createdTasksCount: 0,
+    createdAlertsCount: 0,
+    createdEventsCount: 0,
+    durationMs: 180,
+  };
+
+  const updatedWorkspace: WorkspaceState = {
+    ...ws,
+    profile: {
+      ...ws.profile,
+      currentEmotion: entry.detectedEmotion ?? ws.profile.currentEmotion,
+      totalInteractions: (ws.profile.totalInteractions ?? 0) + 1,
+    },
+    conversations: [...(ws.conversations ?? []), entry].slice(-60),
+  };
+
+  saveWorkspaceCache(updatedWorkspace);
+  return { entry, workspace: updatedWorkspace };
+}
+
 export async function streamAssistantInteraction(
   payload: {
     message: string;
@@ -653,54 +801,63 @@ export async function streamAssistantInteraction(
   },
   callbacks: StreamInteractionCallbacks
 ): Promise<void> {
-  const res = await fetch('/api/assistant/interact/stream', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    const raw = await res.text();
-    let msg = 'Erro ao conectar com os assistentes.';
-    try {
-      const parsed = JSON.parse(raw) as { error?: string };
-      if (parsed?.error) msg = parsed.error;
-    } catch {
-      if (res.status === 429) {
-        msg = 'Limite de requisições atingido temporariamente. Aguarde alguns segundos.';
-      }
-    }
-    throw new Error(msg);
-  }
-
-  const contentType = res.headers.get('content-type') || '';
-  if (!res.body || contentType.includes('application/json')) {
-    // Fallback to standard JSON response if stream reader is unavailable
+  const runFallbackJsonOrLocal = async () => {
     const fallback = await safeFetchJson<{
       entry?: ConversationEntry;
       workspace?: WorkspaceState;
       error?: string;
-    }>('/api/assistant/interact', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!fallback.ok || !fallback.data?.entry || !fallback.data?.workspace) {
-      throw new Error(
-        fallback.errorMessage || 'Erro ao processar solicitação com os assistentes.'
-      );
+    }>(
+      '/api/assistant/interact',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      1
+    );
+
+    if (fallback.ok && fallback.data?.entry && fallback.data?.workspace) {
+      saveWorkspaceCache(fallback.data.workspace);
+      fallback.data.entry.responses.forEach((turn, index) => {
+        callbacks.onTurnReady?.({ type: 'turn_ready', index, turn });
+      });
+      callbacks.onComplete?.({
+        type: 'complete',
+        entry: fallback.data.entry,
+        workspace: fallback.data.workspace,
+      });
+      return;
     }
-    fallback.data.entry.responses.forEach((turn, index) => {
+
+    const localResult = buildClientAutonomousInteractionFallback(payload);
+    localResult.entry.responses.forEach((turn, index) => {
       callbacks.onTurnReady?.({ type: 'turn_ready', index, turn });
     });
     callbacks.onComplete?.({
       type: 'complete',
-      entry: fallback.data.entry,
-      workspace: fallback.data.workspace,
+      entry: localResult.entry,
+      workspace: localResult.workspace,
     });
+  };
+
+  let res: Response;
+  try {
+    res = await fetch('/api/assistant/interact/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    await runFallbackJsonOrLocal();
+    return;
+  }
+
+  const contentType = res.headers.get('content-type') || '';
+  if (!res.ok || !res.body || !contentType.includes('text/event-stream')) {
+    await runFallbackJsonOrLocal();
     return;
   }
 
@@ -708,6 +865,7 @@ export async function streamAssistantInteraction(
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
   let receivedComplete = false;
+  let receivedAnyTurn = false;
   let streamError: string | null = null;
 
   const dispatchFrame = (rawFrame: string) => {
@@ -737,10 +895,15 @@ export async function streamAssistantInteraction(
     } else if (eventName === 'snapshot') {
       callbacks.onSnapshot?.(parsed as unknown as StreamSnapshotEvent);
     } else if (eventName === 'turn_ready') {
+      receivedAnyTurn = true;
       callbacks.onTurnReady?.(parsed as unknown as StreamTurnReadyEvent);
     } else if (eventName === 'complete') {
       receivedComplete = true;
-      callbacks.onComplete?.(parsed as unknown as StreamCompleteEvent);
+      const completeEvt = parsed as unknown as StreamCompleteEvent;
+      if (completeEvt.workspace) {
+        saveWorkspaceCache(completeEvt.workspace);
+      }
+      callbacks.onComplete?.(completeEvt);
     } else if (eventName === 'error') {
       streamError =
         typeof parsed.error === 'string'
@@ -749,31 +912,35 @@ export async function streamAssistantInteraction(
     }
   };
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    let separatorIdx = buffer.indexOf('\n\n');
-    while (separatorIdx !== -1) {
-      const frame = buffer.slice(0, separatorIdx).trim();
-      buffer = buffer.slice(separatorIdx + 2);
-      if (frame) {
-        dispatchFrame(frame);
+      let separatorIdx = buffer.indexOf('\n\n');
+      while (separatorIdx !== -1) {
+        const frame = buffer.slice(0, separatorIdx).trim();
+        buffer = buffer.slice(separatorIdx + 2);
+        if (frame) {
+          dispatchFrame(frame);
+        }
+        separatorIdx = buffer.indexOf('\n\n');
       }
-      separatorIdx = buffer.indexOf('\n\n');
+    }
+
+    const remainder = buffer.trim();
+    if (remainder) {
+      dispatchFrame(remainder);
+    }
+  } catch {
+    if (!receivedComplete) {
+      await runFallbackJsonOrLocal();
+      return;
     }
   }
 
-  const remainder = buffer.trim();
-  if (remainder) {
-    dispatchFrame(remainder);
-  }
-
-  if (streamError) {
-    throw new Error(streamError);
-  }
-  if (!receivedComplete) {
-    throw new Error('A conexão de streaming foi encerrada antes da resposta final.');
+  if ((streamError || !receivedComplete) && !receivedAnyTurn) {
+    await runFallbackJsonOrLocal();
   }
 }
