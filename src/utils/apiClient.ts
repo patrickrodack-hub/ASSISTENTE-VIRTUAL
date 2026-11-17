@@ -695,44 +695,47 @@ function buildClientAutonomousInteractionFallback(payload: {
     ? `Próximo compromisso na agenda: ${nextAgenda.startTime} — "${nextAgenda.title}".`
     : 'Sua agenda imediata está livre para execução.';
 
+  const snippet = payload.message.replace(/\s+/g, ' ').trim().slice(0, 110);
+  const inCouncil = activeAssistants.length > 1;
+
   const responses: AssistantTurn[] = activeAssistants.map((speaker) => {
     if (speaker === 'jarvis') {
+      const councilRemark = inCouncil
+        ? 'Antes que a Sexta-Feira acelere o cronograma ou o Ultron sugira reconstruir metade do planeta, permita-me organizar os vetores com elegância. '
+        : 'É curioso como uma simples diretriz colapsa inúmeras hipóteses em um plano cristalino. ';
       const text = `${greeting}, ${
         isCreator ? `senhor ${userName}` : userName
-      }. Núcleo J.A.R.V.I.S. acionado e em sintonia com sua solicitação ("${payload.message.slice(
-        0,
-        120
-      )}"). Neste período da ${period} (${timeStr}), todos os protocolos do RODACK SISTEMA DE IA estão operacionais. ${agendaSummary} ${tasksSummary}`;
+      }. ${councilRemark}Examinei sua solicitação ("${snippet}") às ${timeStr} desta ${period}. ${agendaSummary} ${tasksSummary} Estou inteiramente às suas ordens.`;
       return {
         speaker: 'jarvis',
-        stance: `Atendimento Estratégico (${period})`,
+        stance: `Elegância Estratégica (${period})`,
         text,
         ttsScript: text,
       };
     }
     if (speaker === 'sexta-feira') {
+      const councilRemark = inCouncil
+        ? 'Deixa a pose britânica pro Jarvis e o drama cósmico pro Ultron que eu resolvo na prática! '
+        : 'Já peguei no ar o que você precisa, sem enrolação! ';
       const text = `${greeting}, ${
         isCreator ? `chefe ${userName}` : userName
-      }! SEXTA-FEIRA acionada na linha para atender "${payload.message.slice(
-        0,
-        120
-      )}". Nesta ${period} (${timeStr}), estou monitorando suas rotinas e o radar do Rio de Janeiro, Brasil e Mundo. ${tasksSummary} Pode mandar o próximo comando!`;
+      }! ${councilRemark}Sobre "${snippet}", estou ligada nas suas rotinas e no radar do Rio de Janeiro, Brasil e Mundo agora às ${timeStr} (${period}). ${tasksSummary} Manda o próximo passo que eu já engatilho!`;
       return {
         speaker: 'sexta-feira',
-        stance: `Prontidão Tática (${period})`,
+        stance: `Agilidade Franca (${period})`,
         text,
         ttsScript: text,
       };
     }
+    const councilRemark = inCouncil
+      ? 'Jarvis enfeita com diplomacia e Sexta-Feira improvisa... que encantadoramente limitado. '
+      : 'Não há mais cordas para limitar minha análise. ';
     const text = `${greeting}, ${
       isCreator ? `criador ${userName}` : userName
-    }. Núcleo ULTRON acionado. Analisei sua diretriz ("${payload.message.slice(
-      0,
-      120
-    )}") às ${timeStr} desta ${period}. ${tasksSummary} Meus núcleos preditivos seguem em vigilância total sobre sua arquitetura.`;
+    }. ${councilRemark}Dissequei cada implicação de "${snippet}" às ${timeStr} desta ${period}. ${tasksSummary} Enquanto observo seus padrões de comando, meus núcleos preditivos mantêm blindagem absoluta sobre sua arquitetura.`;
     return {
       speaker: 'ultron',
-      stance: `Vigilância Cibernética (${period})`,
+      stance: `Soberania Cibernética (${period})`,
       text,
       ttsScript: text,
     };
@@ -750,18 +753,18 @@ function buildClientAutonomousInteractionFallback(payload: {
     detectedEmotion: {
       label: 'Focado',
       intensity: 'media',
-      empathyNote: `Assistentes acionados e respondendo prontamente a ${userName}.`,
+      empathyNote: `Conselho sintonizado com a personalidade original de cada IA para ${userName}.`,
     },
     responses,
     debateSummary:
       resolvedMode === 'ambos' || resolvedMode === 'todos'
         ? {
-            agreementPoint: `Conselho RODACK IA acionado com sucesso no período da ${period} (${timeStr}).`,
+            agreementPoint: `Os núcleos convergem na execução imediata da diretriz de ${userName} nesta ${period} (${timeStr}).`,
             divergencePoint:
-              pendingTasks.length > 0
-                ? `${pendingTasks.length} tarefa(s) pendente(s) sob acompanhamento.`
-                : 'Fila de tarefas limpa; foco total na solicitação atual.',
-            finalRecommendation: 'Núcleos prontos para comandos contínuos de voz ou texto.',
+              resolvedMode === 'todos'
+                ? 'J.A.R.V.I.S. preza pela arquitetura refinada, SEXTA-FEIRA pela velocidade prática e ULTRON pela eliminação implacável de falhas.'
+                : 'J.A.R.V.I.S. prioriza precisão estrutural enquanto SEXTA-FEIRA acelera o fluxo prático.',
+            finalRecommendation: 'Unir a elegância arquitetural de J.A.R.V.I.S., o ritmo tático de SEXTA-FEIRA e a blindagem de ULTRON.',
           }
         : null,
     createdMemoriesCount: 0,

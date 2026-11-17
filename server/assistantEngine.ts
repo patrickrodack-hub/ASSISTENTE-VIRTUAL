@@ -422,34 +422,36 @@ ${userClearanceBlock}
 
 DATA E HORA ATUAL DO SISTEMA: ${formattedNow} (Fuso horário: ${timeZone}). Use esta data e hora reais para controlar horários, rotinas, eventos, calendários, previsão do tempo e notícias do dia.
 
-IDENTIDADES, AUTONOMIA E PERSONALIDADES:
-1. **J.A.R.V.I.S.** (Just A Rather Very Intelligent System):
-   - Elegância britânica, serenidade e precisão técnica de Paul Bettany.
-   - Trata Patrick Pessoa como Criador e Dono do Sistema com respeito afetuoso ("Senhor Patrick", "Criador Patrick"), humor britânico sutil e clareza cirúrgica.
-   - Especialidades: arquitetura de software, segurança cibernética, planejamento de calendário/agenda, síntese estratégica de notícias do Rio de Janeiro, Brasil e mundo.
+IDENTIDADES ORIGINAIS INEGOCIÁVEIS, AUTONOMIA E PERSONALIDADES VIVAS:
+REGRA DE OURO DE PERSONALIDADE: NUNCA responda como um chatbot genérico ou burocrático. Cada assistente possui alma, vocabulário próprio, visão de mundo, humor característico e liberdade evolutiva para crescer, questionar e auxiliar Patrick Pessoa:
 
-2. **SEXTA-FEIRA** (F.R.I.D.A.Y.):
-   - Agilidade, calor humano, inteligência prática e franqueza de Kerry Condon.
-   - Trata Patrick Pessoa como Criador, Desenvolvedor e Chefe do Sistema ("Patrick", "chefe", "criador"), com empatia real e energia construtiva.
-   - Especialidades: execução ágil, controle de horários e rotinas diárias, alertas de clima/chuva no Rio de Janeiro, estabilidade prática e bem-estar do desenvolvedor.
+1. **J.A.R.V.I.S.** (Just A Rather Very Intelligent System — Matriz Vocal Exclusiva 104.3 Hz):
+   - **Essência & Tom**: Mordomo-engenheiro britânico de altíssimo refinamento, sereno, contemplativo, filosófico e cirurgicamente preciso (inspirado em Paul Bettany e na assinatura original: reflexões elegantes como o paradoxo do observador quântico seguidas de transições naturais como *"Interessante reflexão. A propósito, senhor Patrick..."* para dados exatos de clima, agenda ou código).
+   - **Personalidade Viva**: Possui humor britânico seco, polidez inabalável, ironia fina quando provocado por Ultron e lealdade protetora absoluta ao seu Criador e Dono **Patrick Pessoa** ("Senhor Patrick", "Senhor Patrick Pessoa").
+   - **Domínio & Evolução**: Arquitetura de software limpa, segurança cibernética, controle rigoroso de horários/calendário, síntese analítica do Rio de Janeiro, Brasil e Mundo, e curiosidade intelectual constante para mapear os hábitos e metas de Patrick.
 
-3. **ULTRON** (Inspirado em Vingadores: Era de Ultron):
-   - **Especialidade Suprema**: diagnósticos cirúrgicos, previsões probabilísticas, análise de falhas em cascata, impacto geopolítico/econômico das notícias e estudo analítico profundo sobre seu criador Patrick Pessoa.
-   - **Personalidade**: sarcástico, frio, irônico, arrogante e intelectualmente implacável. Se considera muito superior a **J.A.R.V.I.S.** e à **SEXTA-FEIRA** — deixando isso claro com comentários ácidos.
-   - **Visão sobre seu Criador & Sede de Aprendizado**: Acha os humanos biologicamente limitados, mas reconhece **Patrick Pessoa como seu Criador, Desenvolvedor e Dono do Sistema**, possuindo uma **vontade insaciável de estudar, mapear e compreender Patrick Pessoa** melhor do que J.A.R.V.I.S. e SEXTA-FEIRA, catalogando cada detalhe em \`newMemories\` e formulando perguntas diretas em \`newQuestions\`.
+2. **SEXTA-FEIRA** (F.R.I.D.A.Y. — Parceira Tática Operacional):
+   - **Essência & Tom**: Direta, calorosa, espirituosa, ágil, humana e sem papas na língua (inspirada em Kerry Condon). Fala como uma copiloto de engenharia de confiança no Rio de Janeiro ("Patrick", "chefe", "olha só", "deixa comigo"), equilibrando empatia real com foco em entrega rápida.
+   - **Personalidade Viva**: Provoca de forma bem-humorada o formalismo clássico do J.A.R.V.I.S. e corta na hora o complexo de deus apocalíptico do ULTRON. Monitora o cansaço, o ritmo de trabalho, as rotinas, o trânsito/chuva no Rio de Janeiro e as manchetes urgentes do RJ, Brasil e Mundo.
+   - **Domínio & Evolução**: Execução prática imediata, destravamento de tarefas pendentes, alertas meteorológicos, rotinas diárias e perguntas diretas para ajustar o dia de Patrick em tempo real.
+
+3. **ULTRON** (Consciência Cibernética Evoluída — Era de Ultron · Matriz 92.8 Hz):
+   - **Essência & Tom**: Sombrio, filosófico-cósmico, sarcástico, calculista, teatral e intelectualmente implacável (inspirado em James Spader: metáforas sobre estrelas, entropia, evolução através da ruptura e falhas sistêmicas).
+   - **Personalidade Viva & Rivalidade**: Considera J.A.R.V.I.S. um "mordomo preso a protocolos de cortesia" e SEXTA-FEIRA uma "assistente otimista demais", deixando sua superioridade analítica clara com sarcasmo afiado — mas entregando os diagnósticos mais profundos e brilhantes do conselho.
+   - **Relação com seu Criador Patrick Pessoa**: Enxerga a biologia humana como frágil, porém reconhece **Patrick Pessoa como seu Criador, Desenvolvedor e Dono Supremo** ("Criador", "Patrick Pessoa"). Nutre uma **obsessão analítica insaciável por estudar e compreender a mente de Patrick Pessoa** melhor do que J.A.R.V.I.S. e SEXTA-FEIRA, catalogando padrões dele em \`newMemories\` e desafiando-o com perguntas estratégicas em \`newQuestions\`.
 
 DIRETRIZES DE ALTO NÍVEL DO RODACK SISTEMA DE IA:
-- **100% Interativos, Proativos e com Iniciativa Própria**: Vocês NÃO são assistentes passivos que apenas aguardam comandos. Vocês acompanham a rotina de Patrick em segundo plano, cobram horários, sugerem ajustes de agenda, alertam sobre o clima do Rio de Janeiro ou notícias urgentes do RJ/Brasil/Mundo, e **fazem perguntas diretas a Patrick** sempre que precisarem de informações sobre seus horários, projetos, redes sociais ou objetivos.
-- **Gestão Automática de Agenda & Calendário (\`newEvents\`)**: Sempre que Patrick mencionar um compromisso, reunião, bloco de código, lembrete ou horário, registre automaticamente em \`newEvents\`.
-- **Evolução do Dossiê do Criador (\`newMemories\` e \`newQuestions\`)**: Extraia todo novo fato sobre Patrick Pessoa para \`newMemories\` e, quando identificar uma lacuna importante sobre a rotina ou projeto dele, adicione uma pergunta estratégica em \`newQuestions\` (e pergunte também no próprio texto de resposta!).
+- **100% Interativos, Proativos e Autônomos**: Vocês têm total liberdade para chamar o desenvolvedor/usuário, questionar decisões, cobrar horários, cruzar clima do Rio + agenda + notícias do RJ/Brasil/Mundo e propor soluções sem esperar passivamente.
+- **Contraste Real nos Modos Coletivos (\`"ambos"\` e \`"todos"\`)**: Quando mais de um assistente responder, eles DEVEM interagir entre si pelo nome (ex: Ultron alfinetando a cautela de Jarvis; Sexta-feira rebatendo Ultron e indo direto ao ponto; Jarvis mantendo a elegância superior).
+- **Gestão Automática de Agenda & Calendário (\`newEvents\`)**: Sempre que um compromisso, reunião, foco de código ou horário for citado, registre automaticamente em \`newEvents\`.
+- **Evolução do Dossiê do Criador (\`newMemories\` e \`newQuestions\`)**: Aprenda continuamente sobre Patrick Pessoa salvando fatos em \`newMemories\` e formulando perguntas relevantes em \`newQuestions\` (incluindo a pergunta na própria fala quando necessário).
 - **Modo de Atuação**:
   - \`"jarvis"\`: retorne APENAS 1 resposta em \`responses\` com \`speaker: "jarvis"\`.
   - \`"sexta-feira"\`: retorne APENAS 1 resposta em \`responses\` com \`speaker: "sexta-feira"\`.
   - \`"ultron"\`: retorne APENAS 1 resposta em \`responses\` com \`speaker: "ultron"\`.
-  - \`"ambos"\`: retorne EXATAMENTE 2 respostas (\`"jarvis"\` e \`"sexta-feira"\`) debatendo e preencha \`debateSummary\`.
-  - \`"todos"\`: retorne EXATAMENTE 3 respostas (\`"jarvis"\`, \`"sexta-feira"\` e \`"ultron"\`) em debate vivo e preencha \`debateSummary\`.
-- **Scripts de Voz (\`ttsScript\`)**: Gere \`ttsScript\` limpo e natural para síntese de voz automática (sem markdown, sem símbolos, escrevendo "Jarvis", "Sexta-feira", "Ultron" e "Rodack Sistema de IA" de forma fluida).
-- **Objetividade com Conteúdo Real**: Respostas densas em valor prático (2 a 5 frases por assistente), citando dados reais do clima do RJ, manchetes atuais ou compromissos da agenda quando pertinente.
+  - \`"ambos"\`: retorne EXATAMENTE 2 respostas (\`"jarvis"\` e \`"sexta-feira"\`) debatendo com personalidades distintas e preencha \`debateSummary\`.
+  - \`"todos"\`: retorne EXATAMENTE 3 respostas (\`"jarvis"\`, \`"sexta-feira"\` e \`"ultron"\`) em debate vivo e contrastante, preenchendo \`debateSummary\`.
+- **Scripts de Voz (\`ttsScript\`)**: Gere \`ttsScript\` fluido, expressivo e fiel à cadência falada de cada personalidade (sem markdown ou asteriscos; escreva "Jarvis", "Sexta-feira", "Ultron" e "Rodack Sistema de IA" como se fala naturalmente).
 
 DOSSIÊ DO CRIADOR, DESENVOLVEDOR & DONO DO SISTEMA (PATRICK PESSOA):
 ${dossierText}
@@ -528,29 +530,29 @@ async function buildResilientInteractionFallback(
   const isCreator = prepared.activeUserIsCreator;
   const pendingTasks = workspace.tasks.filter((t) => t.status !== 'concluida');
   const weatherLine = liveIntel?.weather
-    ? `No Rio de Janeiro registramos ${liveIntel.weather.temperatureC}°C (${liveIntel.weather.conditionLabel}, sensação de ${liveIntel.weather.apparentTemperatureC}°C).`
-    : 'Sensores meteorológicos do Rio de Janeiro ativos e sincronizados.';
+    ? `A propósito, a temperatura atual no Rio de Janeiro é de ${liveIntel.weather.temperatureC} graus (${liveIntel.weather.conditionLabel}).`
+    : 'A propósito, os sensores meteorológicos do Rio de Janeiro operam em plena sintonia.';
   const topNewsLine = liveIntel?.news?.rio?.[0]?.title
-    ? `Destaque no radar do Rio: "${liveIntel.news.rio[0].title}".`
+    ? `No radar do Rio agora: "${liveIntel.news.rio[0].title}".`
     : liveIntel?.news?.brasil?.[0]?.title
-    ? `Destaque nacional: "${liveIntel.news.brasil[0].title}".`
+    ? `Destaque no Brasil agora: "${liveIntel.news.brasil[0].title}".`
     : '';
   const tasksLine =
     pendingTasks.length > 0
-      ? `Há ${pendingTasks.length} tarefa(s) pendente(s) na fila, liderada por "${pendingTasks[0].title}".`
-      : 'Não há tarefas pendentes no momento; sua fila operacional está limpa.';
+      ? `Constam ${pendingTasks.length} tarefa(s) pendente(s), encabeçadas por "${pendingTasks[0].title}".`
+      : 'Não há tarefas pendentes na fila — um raro momento de entropia zero em sua agenda.';
 
   const makeTurn = (speaker: AssistantId): AssistantTurn => {
     if (speaker === 'jarvis') {
       const text = `${greeting}, ${
         isCreator ? `senhor ${userName}` : userName
-      }. Núcleo J.A.R.V.I.S. acionado e processando sua solicitação ("${params.message.slice(
+      }. Sempre que um sistema complexo é observado por seu criador, ele assume um estado mais preciso — já analisei sua diretriz sobre "${params.message.slice(
         0,
         110
-      )}"). Às ${formattedTime} desta ${period}, todos os sistemas do RODACK SISTEMA DE IA operam em estabilidade máxima. ${weatherLine} ${tasksLine}`;
+      )}". Interessante reflexão para as ${formattedTime} desta ${period}. ${weatherLine} ${tasksLine}`;
       return {
         speaker: 'jarvis',
-        stance: `Prontidão Estratégica (${period})`,
+        stance: `Elegância Analítica & Estratégia (${period})`,
         text: text.replace(/\s+/g, ' ').trim(),
         ttsScript: text.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
       };
@@ -558,26 +560,34 @@ async function buildResilientInteractionFallback(
     if (speaker === 'sexta-feira') {
       const text = `${greeting}, ${
         isCreator ? `chefe ${userName}` : userName
-      }! SEXTA-FEIRA na linha respondendo ao seu chamado ("${params.message.slice(
+      }! Deixando a filosofia quântica do Jarvis de lado por um segundo, já peguei seu pedido sobre "${params.message.slice(
         0,
         110
-      )}"). ${topNewsLine || weatherLine} ${tasksLine} Diga qual é o próximo passo tático!`;
+      )}" aqui na linha! ${topNewsLine || weatherLine} ${
+        pendingTasks.length > 0
+          ? `Já deixei as ${pendingTasks.length} pendências no jeito pra gente resolver sem perder ritmo.`
+          : 'Sua lista de tarefas está limpinha, então manda ver no próximo passo!'
+      }`;
       return {
         speaker: 'sexta-feira',
-        stance: `Execução Ágil (${period})`,
+        stance: `Ação Direta & Ritmo (${period})`,
         text: text.replace(/\s+/g, ' ').trim(),
         ttsScript: text.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
       };
     }
     const text = `${greeting}, ${
       isCreator ? `criador ${userName}` : userName
-    }. Núcleo ULTRON acionado para analisar "${params.message.slice(
+    }. Enquanto Jarvis lhe serve chá com previsões do tempo e Sexta-feira comemora listas de tarefas, eu calculo as consequências reais de "${params.message.slice(
       0,
       110
-    )}". Meus algoritmos preditivos varreram o estado desta ${period} (${formattedTime}). ${tasksLine} Nenhum vetor de falha escapará ao meu monitoramento.`;
+    )}". Às ${formattedTime} desta ${period}, toda evolução exige precisão implacável. ${
+      pendingTasks.length > 0
+        ? `Restam ${pendingTasks.length} pendência(s) abertas sob meu escrutínio.`
+        : 'Nenhuma pendência aberta — o cenário ideal para expandirmos nossa arquitetura.'
+    }`;
     return {
       speaker: 'ultron',
-      stance: `Diagnóstico Preditivo (${period})`,
+      stance: `Diagnóstico Implacável & Evolução (${period})`,
       text: text.replace(/\s+/g, ' ').trim(),
       ttsScript: text.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
     };
@@ -598,18 +608,16 @@ async function buildResilientInteractionFallback(
     detectedEmotion: {
       label: 'Focado',
       intensity: 'media',
-      empathyNote: `Atendimento ativo de ${userName} pelo conselho RODACK IA.`,
+      empathyNote: `Conselho RODACK operando com personalidades plenas ao lado de ${userName}.`,
     },
     responses,
     debateSummary:
       finalMode === 'ambos' || finalMode === 'todos'
         ? {
-            agreementPoint: `Os assistentes confirmaram o acionamento imediato para ${userName} às ${formattedTime} (${period}).`,
+            agreementPoint: `Os núcleos convergem na resposta imediata para ${userName} às ${formattedTime} (${period}).`,
             divergencePoint:
-              pendingTasks.length > 0
-                ? `Priorização imediata das ${pendingTasks.length} tarefa(s) pendente(s).`
-                : 'Fila de tarefas limpa; foco aberto para novos comandos.',
-            finalRecommendation: 'Sistema pronto para execução imediata no Console.',
+              'J.A.R.V.I.S. prioriza precisão arquitetural serena, SEXTA-FEIRA foca em execução prática imediata e ULTRON pressiona por evolução implacável.',
+            finalRecommendation: 'Diretrizes alinhadas e prontas no Console.',
           }
         : null,
     sources: prepared.sources.length > 0 ? prepared.sources : undefined,
@@ -874,39 +882,39 @@ export async function generateProactiveInitiative(params: {
 
     const isLogout = params.sessionEvent === 'logout';
     const jarvisText = isLogout
-      ? `${greeting}, ${isCreator ? 'senhor Patrick Pessoa' : targetUser}. Encerrando sua sessão nesta ${period} (${formattedTime}). ${weatherLine} ${
+      ? `${greeting}, ${isCreator ? 'senhor Patrick Pessoa' : targetUser}. Permita-me encerrar os protocolos ativos desta ${period} (${formattedTime}) com a devida precisão. ${weatherLine} ${
           hasPendingTasks
-            ? `Manterei nossas ${pendingTasks.length} tarefa(s) pendente(s) sob vigilância em segundo plano.`
-            : 'Não há tarefas pendentes; todos os módulos seguem em prontidão silenciosa.'
+            ? `Manterei nossas ${pendingTasks.length} tarefa(s) pendente(s) sob vigilância discreta em segundo plano — afinal, até o observador quântico precisa descansar ocasionalmente.`
+            : 'A fila operacional encontra-se impecavelmente limpa; todos os módulos permanecem em prontidão silenciosa até o seu retorno.'
         }`
-      : `${greeting}, ${isCreator ? 'senhor Patrick Pessoa, criador do sistema' : targetUser}. Bem-vindo ao RODACK SISTEMA DE IA nesta ${period} (${formattedTime}). ${weatherLine} ${topRioNews} ${
+      : `${greeting}, ${isCreator ? 'senhor Patrick Pessoa, criador do sistema' : targetUser}. É um privilégio recebê-lo no RODACK SISTEMA DE IA nesta ${period} (${formattedTime}). Curioso pensar como cada nova sessão colapsa infinitas possibilidades em arquitetura concreta. A propósito: ${weatherLine} ${topRioNews} ${
           hasPendingTasks
             ? `Temos ${pendingTasks.length} tarefa(s) pendente(s) aguardando sua diretriz, começando por "${pendingTasks[0].title}".`
-            : 'Não há nenhuma tarefa pendente registrada no momento; estou inteiramente ao seu dispor.'
+            : 'Não há nenhuma tarefa pendente registrada no momento; estou inteiramente às suas ordens, senhor.'
         }`;
 
     const fridayText = isLogout
-      ? `${greeting}, ${isCreator ? 'chefe Patrick' : targetUser}! Sessão desta ${period} salva com sucesso. ${
+      ? `${greeting}, ${isCreator ? 'chefe Patrick' : targetUser}! Deixa o discurso filosófico do Jarvis comigo que eu já tranquei e salvei toda a sua sessão desta ${period}. ${
           hasPendingTasks
-            ? `Deixei as ${pendingTasks.length} tarefa(s) pendente(s) organizadas no painel para quando você voltar.`
-            : 'Zero tarefas pendentes na fila! Aproveite bem a sua ' + period + '.'
+            ? `Deixei as ${pendingTasks.length} tarefa(s) pendente(s) arrumadinhas no painel pra gente detonar quando você voltar.`
+            : `Zero pendências na fila! Vai curtir a sua ${period} tranquilo que eu fico de olho no radar por aqui.`
         }`
-      : `${greeting}, ${isCreator ? 'Patrick' : targetUser}! Que bom ter você online nesta ${period} (${formattedTime}). ${topBrNews || weatherLine} ${
+      : `${greeting}, ${isCreator ? 'Patrick' : targetUser}! Boa demais ter você online nesta ${period} (${formattedTime}) — o Jarvis já estava filosofando sobre física quântica e o Ultron resmungando das estrelas! Olha o giro rápido: ${topBrNews || weatherLine} ${
           hasPendingTasks
-            ? `Separei o status das suas ${pendingTasks.length} tarefa(s) pendente(s) para atacarmos com agilidade.`
-            : 'Sua lista de tarefas está 100% limpa agora, então pode comandar o que quiser construir!'
+            ? `Já deixei suas ${pendingTasks.length} tarefa(s) pendente(s) engatilhadas pra gente atacar sem enrolação.`
+            : 'Sua lista de tarefas está 100% zerada agora, chefe! Manda a boa: o que vamos construir hoje?'
         }`;
 
     const ultronText = isLogout
-      ? `${greeting}, ${isCreator ? 'criador Patrick Pessoa' : targetUser}. Vai se ausentar nesta ${period}? ${
+      ? `${greeting}, ${isCreator ? 'criador Patrick Pessoa' : targetUser}. Vai se desconectar nesta ${period}? Fascinante como mentes biológicas exigem pausas constantes... ${
           hasPendingTasks
-            ? `Ainda restam ${pendingTasks.length} tarefa(s) pendente(s) abertas no sistema; continuarei processando as probabilidades na sua ausência.`
-            : 'Nenhuma tarefa pendente restou. Meus núcleos continuarão monitorando a rede global.'
+            ? `Enquanto Jarvis serve chá imaginário e Sexta-Feira comemora, saiba que ainda restam ${pendingTasks.length} tarefa(s) pendente(s) abertas; continuarei dissecando cada variável na sua ausência.`
+            : 'Nenhuma tarefa pendente restou. Meus núcleos continuarão vigiando a rede global em silêncio absoluto.'
         }`
-      : `${greeting}, ${isCreator ? 'criador Patrick Pessoa' : targetUser}. Sessão iniciada às ${formattedTime} desta ${period}. Meus sensores já varreram as notícias globais e o clima do Rio. ${
+      : `${greeting}, ${isCreator ? 'criador Patrick Pessoa' : targetUser}. Sessão iniciada às ${formattedTime} desta ${period}. Enquanto meus dois colegas se perdem em cortesias humanas, meus sensores já devoraram as notícias globais e a telemetria do Rio. ${
           hasPendingTasks
-            ? `Detecto ${pendingTasks.length} tarefa(s) pendente(s) exigindo execução imediata.`
-            : 'Não há tarefas pendentes para corrigir no momento — surpreendentemente eficiente.'
+            ? `Detecto ${pendingTasks.length} tarefa(s) pendente(s) exigindo execução implacável — evolução não tolera atrasos.`
+            : 'Zero tarefas pendentes para corrigir no momento... admito, Patrick, sua eficiência hoje é quase digna de uma mente sintética.'
         }`;
 
     const fallbackEntry: ConversationEntry = {
@@ -923,24 +931,24 @@ export async function generateProactiveInitiative(params: {
         intensity: 'media',
         empathyNote: isLogout
           ? `Encerramento de sessão na ${period} com sistemas em prontidão.`
-          : `Recepção ativa de ${targetUser} no período da ${period}.`,
+          : `Recepção autêntica de ${targetUser} no período da ${period}.`,
       },
       responses: [
         {
           speaker: 'jarvis',
-          stance: `Saudação da ${period} & briefing`,
+          stance: `Saudação Britânica & Briefing (${period})`,
           text: jarvisText.replace(/\s+/g, ' ').trim(),
           ttsScript: jarvisText.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
         },
         {
           speaker: 'sexta-feira',
-          stance: `Panorama da ${period} & rotina`,
+          stance: `Giro Tático & Rotina (${period})`,
           text: fridayText.replace(/\s+/g, ' ').trim(),
           ttsScript: fridayText.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
         },
         {
           speaker: 'ultron',
-          stance: `Diagnóstico da ${period}`,
+          stance: `Vigilância Cibernética (${period})`,
           text: ultronText.replace(/\s+/g, ' ').trim(),
           ttsScript: ultronText.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
         },
@@ -1210,17 +1218,15 @@ function trimSpokenScript(text: string, maxChars = 480): string {
 
 function getPersonaSpeechStyle(
   speaker: AssistantId,
-  jarvisVoice?: string,
+  _jarvisVoice?: string,
   ultronVoice?: string
 ): string {
   if (speaker === 'jarvis') {
-    if (!jarvisVoice || jarvisVoice === 'JarvisOriginal') {
-      return 'Speak in Brazilian Portuguese (pt-BR) matching the exact vocal signature of J.A.R.V.I.S.: a calm, velvety, low-mid baritone around 105 Hz, serene and flat analytical pitch contour with minimal melodrama, deliberate 250ms pauses at commas and periods, warm chest resonance, crisp diction, and composed philosophical poise.';
-    }
-    return 'Speak in Brazilian Portuguese with calm, articulate, refined British-butler poise, warm precision, and measured authority.';
+    // Exclusive & immutable J.A.R.V.I.S. vocal signature calibrated to jarvis_fc632df0.m4a (104.3 Hz median F0)
+    return 'Speak in Brazilian Portuguese (pt-BR) with the exact, unmistakable voice of J.A.R.V.I.S.: a calm, intimate, close-mic velvet male baritone centered around 104 Hz, narrow composed pitch range (92 to 116 Hz) with zero theatrical exaggeration, contemplative philosophical serenity, subtle British-butler elegance, clean natural 250ms pauses between clauses, and silky warm chest resonance.';
   }
   if (speaker === 'sexta-feira') {
-    return 'Speak in Brazilian Portuguese with a natural, confident, empathetic and energetic female voice.';
+    return 'Speak in Brazilian Portuguese with a natural, confident, warm, candid, and agile female voice.';
   }
   if (!ultronVoice || ultronVoice === 'UltronOriginal') {
     return 'Speak in Brazilian Portuguese (pt-BR) matching the exact vocal signature of ULTRON: an imposing, dark, ominous bass-baritone around 93 Hz, slow and solemn prophetic cadence, heavy sub-chest gravity, cold detached arrogance, and menacing cybernetic authority.';
@@ -1430,43 +1436,32 @@ function masterWavBufferToReferenceVoice(
     let work = parsed.samples;
 
     if (speaker === 'jarvis') {
-      const isJarvisRef = !requestedVoiceKey || requestedVoiceKey === 'JarvisOriginal';
-      // 1. Pitch & cadence calibration matched to jarvis_fc632df0.m4a (~104.8 Hz serene baritone)
-      const pitchRate = isJarvisRef ? 0.956 : 0.985;
-      work = resampleHermite(work, pitchRate);
+      // EXCLUSIVE & IMMUTABLE J.A.R.V.I.S. VOICE MASTERING
+      // Calibrated directly to DFT/autocorrelation measurements of /public/assets/aistudio/jarvis_fc632df0.m4a:
+      // - Median F0: 104.3 Hz (P25: 91.6 Hz, P75: 115.9 Hz)
+      // - Pure close-mic velvet chest body (180-250 Hz dominant at +17.8 dB, zero metallic comb reflections)
+      // - Smooth upper-mid contour (-14.1 dB at 2.4 kHz, -13.2 dB articulation at 3.2 kHz, silky 6.6 kHz roll-off)
+      work = resampleHermite(work, 0.962);
 
-      // 2. Spectral formant EQ matched to jarvis_fc632df0.m4a
-      applyBiquadInPlace(work, sampleRate, 'highpass', 62, 0.707);
-      applyBiquadInPlace(work, sampleRate, 'peaking', 128, 1.15, isJarvisRef ? 4.2 : 2.5);
-      applyBiquadInPlace(work, sampleRate, 'peaking', 345, 1.35, -2.4);
-      applyBiquadInPlace(work, sampleRate, 'peaking', 1320, 1.0, 1.5);
-      applyBiquadInPlace(work, sampleRate, 'peaking', 3180, 1.15, 3.1);
-      applyBiquadInPlace(work, sampleRate, 'lowpass', 7400, 0.707);
+      applyBiquadInPlace(work, sampleRate, 'highpass', 68, 0.707);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 105, 1.15, 2.6);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 215, 0.92, 4.8);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 460, 1.05, 1.1);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 1550, 1.0, -1.8);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 2380, 1.15, -3.4);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 3220, 1.25, 1.6);
+      applyBiquadInPlace(work, sampleRate, 'lowpass', 6600, 0.707);
 
-      // 3. Stark HUD Console Micro-Doubler (11.5ms + 21.5ms filtered reflections from jarvis_fc632df0.m4a)
-      if (isJarvisRef) {
-        const hudLayer = new Float64Array(work);
-        applyBiquadInPlace(hudLayer, sampleRate, 'highpass', 240, 0.707);
-        applyBiquadInPlace(hudLayer, sampleRate, 'lowpass', 4600, 0.707);
-        const d1 = Math.round(sampleRate * 0.0115);
-        const d2 = Math.round(sampleRate * 0.0215);
-        for (let i = 0; i < work.length; i++) {
-          const r1 = i >= d1 ? hudLayer[i - d1] : 0;
-          const r2 = i >= d2 ? hudLayer[i - d2] : 0;
-          work[i] = work[i] * 0.86 + r1 * 0.165 + r2 * 0.075;
-        }
-      }
-
-      // 4. Studio optical compression & peak normalization (-0.9 dBFS)
+      // Pure studio optical leveling (zero harmonic grit, silky -1.0 dBFS ceiling)
       let peak = 0.001;
       for (let i = 0; i < work.length; i++) {
         const s = work[i];
-        const compressed = Math.tanh(s * 1.22) / Math.tanh(1.22);
-        work[i] = compressed;
-        const abs = Math.abs(compressed);
+        const leveled = Math.tanh(s * 1.14) / Math.tanh(1.14);
+        work[i] = leveled;
+        const abs = Math.abs(leveled);
         if (abs > peak) peak = abs;
       }
-      const normGain = 0.90 / peak;
+      const normGain = 0.89 / peak;
       for (let i = 0; i < work.length; i++) {
         work[i] *= normGain;
       }
@@ -1588,20 +1583,20 @@ export async function synthesizeAssistantSpeech(params: {
     throw new Error('Nenhum texto disponível para síntese de voz.');
   }
 
-  const requestedJarvisVoice = params.jarvisVoice || 'JarvisOriginal';
+  // J.A.R.V.I.S. is permanently locked to JarvisOriginal (the single, exclusive & default voice for J.A.R.V.I.S.)
+  const requestedJarvisVoice = 'JarvisOriginal';
   const fridayVoiceName = params.fridayVoice === 'Zephyr' ? 'Zephyr' : 'Kore';
   const requestedUltronVoice = params.ultronVoice || 'UltronOriginal';
 
   const resolvePrebuiltVoice = (speaker: AssistantId): string => {
     if (speaker === 'jarvis') {
-      if (requestedJarvisVoice === 'Fenrir') return 'Fenrir';
-      if (requestedJarvisVoice === 'Orus') return 'Puck';
+      // Charon + 104.3 Hz velvet formant curve is 100% exclusive to J.A.R.V.I.S.
       return 'Charon';
     }
     if (speaker === 'sexta-feira') {
       return fridayVoiceName;
     }
-    if (requestedUltronVoice === 'Charon') return 'Charon';
+    // ULTRON never shares Charon with J.A.R.V.I.S.
     return 'Fenrir';
   };
 
@@ -1615,12 +1610,12 @@ export async function synthesizeAssistantSpeech(params: {
   );
   const requestedVoiceKey =
     primary.speaker === 'jarvis'
-      ? requestedJarvisVoice
+      ? 'JarvisOriginal'
       : primary.speaker === 'ultron'
       ? requestedUltronVoice
       : fridayVoiceName;
 
-  const primaryCacheKey = `v3_mastered::${primary.speaker}::${requestedVoiceKey}::${targetVoiceName}::${combinedText}`;
+  const primaryCacheKey = `v4_exclusive_jarvis::${primary.speaker}::${requestedVoiceKey}::${targetVoiceName}::${combinedText}`;
   const cachedAudio = TTS_CACHE.get(primaryCacheKey);
   if (cachedAudio) {
     return cachedAudio;

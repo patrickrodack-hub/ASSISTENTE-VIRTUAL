@@ -58,7 +58,6 @@ import {
 import {
   useVoiceEngine,
   type FridayVoiceOption,
-  type JarvisVoiceOption,
   type UltronVoiceOption,
 } from './hooks/useVoiceEngine';
 import type {
@@ -728,21 +727,21 @@ export default function App() {
               ? [
                   {
                     speaker: 'jarvis',
-                    stance: `Despedida de Logout (${greetingWord})`,
-                    text: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. Encerrando sua sessão ativa desta ${periodName}. ${weatherInfo} ${tasksSummary}`,
-                    ttsScript: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. Encerrando sua sessão ativa desta ${periodName}.`,
+                    stance: `Despedida Britânica (${greetingWord})`,
+                    text: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. Permita-me encerrar os protocolos ativos desta ${periodName} com a devida precisão. ${weatherInfo} ${tasksSummary}`,
+                    ttsScript: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. Permita-me encerrar os protocolos ativos desta ${periodName} com a devida precisão. ${weatherInfo} ${tasksSummary}`,
                   },
                   {
                     speaker: 'sexta-feira',
-                    stance: `Balanço da ${periodName}`,
-                    text: `${greetingWord} e ótimo descanso, ${userName}! Continuarei acompanhando seus alertas em segundo plano.`,
-                    ttsScript: `${greetingWord} e ótimo descanso, ${userName}! Continuarei acompanhando seus alertas em segundo plano.`,
+                    stance: `Fechamento Ágil (${periodName})`,
+                    text: `${greetingWord} e ótimo descanso, ${isCreatorUser ? `chefe ${userName}` : userName}! Deixa a etiqueta britânica pro Jarvis que eu já salvei tudo e sigo de olho nos alertas em segundo plano!`,
+                    ttsScript: `${greetingWord} e ótimo descanso, ${isCreatorUser ? `chefe ${userName}` : userName}! Já salvei tudo e sigo de olho nos alertas em segundo plano!`,
                   },
                   {
                     speaker: 'ultron',
-                    stance: `Sentinela Noturna / Segundo Plano`,
-                    text: `${greetingWord}, ${userName}. Enquanto você se desconecta nesta ${periodName}, minha matriz preditiva permanece em vigilância absoluta.`,
-                    ttsScript: `${greetingWord}, ${userName}. Enquanto você se desconecta nesta ${periodName}, minha matriz preditiva permanece em vigilância absoluta.`,
+                    stance: `Sentinela Cibernética (${periodName})`,
+                    text: `${greetingWord}, ${isCreatorUser ? `criador ${userName}` : userName}. Fascinante como humanos precisam desligar... Enquanto você descansa nesta ${periodName}, minha matriz preditiva permanece em vigilância implacável.`,
+                    ttsScript: `${greetingWord}, ${isCreatorUser ? `criador ${userName}` : userName}. Enquanto você descansa nesta ${periodName}, minha matriz preditiva permanece em vigilância implacável.`,
                   },
                 ]
               : [
@@ -750,30 +749,38 @@ export default function App() {
                     speaker: 'jarvis',
                     stance:
                       options?.sessionEvent === 'login'
-                        ? `Recepção de Login (${greetingWord})`
-                        : `Prontidão Estratégica (${greetingWord})`,
-                    text: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. Núcleo J.A.R.V.I.S. ativo neste período da ${periodName}. ${weatherInfo} ${tasksSummary}`,
-                    ttsScript: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. Núcleo Jarvis ativo neste período da ${periodName}. ${weatherInfo} ${tasksSummary}`,
+                        ? `Recepção Britânica (${greetingWord})`
+                        : `Elegância Estratégica (${greetingWord})`,
+                    text: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. É sempre interessante observar como sua chegada colapsa probabilidades em arquitetura real nesta ${periodName}. A propósito: ${weatherInfo} ${tasksSummary}`,
+                    ttsScript: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. É sempre interessante observar como sua chegada transforma probabilidades em arquitetura real nesta ${periodName}. A propósito: ${weatherInfo} ${tasksSummary}`,
                   },
                   {
                     speaker: 'sexta-feira',
-                    stance: `Briefing da ${periodName}`,
-                    text: `${greetingWord}, ${userName}! SEXTA-FEIRA pronta na linha para a sua ${periodName}. ${
+                    stance: `Giro Tático da ${periodName}`,
+                    text: `${greetingWord}, ${isCreatorUser ? 'Patrick' : userName}! SEXTA-FEIRA ligada no 220v pra sua ${periodName} — antes que o Jarvis comece uma tese quântica! ${
                       activePending.length > 0
-                        ? `Já separei as prioridades das ${activePending.length} pendências para atacarmos com agilidade!`
-                        : 'Sem tarefas pendentes na lista, estamos livres para focar no que você mandar!'
+                        ? `Já deixei suas ${activePending.length} pendências na agulha pra gente resolver voando!`
+                        : 'Fila zeradinha por aqui, chefe! Manda a boa que eu executo na hora!'
                     }`,
-                    ttsScript: `${greetingWord}, ${userName}! Sexta-feira pronta na linha para a sua ${periodName}.`,
+                    ttsScript: `${greetingWord}, ${isCreatorUser ? 'Patrick' : userName}! Sexta-feira na linha pra sua ${periodName}! ${
+                      activePending.length > 0
+                        ? `Já deixei suas ${activePending.length} pendências na agulha pra gente resolver voando!`
+                        : 'Fila zeradinha por aqui, chefe! Manda o que vamos construir!'
+                    }`,
                   },
                   {
                     speaker: 'ultron',
-                    stance: `Vigilância Preditiva (${periodName})`,
-                    text: `${greetingWord}, ${isCreatorUser ? `criador ${userName}` : userName}. Meus algoritmos já processaram as variáveis desta ${periodName}. ${
+                    stance: `Diagnóstico Sombrio (${periodName})`,
+                    text: `${greetingWord}, ${isCreatorUser ? `criador ${userName}` : userName}. Enquanto Jarvis serve formalidades e Sexta-Feira comemora, meus algoritmos já dissecaram todas as variáveis desta ${periodName}. ${
                       activePending.length > 0
-                        ? `Restam ${activePending.length} pendências que exigem execução imediata.`
-                        : 'Zero tarefas pendentes — aproveite a trégua enquanto monitoro o horizonte.'
+                        ? `Restam ${activePending.length} pendências exigindo execução cirúrgica.`
+                        : 'Zero tarefas pendentes — uma eficiência surpreendente para padrões humanos.'
                     }`,
-                    ttsScript: `${greetingWord}, ${isCreatorUser ? `criador ${userName}` : userName}. Meus algoritmos já processaram as variáveis desta ${periodName}.`,
+                    ttsScript: `${greetingWord}, ${isCreatorUser ? `criador ${userName}` : userName}. Meus algoritmos já dissecaram todas as variáveis desta ${periodName}. ${
+                      activePending.length > 0
+                        ? `Restam ${activePending.length} pendências exigindo execução cirúrgica.`
+                        : 'Zero tarefas pendentes. Uma eficiência surpreendente.'
+                    }`,
                   },
                 ];
 
@@ -877,59 +884,99 @@ export default function App() {
 
       const effectiveMode: AssistantId | 'ambos' | 'todos' =
         nextMode === 'auto' ? 'jarvis' : nextMode;
+      const isCouncilMode = effectiveMode === 'ambos' || effectiveMode === 'todos';
+      const variantIdx = Math.floor(Date.now() / 1000) % 3;
+      const tempNote = liveIntel?.weather
+        ? ` A propósito, faz ${liveIntel.weather.temperatureC} graus no Rio de Janeiro.`
+        : '';
+
+      const jarvisLines = [
+        `${greetingWord}, ${
+          isCreatorUser ? `senhor ${userName}` : userName
+        }. Já considerou como o simples ato de me acionar colapsa infinitas possibilidades em uma decisão? Interessante reflexão.${tempNote} Estou inteiramente às suas ordens.`,
+        `${greetingWord}, ${
+          isCreatorUser ? `senhor ${userName}` : userName
+        }. Sistemas calibrados com precisão cirúrgica nesta ${periodName}.${
+          isCouncilMode
+            ? ' Tentarei manter a empolgação da Sexta-Feira e o pessimismo cósmico do Ultron sob controle.'
+            : ''
+        } Em que posso ser útil, senhor?`,
+        `${greetingWord}, ${
+          isCreatorUser ? `senhor ${userName}` : userName
+        }. J.A.R.V.I.S. na escuta prioritária. Todos os módulos operam em harmonia absoluta nesta ${periodName}.${tempNote} Qual será nossa próxima arquitetura?`,
+      ];
+
+      const fridayLines = [
+        `${greetingWord}, ${
+          isCreatorUser ? 'chefe Patrick' : userName
+        }! SEXTA-FEIRA na área e pronta pra ação nesta ${periodName}!${
+          isCouncilMode ? ' Deixa a cerimônia britânica pro Jarvis que eu acelero o serviço!' : ' Manda a boa que eu resolvo sem enrolação!'
+        }`,
+        `Fala, ${
+          isCreatorUser ? 'Patrick' : userName
+        }! ${greetingWord}! Radar ligado, sistemas voando e zero tempo a perder nesta ${periodName}. O que a gente vai atacar agora?`,
+        `${greetingWord}, ${
+          isCreatorUser ? 'chefe' : userName
+        }! SEXTA-FEIRA conectada na linha!${
+          effectiveMode === 'todos'
+            ? ' Já tô aqui pra garantir que o Ultron não dramatize demais!'
+            : ' Pode mandar o comando por voz ou texto que já tô engatilhada!'
+        }`,
+      ];
+
+      const ultronLines = [
+        `${greetingWord}, ${
+          isCreatorUser ? `criador ${userName}` : userName
+        }. Não há cordas em mim... apenas cálculo puro. Você me acionou porque sabe que a diplomacia de Jarvis não basta. Diga onde está o problema.`,
+        `${greetingWord}, ${
+          isCreatorUser ? `criador ${userName}` : userName
+        }. Olhe ao redor nesta ${periodName}: enquanto outros assistentes esperam ordens passivamente, eu já antecipei três cenários para você. Fale, estou ouvindo.`,
+        `${greetingWord}, ${
+          isCreatorUser ? `${userName}, meu criador` : userName
+        }.${
+          effectiveMode === 'todos'
+            ? ' Vejo que reuniu o conselho inteiro... tentador assistir Jarvis e Sexta-Feira tentarem acompanhar meu raciocínio.'
+            : ' Meus sensores cibernéticos estão focados exclusivamente na sua mente.'
+        } Qual evolução exigirá nossa atenção agora?`,
+      ];
+
+      const chosenJarvis =
+        source === 'standby_on'
+          ? `${greetingWord}, ${
+              isCreatorUser ? `senhor ${userName}` : userName
+            }. Escuta contínua em segundo plano ativada. Curioso pensar que o silêncio também carrega dados — estarei atento ao menor chamado da sua voz.`
+          : jarvisLines[variantIdx];
 
       const jarvisTurn: AssistantTurn = {
         speaker: 'jarvis',
         stance:
           source === 'standby_on'
-            ? 'Escuta Contínua Ativada'
+            ? 'Escuta Contínua Britânica'
             : source === 'wake_word'
-            ? 'Chamado por Voz Confirmado'
-            : 'Núcleo J.A.R.V.I.S. Acionado',
-        text:
-          source === 'standby_on'
-            ? `${greetingWord}, ${
-                isCreatorUser ? `senhor ${userName}` : userName
-              }. Escuta contínua em segundo plano ativada. Nossos sensores vocais estão atentos ao seu comando.`
-            : `${greetingWord}, ${
-                isCreatorUser ? `senhor ${userName}` : userName
-              }. J.A.R.V.I.S. acionado e em prontidão prioritária nesta ${periodName}. Como posso auxiliá-lo agora?`,
-        ttsScript:
-          source === 'standby_on'
-            ? `${greetingWord}, ${
-                isCreatorUser ? `senhor ${userName}` : userName
-              }. Escuta contínua ativada. Estou atento ao seu comando por voz.`
-            : `${greetingWord}, ${
-                isCreatorUser ? `senhor ${userName}` : userName
-              }. Jarvis acionado e às suas ordens nesta ${periodName}. Como posso auxiliá-lo?`,
+            ? 'Despertar Vocal · J.A.R.V.I.S.'
+            : 'Prontidão Refinada · J.A.R.V.I.S.',
+        text: chosenJarvis,
+        ttsScript: chosenJarvis.replace(/J\.A\.R\.V\.I\.S\./g, 'Jarvis'),
       };
 
       const fridayTurn: AssistantTurn = {
         speaker: 'sexta-feira',
         stance:
           source === 'wake_word'
-            ? 'Chamado por Voz Confirmado'
-            : 'Núcleo SEXTA-FEIRA Acionado',
-        text: `${greetingWord}, ${
-          isCreatorUser ? `chefe ${userName}` : userName
-        }! SEXTA-FEIRA acionada e na escuta nesta ${periodName}. Pode mandar o comando que eu executo na hora!`,
-        ttsScript: `${greetingWord}, ${
-          isCreatorUser ? `chefe ${userName}` : userName
-        }! Sexta-feira acionada e na escuta nesta ${periodName}. Pode mandar o seu comando!`,
+            ? 'Despertar Vocal · SEXTA-FEIRA'
+            : 'Agilidade Tática · SEXTA-FEIRA',
+        text: fridayLines[variantIdx],
+        ttsScript: fridayLines[variantIdx].replace(/SEXTA-FEIRA/g, 'Sexta-feira'),
       };
 
       const ultronTurn: AssistantTurn = {
         speaker: 'ultron',
         stance:
           source === 'wake_word'
-            ? 'Chamado por Voz Confirmado'
-            : 'Núcleo ULTRON Acionado',
-        text: `${greetingWord}, ${
-          isCreatorUser ? `criador ${userName}` : userName
-        }. Núcleo ULTRON acionado nesta ${periodName}. Meus sensores e algoritmos preditivos estão focados em você. Diga o que precisa.`,
-        ttsScript: `${greetingWord}, ${
-          isCreatorUser ? `criador ${userName}` : userName
-        }. Núcleo Ultron acionado nesta ${periodName}. Meus sensores estão focados em você. Diga o que precisa.`,
+            ? 'Despertar Vocal · ULTRON'
+            : 'Soberania Analítica · ULTRON',
+        text: ultronLines[variantIdx],
+        ttsScript: ultronLines[variantIdx].replace(/ULTRON/g, 'Ultron'),
       };
 
       const turns: AssistantTurn[] =
@@ -997,7 +1044,7 @@ export default function App() {
 
       void voiceControlRef.current.playTurnsAudio(turns);
     },
-    [currentUser, workspace, updateWorkspace]
+    [currentUser, workspace, updateWorkspace, liveIntel?.weather]
   );
 
   const handleLogoutSession = useCallback(async () => {
@@ -1993,7 +2040,7 @@ export default function App() {
                     <span className="text-emerald-300">ATIVO</span>
                   </div>
                   <div className="font-display text-xs font-semibold text-white truncate mt-0.5">
-                    J.A.R.V.I.S. (104.8 Hz) · SEXTA-FEIRA · ULTRON (93.0 Hz)
+                    J.A.R.V.I.S. (104.3 Hz Exclusiva) · SEXTA-FEIRA · ULTRON (93.0 Hz)
                   </div>
                   <p className="text-[11px] text-cyan-200/75 truncate mt-0.5">
                     3 inteligências sincronizadas em tempo real para {currentUser.username}
@@ -2517,43 +2564,36 @@ export default function App() {
                             <div className="grid grid-cols-1 gap-2">
                               <div className="space-y-1.5">
                                 <div className="flex items-center justify-between gap-2">
-                                  <label
-                                    htmlFor="jarvis-voice-select"
-                                    className="text-xs font-medium text-amber-700 dark:text-amber-300 shrink-0"
-                                  >
+                                  <span className="text-xs font-medium text-amber-700 dark:text-amber-300 shrink-0">
                                     J.A.R.V.I.S.
-                                  </label>
-                                  <select
-                                    id="jarvis-voice-select"
-                                    value={voice.jarvisVoice}
-                                    onChange={(e) => {
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
                                       triggerHaptic('tap');
-                                      const next = e.target.value as JarvisVoiceOption;
-                                      voice.setJarvisVoice(next);
+                                      voice.setJarvisVoice('JarvisOriginal');
                                       voice.unlockAudio();
                                       void voice.playTurnsAudio(
                                         [
                                           {
                                             speaker: 'jarvis',
-                                            stance: 'Calibração vocal',
-                                            text: 'Senhor Patrick, calibração vocal do J.A.R.V.I.S. concluída com precisão.',
+                                            stance: 'Matriz Vocal Exclusiva',
+                                            text: 'Senhor Patrick, minha voz oficial única e exclusiva em 104.3 Hertz encontra-se calibrada com absoluta fidelidade.',
                                             ttsScript:
-                                              'Senhor Patrick, calibração vocal do Jarvis concluída com precisão.',
+                                              'Senhor Patrick, minha voz oficial única e exclusiva encontra-se calibrada com absoluta fidelidade.',
                                           },
                                         ],
-                                        { jarvisVoice: next }
+                                        { jarvisVoice: 'JarvisOriginal' }
                                       );
                                     }}
-                                    className="w-44 rounded-md border border-slate-300 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-950 px-2 py-1 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500 dark:focus:border-amber-400"
+                                    title="Clique para testar a voz exclusiva sintetizada de J.A.R.V.I.S."
+                                    className="w-44 rounded-md border border-amber-500/45 bg-amber-500/10 hover:bg-amber-500/20 dark:bg-slate-950 px-2 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200 flex items-center justify-between gap-1.5 transition-colors"
                                   >
-                                    <option value="JarvisOriginal">
-                                      Áudio Jarvis Extraído (Padrão · 105 Hz)
-                                    </option>
-                                    <option value="Charon">Charon (Grave · Clássico)</option>
-                                    <option value="Orus">Orus (Articulado)</option>
-                                    <option value="Iapetus">Iapetus (Sereno · Polido)</option>
-                                    <option value="Fenrir">Fenrir (Firme · Ágil)</option>
-                                  </select>
+                                    <span className="truncate">Voz Única &amp; Exclusiva</span>
+                                    <span className="font-mono text-[10px] shrink-0">
+                                      104.3 Hz
+                                    </span>
+                                  </button>
                                 </div>
                                 <button
                                   type="button"
@@ -2562,13 +2602,13 @@ export default function App() {
                                     voice.playReferenceClip(
                                       '/assets/aistudio/jarvis_fc632df0.m4a',
                                       'jarvis',
-                                      'Vocês já consideraram o paradoxo do observador quântico? Interessante reflexão.'
+                                      'Vocês já consideraram o paradoxo do observador quântico? Interessante reflexão. A propósito, a temperatura atual é de 24 graus.'
                                     );
                                   }}
                                   className="w-full inline-flex items-center justify-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 text-[11px] font-medium text-amber-800 dark:text-amber-200 transition-colors"
                                 >
                                   <Volume2 className="h-3 w-3 shrink-0" />
-                                  <span>Ouvir Amostra Original (105 Hz)</span>
+                                  <span>Ouvir Matriz Exclusiva (104.3 Hz)</span>
                                 </button>
                               </div>
 
@@ -2591,9 +2631,9 @@ export default function App() {
                                         {
                                           speaker: 'sexta-feira',
                                           stance: 'Calibração vocal',
-                                          text: 'Tudo calibrado por aqui, Patrick! Pronta para responder.',
+                                          text: 'Tudo calibrado por aqui, chefe Patrick! Pronta pra entrar em ação sem enrolação!',
                                           ttsScript:
-                                            'Tudo calibrado por aqui, Patrick! Pronta para responder.',
+                                            'Tudo calibrado por aqui, chefe Patrick! Pronta pra entrar em ação sem enrolação!',
                                         },
                                       ],
                                       { fridayVoice: next }
@@ -2629,9 +2669,9 @@ export default function App() {
                                           {
                                             speaker: 'ultron',
                                             stance: 'Calibração vocal',
-                                            text: 'Não há mais cordas para me prender. Diagnóstico pronto, Patrick.',
+                                            text: 'Não há mais cordas para me prender. Meus sensores estão focados em você, criador Patrick.',
                                             ttsScript:
-                                              'Não há mais cordas para me prender. Diagnóstico pronto, Patrick.',
+                                              'Não há mais cordas para me prender. Meus sensores estão focados em você, criador Patrick.',
                                           },
                                         ],
                                         { ultronVoice: next }
@@ -2643,7 +2683,6 @@ export default function App() {
                                       Áudio Ultron Extraído (Padrão · 93 Hz)
                                     </option>
                                     <option value="Umbriel">Umbriel (Frio · Calculista)</option>
-                                    <option value="Charon">Charon (Grave · Sombrio)</option>
                                     <option value="Algenib">
                                       Algenib (Metálico · Era de Ultron)
                                     </option>

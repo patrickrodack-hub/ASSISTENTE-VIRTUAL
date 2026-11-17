@@ -364,29 +364,20 @@ export function MobileConsoleDock({
                 <div className="space-y-2.5">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
-                      <label
-                        htmlFor="mobile-jarvis-voice"
-                        className="text-xs font-semibold text-amber-700 dark:text-amber-300"
-                      >
+                      <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
                         J.A.R.V.I.S.
-                      </label>
-                      <select
-                        id="mobile-jarvis-voice"
-                        value={jarvisVoice}
-                        onChange={(e) => {
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
                           triggerHaptic('tap');
-                          onChangeJarvisVoice(e.target.value as JarvisVoiceOption);
+                          onChangeJarvisVoice(jarvisVoice);
                         }}
-                        className="min-h-[40px] w-52 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                        className="min-h-[38px] w-52 rounded-xl border border-amber-500/40 bg-amber-500/10 dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200 flex items-center justify-between gap-1.5 active:scale-[0.98]"
                       >
-                        <option value="JarvisOriginal">
-                          Áudio Jarvis Extraído (Padrão · 105 Hz)
-                        </option>
-                        <option value="Charon">Charon (Grave · Clássico)</option>
-                        <option value="Orus">Orus (Articulado)</option>
-                        <option value="Iapetus">Iapetus (Sereno · Polido)</option>
-                        <option value="Fenrir">Fenrir (Firme · Ágil)</option>
-                      </select>
+                        <span className="truncate">Exclusiva · {jarvisVoice}</span>
+                        <span className="font-mono text-[10px] shrink-0">104.3 Hz</span>
+                      </button>
                     </div>
                     {onPlayJarvisSample && (
                       <button
@@ -395,7 +386,7 @@ export function MobileConsoleDock({
                         className="w-full min-h-[38px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:text-amber-200 active:scale-[0.98]"
                       >
                         <Volume2 className="h-3.5 w-3.5 shrink-0" />
-                        <span>Ouvir Amostra Original (105 Hz)</span>
+                        <span>Ouvir Matriz Exclusiva (104.3 Hz)</span>
                       </button>
                     )}
                   </div>
@@ -441,7 +432,6 @@ export function MobileConsoleDock({
                           Áudio Ultron Extraído (Padrão · 93 Hz)
                         </option>
                         <option value="Umbriel">Umbriel (Frio · Calculista)</option>
-                        <option value="Charon">Charon (Grave · Sombrio)</option>
                         <option value="Algenib">Algenib (Metálico · Era de Ultron)</option>
                         <option value="Fenrir">Fenrir (Intenso · Implacável)</option>
                       </select>

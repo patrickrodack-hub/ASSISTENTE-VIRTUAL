@@ -3,9 +3,9 @@ import type { AssistantId, AssistantTurn, InteractionMode } from '../types/assis
 import { safeFetchJson } from '../utils/apiClient';
 import { triggerHaptic } from '../utils/haptics';
 
-export type JarvisVoiceOption = 'JarvisOriginal' | 'Charon' | 'Orus' | 'Iapetus' | 'Fenrir';
+export type JarvisVoiceOption = 'JarvisOriginal';
 export type FridayVoiceOption = 'Kore' | 'Zephyr';
-export type UltronVoiceOption = 'UltronOriginal' | 'Algenib' | 'Charon' | 'Umbriel' | 'Fenrir';
+export type UltronVoiceOption = 'UltronOriginal' | 'Algenib' | 'Umbriel' | 'Fenrir';
 
 interface SpeechRecognitionAlternativeLike {
   transcript: string;
@@ -143,15 +143,16 @@ export function useVoiceEngine({
   const [audioBlockedByBrowser, setAudioBlockedByBrowser] = useState(false);
 
   const [jarvisVoice, setJarvisVoiceState] = useState<JarvisVoiceOption>(() => {
-    if (typeof window === 'undefined') return 'JarvisOriginal';
-    const saved = window.localStorage.getItem('stark_jarvis_voice_v3');
-    return saved === 'JarvisOriginal' ||
-      saved === 'Charon' ||
-      saved === 'Orus' ||
-      saved === 'Iapetus' ||
-      saved === 'Fenrir'
-      ? saved
-      : 'JarvisOriginal';
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem('stark_jarvis_voice_exclusive', 'JarvisOriginal');
+        window.localStorage.setItem('stark_jarvis_voice_v3', 'JarvisOriginal');
+        window.localStorage.setItem('stark_jarvis_voice_v2', 'JarvisOriginal');
+      } catch {
+        // ignore
+      }
+    }
+    return 'JarvisOriginal';
   });
 
   const [fridayVoice, setFridayVoiceState] = useState<FridayVoiceOption>(() => {
@@ -165,18 +166,18 @@ export function useVoiceEngine({
     const saved = window.localStorage.getItem('stark_ultron_voice_v3');
     return saved === 'UltronOriginal' ||
       saved === 'Algenib' ||
-      saved === 'Charon' ||
       saved === 'Umbriel' ||
       saved === 'Fenrir'
       ? saved
       : 'UltronOriginal';
   });
 
-  const setJarvisVoice = useCallback((v: JarvisVoiceOption) => {
-    setJarvisVoiceState(v);
+  const setJarvisVoice = useCallback((_v?: JarvisVoiceOption) => {
+    setJarvisVoiceState('JarvisOriginal');
     try {
-      window.localStorage.setItem('stark_jarvis_voice_v3', v);
-      window.localStorage.setItem('stark_jarvis_voice_v2', v);
+      window.localStorage.setItem('stark_jarvis_voice_exclusive', 'JarvisOriginal');
+      window.localStorage.setItem('stark_jarvis_voice_v3', 'JarvisOriginal');
+      window.localStorage.setItem('stark_jarvis_voice_v2', 'JarvisOriginal');
     } catch {
       // ignore
     }
@@ -735,7 +736,7 @@ export function useVoiceEngine({
               stopPlaybackAnalyser();
               const source = ctx.createBufferSource();
               source.buffer = audioBuffer;
-              // Server WAV from /api/assistant/tts is already reference-mastered (104.8 Hz Jarvis / 92.8 Hz Ultron)
+              // Server WAV from /api/assistant/tts is already reference-mastered (104.3 Hz Exclusive Jarvis / 92.8 Hz Ultron)
               source.playbackRate.value = 1.0;
               activeBufferSourceRef.current = source;
 
@@ -746,9 +747,9 @@ export function useVoiceEngine({
               const compressor = ctx.createDynamicsCompressor();
               compressor.threshold.value = -14;
               compressor.knee.value = 12;
-              compressor.ratio.value = 2.5;
-              compressor.attack.value = 0.004;
-              compressor.release.value = 0.14;
+              compressor.ratio.value = 2.4;
+              compressor.attack.value = 0.005;
+              compressor.release.value = 0.16;
 
               if (speaker === 'ultron') {
                 const subPolish = ctx.createBiquadFilter();
@@ -767,21 +768,22 @@ export function useVoiceEngine({
                 armorPresence.connect(compressor);
                 compressor.connect(analyser);
               } else if (speaker === 'jarvis') {
-                const chestPolish = ctx.createBiquadFilter();
-                chestPolish.type = 'peaking';
-                chestPolish.frequency.value = 130;
-                chestPolish.Q.value = 1.1;
-                chestPolish.gain.value = 1.4;
+                // Velvet close-mic baritone polish matching jarvis_fc632df0.m4a (215 Hz warmth + smooth 2.4 kHz contour)
+                const velvetChest = ctx.createBiquadFilter();
+                velvetChest.type = 'peaking';
+                velvetChest.frequency.value = 215;
+                velvetChest.Q.value = 0.9;
+                velvetChest.gain.value = 1.2;
 
-                const clarityPolish = ctx.createBiquadFilter();
-                clarityPolish.type = 'peaking';
-                clarityPolish.frequency.value = 3150;
-                clarityPolish.Q.value = 1.1;
-                clarityPolish.gain.value = 1.2;
+                const silkDip = ctx.createBiquadFilter();
+                silkDip.type = 'peaking';
+                silkDip.frequency.value = 2400;
+                silkDip.Q.value = 1.1;
+                silkDip.gain.value = -1.2;
 
-                source.connect(chestPolish);
-                chestPolish.connect(clarityPolish);
-                clarityPolish.connect(compressor);
+                source.connect(velvetChest);
+                velvetChest.connect(silkDip);
+                silkDip.connect(compressor);
                 compressor.connect(analyser);
               } else {
                 source.connect(compressor);
@@ -832,7 +834,7 @@ export function useVoiceEngine({
         ultronVoice?: UltronVoiceOption;
       }
     ) => {
-      const activeJarvisVoice = overrideVoices?.jarvisVoice ?? jarvisVoiceRef.current;
+      const activeJarvisVoice: JarvisVoiceOption = 'JarvisOriginal';
       const activeFridayVoice = overrideVoices?.fridayVoice ?? fridayVoiceRef.current;
       const activeUltronVoice = overrideVoices?.ultronVoice ?? ultronVoiceRef.current;
 
@@ -847,7 +849,7 @@ export function useVoiceEngine({
           : turn.speaker === 'sexta-feira'
           ? activeFridayVoice
           : activeUltronVoice;
-      const cacheKey = `v3_mastered:${turn.speaker}:${voiceKey}:${spokenText}`;
+      const cacheKey = `v4_exclusive_jarvis:${turn.speaker}:${voiceKey}:${spokenText}`;
 
       const cached = clientTtsCacheRef.current.get(cacheKey);
       if (cached) {
@@ -1272,7 +1274,9 @@ export function useVoiceEngine({
               resolve();
             };
 
-            source.start(0);
+            const startOffsetSec =
+              url.includes('jarvis_fc632df0') && audioBuffer.duration > 16 ? 13.25 : 0;
+            source.start(0, startOffsetSec);
           });
         }
       } catch (err) {
