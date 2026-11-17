@@ -10,17 +10,48 @@ import {
   Sparkles,
   UserCheck,
   UserPlus,
+  Volume2,
+  X,
 } from 'lucide-react';
-import type { SystemUserAccount, WorkspaceState } from '../types/assistant';
+import type { AssistantTurn, SystemUserAccount, WorkspaceState } from '../types/assistant';
 import { safeFetchJson } from '../utils/apiClient';
 import { triggerHaptic } from '../utils/haptics';
+
+export interface LogoutGreetingSummary {
+  userName: string;
+  periodLabel: string;
+  greetingLabel: string;
+  turns: AssistantTurn[];
+}
 
 interface AuthPortalProps {
   onAuthenticated: (user: SystemUserAccount, workspace?: WorkspaceState) => void;
   registeredUsers?: SystemUserAccount[];
+  onBeforeAuthSubmit?: () => void;
+  lastLogoutSummary?: LogoutGreetingSummary | null;
+  onReplayLogoutAudio?: (turns: AssistantTurn[]) => void;
+  onDismissLogoutSummary?: () => void;
 }
 
-export function AuthPortal({ onAuthenticated, registeredUsers = [] }: AuthPortalProps) {
+function getLocalDayPeriodBadge(): { periodLabel: string; greetingLabel: string } {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) {
+    return { periodLabel: 'MANHÃ', greetingLabel: 'Bom dia' };
+  }
+  if (hour >= 12 && hour < 18) {
+    return { periodLabel: 'TARDE', greetingLabel: 'Boa tarde' };
+  }
+  return { periodLabel: 'NOITE', greetingLabel: 'Boa noite' };
+}
+
+export function AuthPortal({
+  onAuthenticated,
+  registeredUsers = [],
+  onBeforeAuthSubmit,
+  lastLogoutSummary,
+  onReplayLogoutAudio,
+  onDismissLogoutSummary,
+}: AuthPortalProps) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('Patrick Pessoa');
   const [password, setPassword] = useState('');
@@ -31,9 +62,11 @@ export function AuthPortal({ onAuthenticated, registeredUsers = [] }: AuthPortal
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
 
   const isCreatorTyped = username.trim().toLowerCase() === 'patrick pessoa';
+  const dayPeriod = getLocalDayPeriodBadge();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    onBeforeAuthSubmit?.();
     setErrorMsg(null);
     setSuccessBanner(null);
 
@@ -164,7 +197,11 @@ export function AuthPortal({ onAuthenticated, registeredUsers = [] }: AuthPortal
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-xs font-mono text-cyan-200/80">
+        <div className="flex flex-wrap items-center gap-2.5 text-xs font-mono text-cyan-200/80">
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-400/40 bg-cyan-500/15 px-2.5 py-1.5 text-cyan-100">
+            <span>PERÍODO: {dayPeriod.periodLabel}</span>
+            <span className="text-cyan-300">({dayPeriod.greetingLabel})</span>
+          </span>
           <span className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-950/60 px-3 py-1.5">
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
             <span>J.A.R.V.I.S. · SEXTA-FEIRA · ULTRON EM PRONTIDÃO</span>
@@ -270,6 +307,62 @@ export function AuthPortal({ onAuthenticated, registeredUsers = [] }: AuthPortal
             <span className="pointer-events-none absolute top-2.5 right-2.5 h-4 w-4 border-t-2 border-r-2 border-cyan-400/80" />
             <span className="pointer-events-none absolute bottom-2.5 left-2.5 h-4 w-4 border-b-2 border-l-2 border-cyan-400/80" />
             <span className="pointer-events-none absolute bottom-2.5 right-2.5 h-4 w-4 border-b-2 border-r-2 border-cyan-400/80" />
+
+            {/* Logout Farewell & Period Briefing Summary Card */}
+            {lastLogoutSummary && lastLogoutSummary.turns.length > 0 && (
+              <div className="mb-5 rounded-xl border border-cyan-400/50 bg-cyan-950/75 p-3.5 space-y-2.5 shadow-[0_0_24px_rgba(34,211,238,0.2)]">
+                <div className="flex items-center justify-between gap-2 border-b border-cyan-500/25 pb-2">
+                  <div>
+                    <div className="font-mono text-[10px] uppercase tracking-widest text-cyan-300">
+                      SAUDAÇÃO DE LOGOUT · {lastLogoutSummary.periodLabel.toUpperCase()} ({lastLogoutSummary.greetingLabel})
+                    </div>
+                    <div className="text-xs font-semibold text-white">
+                      Despedida de Sessão para {lastLogoutSummary.userName}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {onReplayLogoutAudio && (
+                      <button
+                        type="button"
+                        onClick={() => onReplayLogoutAudio(lastLogoutSummary.turns)}
+                        title="Ouvir saudação de despedida dos assistentes"
+                        className="inline-flex items-center gap-1 rounded-lg border border-cyan-400/40 bg-cyan-500/20 hover:bg-cyan-500/30 px-2 py-1 text-[11px] font-mono text-cyan-100"
+                      >
+                        <Volume2 className="h-3.5 w-3.5" />
+                        <span>Ouvir</span>
+                      </button>
+                    )}
+                    {onDismissLogoutSummary && (
+                      <button
+                        type="button"
+                        onClick={onDismissLogoutSummary}
+                        title="Fechar resumo de logout"
+                        className="rounded-lg border border-cyan-500/30 bg-cyan-950/60 p-1 text-cyan-300 hover:text-white"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="max-h-44 overflow-y-auto space-y-2 pr-1">
+                  {lastLogoutSummary.turns.map((turn, idx) => (
+                    <div
+                      key={`${turn.speaker}-${idx}`}
+                      className="rounded-lg border border-cyan-500/25 bg-[#030B14]/85 px-2.5 py-2 text-[11px] leading-relaxed"
+                    >
+                      <span className="font-mono font-bold uppercase text-cyan-300 mr-1.5">
+                        {turn.speaker === 'jarvis'
+                          ? 'J.A.R.V.I.S.:'
+                          : turn.speaker === 'ultron'
+                          ? 'ULTRON:'
+                          : 'SEXTA-FEIRA:'}
+                      </span>
+                      <span className="text-cyan-50/90">{turn.text}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center justify-between gap-2 mb-5">
               <div>

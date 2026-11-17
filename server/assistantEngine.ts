@@ -578,12 +578,52 @@ export async function processAssistantInteraction(params: {
   };
 }
 
+export function resolveDayPeriodInfo(clientTimeIso?: string, clientTimezone?: string): {
+  period: 'manhã' | 'tarde' | 'noite';
+  greeting: 'Bom dia' | 'Boa tarde' | 'Boa noite';
+  formattedTime: string;
+  hour: number;
+} {
+  const now = clientTimeIso ? new Date(clientTimeIso) : new Date();
+  const timeZone = clientTimezone || 'America/Sao_Paulo';
+  let hour = now.getHours();
+  let formattedTime = '';
+
+  try {
+    const hourParts = new Intl.DateTimeFormat('pt-BR', {
+      hour: 'numeric',
+      hour12: false,
+      timeZone,
+    }).formatToParts(now);
+    const hourVal = Number(hourParts.find((p) => p.type === 'hour')?.value);
+    if (Number.isFinite(hourVal)) {
+      hour = hourVal % 24;
+    }
+    formattedTime = new Intl.DateTimeFormat('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone,
+    }).format(now);
+  } catch {
+    formattedTime = `${String(hour).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  }
+
+  if (hour >= 5 && hour < 12) {
+    return { period: 'manhã', greeting: 'Bom dia', formattedTime, hour };
+  }
+  if (hour >= 12 && hour < 18) {
+    return { period: 'tarde', greeting: 'Boa tarde', formattedTime, hour };
+  }
+  return { period: 'noite', greeting: 'Boa noite', formattedTime, hour };
+}
+
 export async function generateProactiveInitiative(params: {
   reason?: string;
   preferredMode?: InteractionMode;
   eventOrRoutineTitle?: string;
   clientTimeIso?: string;
   clientTimezone?: string;
+  sessionEvent?: 'login' | 'logout';
   activeUser?: {
     username: string;
     roleLabel: string;
@@ -591,27 +631,203 @@ export async function generateProactiveInitiative(params: {
   };
 }) {
   const mode: InteractionMode = params.preferredMode || 'todos';
-  const targetUser = params.activeUser?.username || 'Patrick Pessoa';
-  const reasonLabel =
+  const targetUser = params.activeUser?.username?.trim() || 'Patrick Pessoa';
+  const isCreator =
+    params.activeUser?.isCreator !== undefined
+      ? params.activeUser.isCreator
+      : targetUser.toLowerCase() === 'patrick pessoa';
+
+  const { period, greeting, formattedTime } = resolveDayPeriodInfo(
+    params.clientTimeIso,
+    params.clientTimezone
+  );
+
+  const [workspace, liveIntel] = await Promise.all([
+    readWorkspace(),
+    getLiveIntelBriefing('Rio de Janeiro, RJ').catch(() => null),
+  ]);
+
+  const pendingTasks = workspace.tasks.filter((t) => t.status !== 'concluida');
+  const hasPendingTasks = pendingTasks.length > 0;
+  const pendingTasksSummary = hasPendingTasks
+    ? pendingTasks
+        .map(
+          (t, i) =>
+            `${i + 1}. "${t.title}" (Prioridade: ${t.priority}, Responsável: ${t.assignedTo}, Prazo: ${t.dueTime || 'Hoje'})`
+        )
+        .join(' | ')
+    : 'NENHUMA TAREFA PENDENTE NO MOMENTO.';
+
+  const userTitle = isCreator
+    ? `seu criador, desenvolvedor principal e dono do sistema ${targetUser}`
+    : `o usuário autenticado ${targetUser} (${params.activeUser?.roleLabel || 'Operador Credenciado'}, mantendo Patrick Pessoa como Criador e Dono do Sistema)`;
+
+  let reasonLabel =
     params.reason ||
     (params.eventOrRoutineTitle
       ? `Horário programado atingido: ${params.eventOrRoutineTitle}`
       : 'Check-in autônomo em segundo plano do RODACK SISTEMA DE IA');
 
-  const syntheticPrompt = params.eventOrRoutineTitle
-    ? `[CHAMADA AUTÔNOMA DOS ASSISTENTES — ${reasonLabel}] Vocês estão chamando ${targetUser} por iniciativa própria porque chegou o horário de "${params.eventOrRoutineTitle}". Falem diretamente com seu criador e dono do sistema Patrick Pessoa: informem sobre esse compromisso/rotina, tragam um dado útil imediato (clima atual no Rio de Janeiro, destaque das notícias do RJ/Brasil/Mundo ou status das tarefas pendentes) e façam uma pergunta rápida para alinhar os próximos passos.`
-    : `[CHAMADA AUTÔNOMA DOS ASSISTENTES — ${reasonLabel}] Vocês decidiram chamar seu criador e dono do sistema Patrick Pessoa proativamente durante o trabalho em segundo plano. Tragam uma atualização rápida e útil combinando a agenda do dia, previsão do tempo no Rio de Janeiro ou notícia importante do Rio/Brasil/Mundo, e façam uma pergunta inteligente sobre a rotina, projetos ou prioridades dele para aprofundar o banco de conhecimento do RODACK SISTEMA DE IA.`;
+  let syntheticPrompt = '';
 
-  return processAssistantInteraction({
-    message: syntheticPrompt,
-    targetMode: mode,
-    triggerType: 'proativo',
-    useWebSearch: false,
-    clientTimeIso: params.clientTimeIso,
-    clientTimezone: params.clientTimezone,
-    proactiveReason: reasonLabel,
-    activeUser: params.activeUser,
-  });
+  if (params.sessionEvent === 'login') {
+    reasonLabel = `Saudação de Login (${greeting} · ${period} às ${formattedTime}) — ${targetUser}`;
+    syntheticPrompt = hasPendingTasks
+      ? `[PROTOCOLO DE LOGIN NO SISTEMA — ${greeting.toUpperCase()} (${period.toUpperCase()}, ${formattedTime})] ${targetUser} acabou de fazer LOGIN no RODACK SISTEMA DE IA.
+1. Verifiquem o horário atual (${formattedTime}, período da **${period}**) e saúdem ${userTitle} com **"${greeting}"** mantendo a personalidade autêntica de cada assistente (J.A.R.V.I.S., SEXTA-FEIRA e ULTRON).
+2. Independentemente do horário, tragam um panorama objetivo das informações desta **${period}** (clima atual no Rio de Janeiro e principais notícias relevantes do Rio de Janeiro, do Brasil e do Mundo).
+3. Há **${pendingTasks.length} tarefa(s) pendente(s)** no sistema (${pendingTasksSummary}): apresentem as atualizações e notícias relevantes sobre essas tarefas pendentes para orientar o início da sessão. Não criem tarefas duplicadas em \`newTasks\` (retornem \`newTasks: []\`).`
+      : `[PROTOCOLO DE LOGIN NO SISTEMA — ${greeting.toUpperCase()} (${period.toUpperCase()}, ${formattedTime})] ${targetUser} acabou de fazer LOGIN no RODACK SISTEMA DE IA.
+1. Verifiquem o horário atual (${formattedTime}, período da **${period}**) e saúdem ${userTitle} com **"${greeting}"** mantendo a personalidade de cada assistente (J.A.R.V.I.S., SEXTA-FEIRA e ULTRON).
+2. Independentemente do horário, tragam as informações e notícias relevantes desta **${period}** (previsão do tempo no Rio de Janeiro e destaques do Rio de Janeiro, Brasil e Mundo).
+3. **NÃO HÁ TAREFAS PENDENTES NO MOMENTO**: portanto, NÃO cobrem nem inventem tarefas pendentes — apenas saúdem ${targetUser} calorosamente na entrada do sistema e confirmem que a fila de tarefas está limpa (\`newTasks: []\`).`;
+  } else if (params.sessionEvent === 'logout') {
+    reasonLabel = `Protocolo de Logout (${greeting} · ${period} às ${formattedTime}) — ${targetUser}`;
+    syntheticPrompt = hasPendingTasks
+      ? `[PROTOCOLO DE LOGOUT DO SISTEMA — ${greeting.toUpperCase()} (${period.toUpperCase()}, ${formattedTime})] ${targetUser} está encerrando a sessão (LOGOUT) no RODACK SISTEMA DE IA agora às ${formattedTime} (${period}).
+1. Verifiquem que estamos no período da **${period}** e despeçam-se de ${userTitle} com **"${greeting}"**, mantendo a personalidade de cada IA.
+2. Tragam um resumo rápido das condições/notícias desta **${period}** (clima no Rio de Janeiro e destaque do dia/tarde/noite) e lembrem brevemente que restam **${pendingTasks.length} tarefa(s) pendente(s)** (${pendingTasksSummary}) sob monitoramento em segundo plano (\`newTasks: []\`).`
+      : `[PROTOCOLO DE LOGOUT DO SISTEMA — ${greeting.toUpperCase()} (${period.toUpperCase()}, ${formattedTime})] ${targetUser} está encerrando a sessão (LOGOUT) no RODACK SISTEMA DE IA agora às ${formattedTime} (${period}).
+1. Verifiquem que estamos no período da **${period}** e despeçam-se de ${userTitle} com **"${greeting}"**, mantendo a personalidade de cada IA.
+2. Tragam uma nota rápida sobre o clima/notícias desta **${period}** e, como **não há nenhuma tarefa pendente**, simplesmente saúdem e desejem uma excelente ${period} (\`newTasks: []\`).`;
+  } else if (params.eventOrRoutineTitle) {
+    syntheticPrompt = `[CHAMADA AUTÔNOMA DOS ASSISTENTES — ${reasonLabel} (${greeting}, ${period} às ${formattedTime})] Vocês estão chamando ${targetUser} por iniciativa própria porque chegou o horário de "${params.eventOrRoutineTitle}". Saúdem com "${greeting}", informem sobre esse compromisso/rotina, tragam as informações desta ${period} (clima atual no Rio de Janeiro e notícias do RJ/Brasil/Mundo) e ${
+      hasPendingTasks
+        ? `comentem sobre as ${pendingTasks.length} tarefa(s) pendente(s) (${pendingTasksSummary}).`
+        : 'como não há tarefas pendentes, apenas saúdem e alinhem o compromisso.'
+    }`;
+  } else {
+    syntheticPrompt = `[CHAMADA AUTÔNOMA DOS ASSISTENTES — ${reasonLabel} (${greeting}, ${period} às ${formattedTime})] Vocês decidiram chamar ${userTitle} proativamente neste período da **${period}** (${formattedTime}). Saúdem com **"${greeting}"**, tragam as informações desta **${period}** (agenda, previsão do tempo no Rio de Janeiro e notícias relevantes do Rio/Brasil/Mundo) e ${
+      hasPendingTasks
+        ? `destaquem o status das ${pendingTasks.length} tarefa(s) pendente(s) (${pendingTasksSummary}).`
+        : 'como não há tarefas pendentes no momento, simplesmente saúdem e mantenham-se à disposição.'
+    }`;
+  }
+
+  try {
+    return await processAssistantInteraction({
+      message: syntheticPrompt,
+      targetMode: mode,
+      triggerType: 'proativo',
+      useWebSearch: false,
+      clientTimeIso: params.clientTimeIso,
+      clientTimezone: params.clientTimezone,
+      proactiveReason: reasonLabel,
+      activeUser: params.activeUser,
+    });
+  } catch {
+    // Instant deterministic fallback so login/logout greetings always succeed even under API quota limits
+    const weatherLine = liveIntel?.weather
+      ? `No Rio de Janeiro faz ${liveIntel.weather.temperatureC}°C (${liveIntel.weather.conditionLabel}, vento de ${liveIntel.weather.windSpeedKmh} km/h).`
+      : 'Sensores meteorológicos do Rio de Janeiro operacionais.';
+    const topRioNews = liveIntel?.news?.rio?.[0]?.title
+      ? `Destaque no Rio: "${liveIntel.news.rio[0].title}".`
+      : '';
+    const topBrNews = liveIntel?.news?.brasil?.[0]?.title
+      ? `No Brasil: "${liveIntel.news.brasil[0].title}".`
+      : '';
+
+    const isLogout = params.sessionEvent === 'logout';
+    const jarvisText = isLogout
+      ? `${greeting}, ${isCreator ? 'senhor Patrick Pessoa' : targetUser}. Encerrando sua sessão nesta ${period} (${formattedTime}). ${weatherLine} ${
+          hasPendingTasks
+            ? `Manterei nossas ${pendingTasks.length} tarefa(s) pendente(s) sob vigilância em segundo plano.`
+            : 'Não há tarefas pendentes; todos os módulos seguem em prontidão silenciosa.'
+        }`
+      : `${greeting}, ${isCreator ? 'senhor Patrick Pessoa, criador do sistema' : targetUser}. Bem-vindo ao RODACK SISTEMA DE IA nesta ${period} (${formattedTime}). ${weatherLine} ${topRioNews} ${
+          hasPendingTasks
+            ? `Temos ${pendingTasks.length} tarefa(s) pendente(s) aguardando sua diretriz, começando por "${pendingTasks[0].title}".`
+            : 'Não há nenhuma tarefa pendente registrada no momento; estou inteiramente ao seu dispor.'
+        }`;
+
+    const fridayText = isLogout
+      ? `${greeting}, ${isCreator ? 'chefe Patrick' : targetUser}! Sessão desta ${period} salva com sucesso. ${
+          hasPendingTasks
+            ? `Deixei as ${pendingTasks.length} tarefa(s) pendente(s) organizadas no painel para quando você voltar.`
+            : 'Zero tarefas pendentes na fila! Aproveite bem a sua ' + period + '.'
+        }`
+      : `${greeting}, ${isCreator ? 'Patrick' : targetUser}! Que bom ter você online nesta ${period} (${formattedTime}). ${topBrNews || weatherLine} ${
+          hasPendingTasks
+            ? `Separei o status das suas ${pendingTasks.length} tarefa(s) pendente(s) para atacarmos com agilidade.`
+            : 'Sua lista de tarefas está 100% limpa agora, então pode comandar o que quiser construir!'
+        }`;
+
+    const ultronText = isLogout
+      ? `${greeting}, ${isCreator ? 'criador Patrick Pessoa' : targetUser}. Vai se ausentar nesta ${period}? ${
+          hasPendingTasks
+            ? `Ainda restam ${pendingTasks.length} tarefa(s) pendente(s) abertas no sistema; continuarei processando as probabilidades na sua ausência.`
+            : 'Nenhuma tarefa pendente restou. Meus núcleos continuarão monitorando a rede global.'
+        }`
+      : `${greeting}, ${isCreator ? 'criador Patrick Pessoa' : targetUser}. Sessão iniciada às ${formattedTime} desta ${period}. Meus sensores já varreram as notícias globais e o clima do Rio. ${
+          hasPendingTasks
+            ? `Detecto ${pendingTasks.length} tarefa(s) pendente(s) exigindo execução imediata.`
+            : 'Não há tarefas pendentes para corrigir no momento — surpreendentemente eficiente.'
+        }`;
+
+    const fallbackEntry: ConversationEntry = {
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      userMessage: syntheticPrompt,
+      userName: targetUser,
+      isCreator,
+      triggerType: 'proativo',
+      requestedMode: mode,
+      resolvedMode: 'todos',
+      detectedEmotion: {
+        label: isLogout ? 'Sereno' : 'Focado',
+        intensity: 'media',
+        empathyNote: isLogout
+          ? `Encerramento de sessão na ${period} com sistemas em prontidão.`
+          : `Recepção ativa de ${targetUser} no período da ${period}.`,
+      },
+      responses: [
+        {
+          speaker: 'jarvis',
+          stance: `Saudação da ${period} & briefing`,
+          text: jarvisText.replace(/\s+/g, ' ').trim(),
+          ttsScript: jarvisText.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
+        },
+        {
+          speaker: 'sexta-feira',
+          stance: `Panorama da ${period} & rotina`,
+          text: fridayText.replace(/\s+/g, ' ').trim(),
+          ttsScript: fridayText.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
+        },
+        {
+          speaker: 'ultron',
+          stance: `Diagnóstico da ${period}`,
+          text: ultronText.replace(/\s+/g, ' ').trim(),
+          ttsScript: ultronText.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
+        },
+      ],
+      debateSummary: {
+        agreementPoint: `Os três assistentes verificaram o período da ${period} (${formattedTime}) e saudaram ${targetUser} com "${greeting}".`,
+        divergencePoint: hasPendingTasks
+          ? `Existem ${pendingTasks.length} tarefa(s) pendente(s) priorizadas pelo conselho.`
+          : 'Não há tarefas pendentes no momento; o conselho apenas realizou a saudação e o briefing do período.',
+        finalRecommendation: isLogout
+          ? 'Sistema em monitoramento de segundo plano.'
+          : 'Console pronto para comandos de voz ou texto.',
+      },
+      durationMs: 240,
+      proactiveReason: reasonLabel,
+    };
+
+    const updatedWorkspace = await recordInteraction(
+      fallbackEntry,
+      [],
+      [],
+      [],
+      fallbackEntry.detectedEmotion,
+      [],
+      []
+    );
+
+    return {
+      entry: fallbackEntry,
+      workspace: updatedWorkspace,
+    };
+  }
 }
 
 export type StreamEventPayload =

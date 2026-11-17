@@ -23,6 +23,8 @@ import type {
 } from '../types/assistant';
 import { triggerHaptic } from '../utils/haptics';
 
+import { StarkCentralCoreLoader } from './StarkCentralCoreLoader';
+
 import jarvisAvatarUrl from '../assets/images/jarvis_avatar_1794791050216.jpg';
 import fridayAvatarUrl from '../assets/images/friday_avatar_1794791051362.jpg';
 import ultronAvatarUrl from '../assets/images/ultron_avatar_1794797018006.jpg';
@@ -45,6 +47,8 @@ interface DialogueStreamProps {
   conversations: ConversationEntry[];
   streamingEntry?: StreamingConversationState | null;
   isProcessing: boolean;
+  processingAssistants?: AssistantId[];
+  processingTasks?: Record<AssistantId, string>;
   isSpeaking: boolean;
   onPlayAudio: (turns: AssistantTurn[]) => void;
   onStopAudio: () => void;
@@ -163,6 +167,8 @@ export function DialogueStream({
   conversations,
   streamingEntry,
   isProcessing,
+  processingAssistants,
+  processingTasks,
   isSpeaking,
   onPlayAudio,
   onStopAudio,
@@ -724,14 +730,12 @@ export function DialogueStream({
             </div>
 
             {streamingEntry.turns.length === 0 ? (
-              <div className="rounded-xl border border-amber-500/30 dark:border-amber-400/25 bg-amber-50/40 dark:bg-slate-900/60 p-4 space-y-2.5">
-                <div className="flex items-center gap-2 text-xs font-medium text-amber-800 dark:text-amber-300">
-                  <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping" />
-                  <span>Conectando núcleos e iniciando streaming de resposta...</span>
-                </div>
-                <div className="h-3 w-5/6 rounded bg-slate-200/80 dark:bg-slate-800 animate-pulse" />
-                <div className="h-3 w-3/5 rounded bg-slate-200/80 dark:bg-slate-800 animate-pulse" />
-              </div>
+              <StarkCentralCoreLoader
+                variant="processing"
+                activeAssistants={processingAssistants}
+                processingTasks={processingTasks}
+                statusLabel="Conectando núcleos centrais e iniciando streaming neural de resposta..."
+              />
             ) : (
               <div className="space-y-3">
                 {streamingEntry.turns.map((turn, idx) => {
@@ -822,11 +826,11 @@ export function DialogueStream({
         )}
 
         {isProcessing && !streamingEntry && (
-          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/70 dark:bg-slate-900/60 p-4 space-y-2 animate-pulse">
-            <div className="h-3 w-40 rounded bg-slate-200 dark:bg-slate-800" />
-            <div className="h-3 w-full rounded bg-slate-200 dark:bg-slate-800" />
-            <div className="h-3 w-4/5 rounded bg-slate-200 dark:bg-slate-800" />
-          </div>
+          <StarkCentralCoreLoader
+            variant="processing"
+            activeAssistants={processingAssistants}
+            processingTasks={processingTasks}
+          />
         )}
 
         {/* Quick suggestions when few interactions exist */}

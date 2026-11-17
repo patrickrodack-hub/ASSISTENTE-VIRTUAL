@@ -38,14 +38,16 @@ import {
   LiveRadarIntelPanel,
 } from './components/AgendaAndIntelPanel';
 import { AssistantPresenceCard } from './components/AssistantPresenceCard';
-import { AuthPortal } from './components/AuthPortal';
+import { AuthPortal, type LogoutGreetingSummary } from './components/AuthPortal';
 import {
   DialogueStream,
   type StreamingConversationState,
 } from './components/DialogueStream';
+import { GlobalVoiceConfigPanel } from './components/GlobalVoiceConfigPanel';
 import { MobileConsoleDock } from './components/MobileConsoleDock';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallManager';
 import { SpeakingHologramOverlay } from './components/SpeakingHologramOverlay';
+import { StarkCentralCoreLoader } from './components/StarkCentralCoreLoader';
 import {
   AuditPanel,
   MemoryPanel,
@@ -106,6 +108,13 @@ const DAEMON_ACTIVE_KEY = 'rodack_daemon_active_v1';
 const PROACTIVE_INTERVAL_KEY = 'rodack_proactive_interval_min_v1';
 const FIRED_SCHEDULES_KEY = 'rodack_fired_schedules_v1';
 const FOCUS_MODE_STORAGE_KEY = 'rodack_focus_mode_v1';
+const AUTO_SPEAK_STORAGE_KEY = 'rodack_auto_speak_v1';
+
+function getInitialAutoSpeak(): boolean {
+  if (typeof window === 'undefined') return true;
+  const saved = window.localStorage.getItem(AUTO_SPEAK_STORAGE_KEY);
+  return saved === null ? true : saved === 'true';
+}
 
 function getInitialTheme(): ThemeMode {
   if (typeof window === 'undefined') return 'hologram';
@@ -179,7 +188,7 @@ export default function App() {
   const [targetMode, setTargetMode] = useState<InteractionMode>('auto');
   const [inputText, setInputText] = useState('');
   const [useWebSearch, setUseWebSearch] = useState<WebSearchMode>('auto');
-  const [autoSpeak, setAutoSpeak] = useState(true);
+  const [autoSpeak, setAutoSpeak] = useState<boolean>(getInitialAutoSpeak);
   const [isProcessing, setIsProcessing] = useState(false);
   const [streamingEntry, setStreamingEntry] =
     useState<StreamingConversationState | null>(null);
@@ -214,6 +223,8 @@ export default function App() {
     speakerLabel: string;
     preview: string;
   } | null>(null);
+  const [lastLogoutSummary, setLastLogoutSummary] =
+    useState<LogoutGreetingSummary | null>(null);
 
   const lastInteractionTimeRef = useRef<number>(Date.now());
   const wakeLockSentinelRef = useRef<{ release: () => Promise<void> } | null>(null);
@@ -250,6 +261,14 @@ export default function App() {
       // ignore
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(AUTO_SPEAK_STORAGE_KEY, String(autoSpeak));
+    } catch {
+      // ignore
+    }
+  }, [autoSpeak]);
 
   useEffect(() => {
     try {
@@ -553,8 +572,10 @@ export default function App() {
       reason?: string;
       preferredMode?: AssistantId | 'ambos' | 'todos';
       eventOrRoutineTitle?: string;
-    }) => {
-      if (isProcessing) return;
+      sessionEvent?: 'login' | 'logout';
+      activeUserOverride?: SystemUserAccount;
+    }): Promise<AssistantTurn[] | undefined> => {
+      if (isProcessing && !options?.sessionEvent) return undefined;
       lastInteractionTimeRef.current = Date.now();
       const mode = options?.preferredMode ?? 'todos';
       const activeIds: AssistantId[] =
@@ -564,14 +585,38 @@ export default function App() {
           ? ['jarvis', 'sexta-feira']
           : [mode];
 
+      const effectiveUser = options?.activeUserOverride ?? currentUser;
+      const hour = new Date().getHours();
+      const periodName = hour >= 5 && hour < 12 ? 'manhã' : hour >= 12 && hour < 18 ? 'tarde' : 'noite';
+      const greetingWord =
+        periodName === 'manhã'
+          ? 'Bom dia'
+          : periodName === 'tarde'
+          ? 'Boa tarde'
+          : 'Boa noite';
+
       setErrorMsg(null);
       setProcessingAssistants(activeIds);
       setProcessingMode(mode);
-      setProcessingTasks({
-        jarvis: 'Iniciando chamado proativo com leitura de agenda, clima RJ e estratégia...',
-        'sexta-feira': 'Organizando lembrete tático, notícias e acompanhamento de rotina...',
-        ultron: 'Executando varredura autônoma de riscos e diagnóstico para Patrick...',
-      });
+      setProcessingTasks(
+        options?.sessionEvent === 'login'
+          ? {
+              jarvis: `Verificando horário (${periodName} — ${greetingWord}), clima RJ, notícias e tarefas pendentes para saudar ${effectiveUser?.username ?? 'Patrick Pessoa'} no Login...`,
+              'sexta-feira': `Sincronizando briefing da ${periodName}, manchetes e pendências para recepção de ${effectiveUser?.username ?? 'Patrick Pessoa'}...`,
+              ultron: `Analisando estado operacional da ${periodName} e fila de tarefas para entrada de ${effectiveUser?.username ?? 'Patrick Pessoa'}...`,
+            }
+          : options?.sessionEvent === 'logout'
+          ? {
+              jarvis: `Preparando saudação de despedida (${greetingWord}) com balanço da ${periodName} e status de tarefas...`,
+              'sexta-feira': `Consolidando resumo de encerramento da ${periodName} e notícias relevantes...`,
+              ultron: `Registrando protocolo de saída da ${periodName} e vigilância em segundo plano...`,
+            }
+          : {
+              jarvis: 'Iniciando chamado proativo com leitura de agenda, clima RJ e estratégia...',
+              'sexta-feira': 'Organizando lembrete tático, notícias e acompanhamento de rotina...',
+              ultron: 'Executando varredura autônoma de riscos e diagnóstico para Patrick...',
+            }
+      );
       setIsProcessing(true);
 
       let spokenTurns: AssistantTurn[] | undefined;
@@ -586,16 +631,27 @@ export default function App() {
           body: JSON.stringify({
             reason:
               options?.reason ||
-              'Check-in autônomo de acompanhamento da rotina de Patrick Pessoa, clima do Rio de Janeiro e notícias.',
+              (options?.sessionEvent === 'login'
+                ? `Saudação de Login (${greetingWord} — período da ${periodName}) com panorama do dia/tarde/noite, notícias e verificação de tarefas pendentes.`
+                : options?.sessionEvent === 'logout'
+                ? `Saudação de Logout (${greetingWord} — período da ${periodName}) com balanço do período, notícias e status de tarefas pendentes.`
+                : 'Check-in autônomo de acompanhamento da rotina de Patrick Pessoa, clima do Rio de Janeiro e notícias.'),
             preferredMode: mode,
-            eventOrRoutineTitle: options?.eventOrRoutineTitle,
+            eventOrRoutineTitle:
+              options?.eventOrRoutineTitle ||
+              (options?.sessionEvent === 'login'
+                ? `Recepção de Login (${greetingWord})`
+                : options?.sessionEvent === 'logout'
+                ? `Despedida de Logout (${greetingWord})`
+                : undefined),
+            sessionEvent: options?.sessionEvent,
             clientTimeIso: new Date().toISOString(),
             clientTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            activeUser: currentUser
+            activeUser: effectiveUser
               ? {
-                  username: currentUser.username,
-                  roleLabel: currentUser.roleLabel,
-                  isCreator: currentUser.isCreator,
+                  username: effectiveUser.username,
+                  roleLabel: effectiveUser.roleLabel,
+                  isCreator: effectiveUser.isCreator,
                 }
               : {
                   username: 'Patrick Pessoa',
@@ -625,8 +681,11 @@ export default function App() {
             setProactiveBanner({
               reason:
                 options?.eventOrRoutineTitle ||
-                options?.reason ||
-                'Chamada Proativa Autônoma',
+                (options?.sessionEvent === 'login'
+                  ? `Saudação de Login · ${greetingWord} (${periodName})`
+                  : options?.sessionEvent === 'logout'
+                  ? `Saudação de Logout · ${greetingWord} (${periodName})`
+                  : options?.reason || 'Chamada Proativa Autônoma'),
               speakerLabel,
               preview: firstTurn.text,
             });
@@ -653,9 +712,41 @@ export default function App() {
       if (autoSpeakRef.current && spokenTurns && spokenTurns.length > 0) {
         void voiceControlRef.current.playTurnsAudio(spokenTurns);
       }
+      return spokenTurns;
     },
     [isProcessing, updateWorkspace, dispatchDesktopNotification, currentUser]
   );
+
+  const handleLogoutSession = useCallback(async () => {
+    triggerHaptic('tap');
+    voiceControlRef.current.unlockAudio();
+    const departingUser = currentUser;
+    const hour = new Date().getHours();
+    const periodLabel =
+      hour >= 5 && hour < 12 ? 'manhã' : hour >= 12 && hour < 18 ? 'tarde' : 'noite';
+    const greetingLabel =
+      periodLabel === 'manhã'
+        ? 'Bom dia'
+        : periodLabel === 'tarde'
+        ? 'Boa tarde'
+        : 'Boa noite';
+
+    const turns = await handleTriggerProactiveCall({
+      sessionEvent: 'logout',
+      preferredMode: 'todos',
+      activeUserOverride: departingUser ?? undefined,
+    });
+
+    if (turns && turns.length > 0) {
+      setLastLogoutSummary({
+        userName: departingUser?.username ?? 'Patrick Pessoa',
+        periodLabel,
+        greetingLabel,
+        turns,
+      });
+    }
+    setCurrentUser(null);
+  }, [currentUser, handleTriggerProactiveCall]);
 
   const handleWakeCommand = useCallback(
     (command: string, mode: InteractionMode) => {
@@ -1215,11 +1306,28 @@ export default function App() {
       <MotionConfig reducedMotion="user">
         <AuthPortal
           registeredUsers={workspace?.users ?? []}
+          onBeforeAuthSubmit={() => {
+            voice.unlockAudio();
+          }}
+          lastLogoutSummary={lastLogoutSummary}
+          onReplayLogoutAudio={(turns) => {
+            voice.unlockAudio();
+            void voice.playTurnsAudio(turns);
+          }}
+          onDismissLogoutSummary={() => setLastLogoutSummary(null)}
           onAuthenticated={(user, nextWorkspace) => {
+            voice.unlockAudio();
+            setLastLogoutSummary(null);
             setCurrentUser(user);
+            setActiveView('console');
             if (nextWorkspace) {
               updateWorkspace(nextWorkspace);
             }
+            void handleTriggerProactiveCall({
+              sessionEvent: 'login',
+              preferredMode: 'todos',
+              activeUserOverride: user,
+            });
           }}
         />
       </MotionConfig>
@@ -1457,12 +1565,12 @@ export default function App() {
                     )}
                     <button
                       type="button"
+                      disabled={isProcessing}
                       onClick={() => {
-                        triggerHaptic('tap');
-                        setCurrentUser(null);
+                        void handleLogoutSession();
                       }}
-                      title="Abrir Tela de Login ou Cadastrar Novo Usuário"
-                      className="ml-1 inline-flex items-center gap-1 rounded border border-slate-300 dark:border-cyan-500/30 bg-white dark:bg-cyan-950/60 px-2 py-0.5 text-[11px] font-medium text-slate-700 dark:text-cyan-200 hover:bg-slate-100 dark:hover:bg-cyan-900/70 transition-colors"
+                      title="Encerrar sessão com saudação dos assistentes ou trocar de usuário"
+                      className="ml-1 inline-flex items-center gap-1 rounded border border-slate-300 dark:border-cyan-500/30 bg-white dark:bg-cyan-950/60 px-2 py-0.5 text-[11px] font-medium text-slate-700 dark:text-cyan-200 hover:bg-slate-100 dark:hover:bg-cyan-900/70 transition-colors disabled:opacity-50"
                     >
                       <UserPlus className="h-3 w-3" />
                       <span>Usuários / Sair</span>
@@ -1657,13 +1765,13 @@ export default function App() {
                 </div>
                 <button
                   type="button"
+                  disabled={isProcessing}
                   onClick={() => {
-                    triggerHaptic('tap');
-                    setCurrentUser(null);
+                    void handleLogoutSession();
                   }}
-                  className="shrink-0 rounded-lg border border-cyan-400/45 bg-cyan-500/15 hover:bg-cyan-500/25 px-2.5 py-1.5 text-[11px] font-mono font-semibold text-cyan-100 transition-colors"
+                  className="shrink-0 rounded-lg border border-cyan-400/45 bg-cyan-500/15 hover:bg-cyan-500/25 px-2.5 py-1.5 text-[11px] font-mono font-semibold text-cyan-100 transition-colors disabled:opacity-50"
                 >
-                  Login / Cadastro
+                  Login / Logout
                 </button>
               </div>
             </div>
@@ -1759,11 +1867,10 @@ export default function App() {
           )}
 
           {isLoadingWorkspace ? (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <div className="lg:col-span-3 h-72 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 animate-pulse" />
-              <div className="lg:col-span-6 h-96 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 animate-pulse" />
-              <div className="lg:col-span-3 h-72 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 animate-pulse" />
-            </div>
+            <StarkCentralCoreLoader
+              variant="workspace"
+              activeAssistants={['jarvis', 'sexta-feira', 'ultron']}
+            />
           ) : (
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
@@ -2377,6 +2484,8 @@ export default function App() {
                           conversations={workspace?.conversations ?? []}
                           streamingEntry={streamingEntry}
                           isProcessing={isProcessing}
+                          processingAssistants={processingAssistants}
+                          processingTasks={processingTasks}
                           isSpeaking={voice.isSpeaking}
                           onPlayAudio={(turns) => {
                             voice.unlockAudio();
@@ -2802,6 +2911,122 @@ export default function App() {
                   />
                 ) : activeView === 'memoria' ? (
                   <div className="space-y-8">
+                    <GlobalVoiceConfigPanel
+                      jarvisVoice={voice.jarvisVoice}
+                      fridayVoice={voice.fridayVoice}
+                      ultronVoice={voice.ultronVoice}
+                      autoSpeak={autoSpeak}
+                      isSpeaking={voice.isSpeaking}
+                      onChangeJarvisVoice={(next) => {
+                        voice.setJarvisVoice(next);
+                        voice.unlockAudio();
+                        void voice.playTurnsAudio(
+                          [
+                            {
+                              speaker: 'jarvis',
+                              stance: 'Calibração global de voz',
+                              text: 'Senhor Patrick, meu timbre padrão foi atualizado e salvo permanentemente no RODACK SISTEMA DE IA.',
+                              ttsScript:
+                                'Senhor Patrick, meu timbre padrão foi atualizado e salvo permanentemente no Rodack Sistema de IA.',
+                            },
+                          ],
+                          { jarvisVoice: next }
+                        );
+                      }}
+                      onChangeFridayVoice={(next) => {
+                        voice.setFridayVoice(next);
+                        voice.unlockAudio();
+                        void voice.playTurnsAudio(
+                          [
+                            {
+                              speaker: 'sexta-feira',
+                              stance: 'Calibração global de voz',
+                              text: 'Timbre global atualizado por aqui, Patrick! Configuração salva no sistema.',
+                              ttsScript:
+                                'Timbre global atualizado por aqui, Patrick! Configuração salva no sistema.',
+                            },
+                          ],
+                          { fridayVoice: next }
+                        );
+                      }}
+                      onChangeUltronVoice={(next) => {
+                        voice.setUltronVoice(next);
+                        voice.unlockAudio();
+                        void voice.playTurnsAudio(
+                          [
+                            {
+                              speaker: 'ultron',
+                              stance: 'Calibração global de voz',
+                              text: 'Timbre vocal recalibrado e gravado na memória local, Patrick. Meus diagnósticos soarão ainda mais implacáveis.',
+                              ttsScript:
+                                'Timbre vocal recalibrado e gravado na memória local, Patrick. Meus diagnósticos soarão ainda mais implacáveis.',
+                            },
+                          ],
+                          { ultronVoice: next }
+                        );
+                      }}
+                      onToggleAutoSpeak={() => {
+                        voice.unlockAudio();
+                        setAutoSpeak((v) => !v);
+                      }}
+                      onPlayJarvisOriginalSample={() => {
+                        voice.playReferenceClip(
+                          '/assets/aistudio/jarvis_fc632df0.m4a',
+                          'jarvis',
+                          'Vocês já consideraram o paradoxo do observador quântico? Interessante reflexão.'
+                        );
+                      }}
+                      onPlayUltronOriginalSample={() => {
+                        voice.playReferenceClip(
+                          '/assets/aistudio/ultron_f012fd80.m4a',
+                          'ultron',
+                          'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo.'
+                        );
+                      }}
+                      onTestSynthesizedVoice={(speaker) => {
+                        voice.unlockAudio();
+                        if (speaker === 'jarvis') {
+                          void voice.playTurnsAudio(
+                            [
+                              {
+                                speaker: 'jarvis',
+                                stance: 'Teste de timbre global',
+                                text: 'Senhor Patrick Pessoa, todos os sistemas acústicos do J.A.R.V.I.S. operam em perfeita sintonia.',
+                                ttsScript:
+                                  'Senhor Patrick Pessoa, todos os sistemas acústicos do Jarvis operam em perfeita sintonia.',
+                              },
+                            ],
+                            { jarvisVoice: voice.jarvisVoice }
+                          );
+                        } else if (speaker === 'sexta-feira') {
+                          void voice.playTurnsAudio(
+                            [
+                              {
+                                speaker: 'sexta-feira',
+                                stance: 'Teste de timbre global',
+                                text: 'E aí, Patrick! SEXTA-FEIRA pronta na linha com o timbre selecionado.',
+                                ttsScript:
+                                  'E aí, Patrick! Sexta-feira pronta na linha com o timbre selecionado.',
+                              },
+                            ],
+                            { fridayVoice: voice.fridayVoice }
+                          );
+                        } else {
+                          void voice.playTurnsAudio(
+                            [
+                              {
+                                speaker: 'ultron',
+                                stance: 'Teste de timbre global',
+                                text: 'Meus sensores vocais estão calibrados, criador. Nenhum erro escapará ao meu alcance.',
+                                ttsScript:
+                                  'Meus sensores vocais estão calibrados, criador. Nenhum erro escapará ao meu alcance.',
+                              },
+                            ],
+                            { ultronVoice: voice.ultronVoice }
+                          );
+                        }
+                      }}
+                    />
                     {workspace?.creatorDossier && (
                       <CreatorDossierSection
                         dossier={workspace.creatorDossier}

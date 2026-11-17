@@ -162,7 +162,7 @@ async function startServer() {
     }
   });
 
-  // Proactive autonomous assistant call (initiated by background daemon, routine timer, or manual trigger)
+  // Proactive autonomous assistant call (initiated by background daemon, routine timer, login/logout, or manual trigger)
   app.post('/api/assistant/proactive', async (req, res) => {
     try {
       const {
@@ -172,6 +172,7 @@ async function startServer() {
         clientTimeIso,
         clientTimezone,
         activeUser,
+        sessionEvent,
       } = req.body ?? {};
 
       const result = await generateProactiveInitiative({
@@ -181,6 +182,10 @@ async function startServer() {
         clientTimeIso,
         clientTimezone,
         activeUser,
+        sessionEvent:
+          sessionEvent === 'login' || sessionEvent === 'logout'
+            ? sessionEvent
+            : undefined,
       });
 
       res.json(result);
