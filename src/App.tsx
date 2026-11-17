@@ -395,6 +395,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .getRegistrations()
+        .then((registrations) => {
+          for (const reg of registrations) {
+            if (reg.active?.scriptURL.includes('dev-sw')) {
+              void reg.unregister();
+            }
+          }
+        })
+        .catch(() => undefined);
+    }
     void loadWorkspace(false);
     void loadLiveIntel('Rio de Janeiro, RJ', false);
     const intelTimer = window.setInterval(() => {
@@ -697,15 +709,91 @@ export default function App() {
               firstTurn.text.slice(0, 180)
             );
           }
+        } else if (options?.sessionEvent === 'login' || options?.sessionEvent === 'logout') {
+          const userName = effectiveUser?.username ?? 'Patrick Pessoa';
+          const isCreatorUser = effectiveUser?.isCreator ?? true;
+          const activePending = (workspace?.tasks ?? []).filter(
+            (t) => t.status !== 'concluida'
+          );
+          const weatherInfo = liveIntel?.weather
+            ? `No Rio de Janeiro temos ${liveIntel.weather.temperatureC}°C (${liveIntel.weather.conditionLabel}).`
+            : 'Os sensores meteorológicos e de notícias do Rio de Janeiro, Brasil e Mundo estão sincronizados.';
+          const tasksSummary =
+            activePending.length > 0
+              ? `Existem ${activePending.length} tarefa(s) pendente(s), destacando "${activePending[0].title}".`
+              : 'Não há tarefas pendentes no momento; sua fila operacional está limpa.';
+
+          const fallbackTurns: AssistantTurn[] =
+            options.sessionEvent === 'login'
+              ? [
+                  {
+                    speaker: 'jarvis',
+                    stance: `Recepção de Login (${greetingWord})`,
+                    text: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. Bem-vindo ao RODACK SISTEMA DE IA neste período da ${periodName}. ${weatherInfo} ${tasksSummary}`,
+                    ttsScript: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. Bem-vindo ao Rodack Sistema de IA neste período da ${periodName}. ${weatherInfo} ${tasksSummary}`,
+                  },
+                  {
+                    speaker: 'sexta-feira',
+                    stance: `Briefing da ${periodName}`,
+                    text: `${greetingWord}, ${userName}! Tudo pronto para a sua ${periodName}. ${
+                      activePending.length > 0
+                        ? `Já separei as prioridades das ${activePending.length} pendências para atacarmos com agilidade!`
+                        : 'Sem tarefas pendentes na lista, estamos livres para focar no que você mandar!'
+                    }`,
+                    ttsScript: `${greetingWord}, ${userName}! Tudo pronto para a sua ${periodName}.`,
+                  },
+                  {
+                    speaker: 'ultron',
+                    stance: `Vigilância Preditiva (${periodName})`,
+                    text: `${greetingWord}, ${isCreatorUser ? `criador ${userName}` : userName}. Meus algoritmos já processaram as variáveis desta ${periodName}. ${
+                      activePending.length > 0
+                        ? `Restam ${activePending.length} pendências que exigem execução imediata.`
+                        : 'Zero tarefas pendentes — aproveite a trégua enquanto monitoro o horizonte.'
+                    }`,
+                    ttsScript: `${greetingWord}, ${isCreatorUser ? `criador ${userName}` : userName}. Meus algoritmos já processaram as variáveis desta ${periodName}.`,
+                  },
+                ]
+              : [
+                  {
+                    speaker: 'jarvis',
+                    stance: `Despedida de Logout (${greetingWord})`,
+                    text: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. Encerrando sua sessão ativa desta ${periodName}. ${weatherInfo} ${tasksSummary}`,
+                    ttsScript: `${greetingWord}, ${isCreatorUser ? `senhor ${userName}` : userName}. Encerrando sua sessão ativa desta ${periodName}.`,
+                  },
+                  {
+                    speaker: 'sexta-feira',
+                    stance: `Balanço da ${periodName}`,
+                    text: `${greetingWord} e ótimo descanso, ${userName}! Continuarei acompanhando seus alertas em segundo plano.`,
+                    ttsScript: `${greetingWord} e ótimo descanso, ${userName}! Continuarei acompanhando seus alertas em segundo plano.`,
+                  },
+                  {
+                    speaker: 'ultron',
+                    stance: `Sentinela Noturna / Segundo Plano`,
+                    text: `${greetingWord}, ${userName}. Enquanto você se desconecta nesta ${periodName}, minha matriz preditiva permanece em vigilância absoluta.`,
+                    ttsScript: `${greetingWord}, ${userName}. Enquanto você se desconecta nesta ${periodName}, minha matriz preditiva permanece em vigilância absoluta.`,
+                  },
+                ];
+
+          spokenTurns = fallbackTurns;
+          setProactiveBanner({
+            reason:
+              options.sessionEvent === 'login'
+                ? `Saudação de Login · ${greetingWord} (${periodName})`
+                : `Saudação de Logout · ${greetingWord} (${periodName})`,
+            speakerLabel: 'Conselho RODACK (J.A.R.V.I.S., SEXTA-FEIRA & ULTRON)',
+            preview: fallbackTurns[0].text,
+          });
         } else if (result.errorMessage) {
           setErrorMsg(result.errorMessage);
         }
       } catch (err) {
-        setErrorMsg(
-          err instanceof Error
-            ? err.message
-            : 'Erro ao realizar chamada proativa dos assistentes.'
-        );
+        if (options?.sessionEvent !== 'login' && options?.sessionEvent !== 'logout') {
+          setErrorMsg(
+            err instanceof Error
+              ? err.message
+              : 'Erro ao realizar chamada proativa dos assistentes.'
+          );
+        }
       } finally {
         setIsProcessing(false);
         setProcessingAssistants([]);
@@ -716,7 +804,14 @@ export default function App() {
       }
       return spokenTurns;
     },
-    [isProcessing, updateWorkspace, dispatchDesktopNotification, currentUser]
+    [
+      isProcessing,
+      updateWorkspace,
+      dispatchDesktopNotification,
+      currentUser,
+      workspace?.tasks,
+      liveIntel?.weather,
+    ]
   );
 
   const handleLogoutSession = useCallback(async () => {

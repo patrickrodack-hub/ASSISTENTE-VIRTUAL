@@ -33,7 +33,7 @@ import {
   type FirestoreSystemRecord,
 } from '../firebase';
 import type { SystemUserAccount, WorkspaceState } from '../types/assistant';
-import { safeFetchJson } from '../utils/apiClient';
+import { registerUserResilient, safeFetchJson } from '../utils/apiClient';
 import { triggerHaptic } from '../utils/haptics';
 
 interface DatabaseSummaryResponse {
@@ -165,22 +165,14 @@ export function DatabaseManagerPanel({
 
     setIsSubmittingUser(true);
     try {
-      const res = await safeFetchJson<{
-        user?: SystemUserAccount;
-        workspace?: WorkspaceState;
-        error?: string;
-      }>('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: cleanName,
-          password: cleanPass,
-          email: cleanEmail,
-          roleLabel: cleanRole,
-        }),
+      const res = await registerUserResilient({
+        username: cleanName,
+        password: cleanPass,
+        email: cleanEmail,
+        roleLabel: cleanRole,
       });
 
-      if (!res.ok || !res.data?.workspace) {
+      if (!res.ok || !res.workspace) {
         setStatusBanner({
           type: 'error',
           message: res.errorMessage || 'Erro ao gravar usuário no banco de dados.',
@@ -189,20 +181,20 @@ export function DatabaseManagerPanel({
         return;
       }
 
-      onWorkspaceUpdated(res.data.workspace);
+      onWorkspaceUpdated(res.workspace);
       setNewUsername('');
       setNewPassword('');
       setNewEmail('');
       setNewRoleLabel('Operador Credenciado · RODACK IA');
       triggerHaptic('success');
 
-      if (firebaseUser && res.data.user) {
+      if (firebaseUser && res.user) {
         try {
           await upsertFirestoreSystemRecord({
-            id: `usr_${res.data.user.id}`,
+            id: `usr_${res.user.id}`,
             recordType: 'usuario',
-            title: `${res.data.user.username} (${res.data.user.roleLabel})`,
-            summary: `Usuário cadastrado no banco de dados | Função: ${res.data.user.roleLabel}`,
+            title: `${res.user.username} (${res.user.roleLabel})`,
+            summary: `Usuário cadastrado no banco de dados | Função: ${res.user.roleLabel}`,
             status: 'ativo',
             createdByUsername: currentUser.username,
           });
@@ -213,7 +205,7 @@ export function DatabaseManagerPanel({
 
       setStatusBanner({
         type: 'success',
-        message: `Usuário "${res.data.user?.username}" gravado com sucesso no banco de dados!`,
+        message: `Usuário "${res.user?.username}" gravado com sucesso no banco de dados!`,
       });
     } finally {
       setIsSubmittingUser(false);

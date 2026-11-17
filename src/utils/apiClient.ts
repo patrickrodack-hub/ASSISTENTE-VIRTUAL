@@ -4,18 +4,85 @@ import type {
   ConversationEntry,
   DetectedEmotion,
   InteractionMode,
+  SystemUserAccount,
   WebSearchMode,
   WorkspaceState,
 } from '../types/assistant';
 
 const WORKSPACE_CACHE_KEY = 'stark_workspace_cache_v1';
+const LOCAL_USERS_DB_KEY = 'rodack_users_database_v1';
+
+export const CREATOR_HARDCODED_CLIENT_ACCOUNT = {
+  id: 'creator-patrick-pessoa',
+  username: 'Patrick Pessoa',
+  email: 'patrickrodack@gmail.com',
+  password: '190996',
+  roleLabel: 'Criador, Desenvolvedor Principal & Dono do Sistema',
+  isCreator: true,
+} as const;
+
+interface LocalStoredUserRecord {
+  user: SystemUserAccount;
+  password: string;
+}
+
+function readLocalUsersDb(): LocalStoredUserRecord[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(LOCAL_USERS_DB_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as LocalStoredUserRecord[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalUsersDb(records: LocalStoredUserRecord[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify(records));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function mergeUsersWithLocalDb(serverUsers?: SystemUserAccount[]): SystemUserAccount[] {
+  const map = new Map<string, SystemUserAccount>();
+  const now = new Date().toISOString();
+
+  // Always guarantee Patrick Pessoa Creator account first
+  map.set(CREATOR_HARDCODED_CLIENT_ACCOUNT.id, {
+    id: CREATOR_HARDCODED_CLIENT_ACCOUNT.id,
+    username: CREATOR_HARDCODED_CLIENT_ACCOUNT.username,
+    email: CREATOR_HARDCODED_CLIENT_ACCOUNT.email,
+    roleLabel: CREATOR_HARDCODED_CLIENT_ACCOUNT.roleLabel,
+    isCreator: true,
+    createdAt: now,
+    lastLoginAt: now,
+  });
+
+  for (const u of serverUsers ?? []) {
+    if (u && u.id) {
+      map.set(u.id, u);
+    }
+  }
+
+  for (const item of readLocalUsersDb()) {
+    if (item?.user?.id && !map.has(item.user.id)) {
+      map.set(item.user.id, item.user);
+    }
+  }
+
+  return Array.from(map.values());
+}
 
 export function createClientSeedWorkspace(): WorkspaceState {
   const now = new Date().toISOString();
   return {
     profile: {
       name: 'Patrick Pessoa',
-      role: 'Criador e Desenvolvedor Principal',
+      role: 'Fundador & Arquiteto · RODACK SISTEMA DE IA',
       currentEmotion: {
         label: 'Focado',
         intensity: 'media',
@@ -23,6 +90,7 @@ export function createClientSeedWorkspace(): WorkspaceState {
       },
       totalInteractions: 1,
     },
+    users: mergeUsersWithLocalDb([]),
     memories: [
       {
         id: 'seed-mem-ultron',
@@ -188,6 +256,7 @@ export function getCachedOrSeedWorkspace(): WorkspaceState {
     if (raw) {
       const parsed = JSON.parse(raw) as WorkspaceState;
       if (parsed && parsed.profile && Array.isArray(parsed.memories)) {
+        parsed.users = mergeUsersWithLocalDb(parsed.users);
         return parsed;
       }
     }
@@ -202,7 +271,11 @@ export function getCachedOrSeedWorkspace(): WorkspaceState {
 export function saveWorkspaceCache(workspace: WorkspaceState): void {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(WORKSPACE_CACHE_KEY, JSON.stringify(workspace));
+    const enriched: WorkspaceState = {
+      ...workspace,
+      users: mergeUsersWithLocalDb(workspace.users),
+    };
+    window.localStorage.setItem(WORKSPACE_CACHE_KEY, JSON.stringify(enriched));
   } catch {
     // ignore quota errors
   }
@@ -224,7 +297,10 @@ export async function safeFetchJson<T = Record<string, unknown>>(
 
   while (true) {
     try {
-      const res = await fetch(url, init);
+      const res = await fetch(url, {
+        ...init,
+        cache: 'no-store',
+      });
       const rawText = await res.text();
       const trimmed = rawText.trim();
 
@@ -255,14 +331,14 @@ export async function safeFetchJson<T = Record<string, unknown>>(
 
       if (isTransientGateway && attempt < retries) {
         attempt += 1;
-        await new Promise((r) => setTimeout(r, 550 * attempt));
+        await new Promise((r) => setTimeout(r, 400 * attempt));
         continue;
       }
 
       const cleanError =
         parsed?.error ||
         (res.status === 404
-          ? 'O serviço de backend está sincronizando. Tente novamente em alguns instantes.'
+          ? 'Rota de servidor indisponível no momento.'
           : res.status === 429
           ? 'Limite de requisições atingido temporariamente. Aguarde alguns segundos.'
           : 'Não foi possível concluir a comunicação com o servidor no momento. Tente novamente.');
@@ -276,7 +352,7 @@ export async function safeFetchJson<T = Record<string, unknown>>(
     } catch {
       if (attempt < retries) {
         attempt += 1;
-        await new Promise((r) => setTimeout(r, 550 * attempt));
+        await new Promise((r) => setTimeout(r, 400 * attempt));
         continue;
       }
       return {
@@ -284,10 +360,248 @@ export async function safeFetchJson<T = Record<string, unknown>>(
         status: 0,
         data: null,
         errorMessage:
-          'Conexão com o servidor local oscilou. Verifique sua conexão e tente novamente.',
+          'Conexão com o servidor local oscilou. Operando em modo autônomo local.',
       };
     }
   }
+}
+
+export async function authenticateUserResilient(
+  usernameInput: string,
+  passwordInput: string
+): Promise<{
+  ok: boolean;
+  user?: SystemUserAccount;
+  workspace?: WorkspaceState;
+  errorMessage?: string;
+}> {
+  const cleanUser = usernameInput.trim();
+  const cleanPass = passwordInput.trim();
+
+  if (!cleanUser || !cleanPass) {
+    return {
+      ok: false,
+      errorMessage: 'Preencha o nome de usuário e a senha de segurança.',
+    };
+  }
+
+  const normalizedUser = cleanUser.toLowerCase();
+  const isCreatorMatch =
+    normalizedUser === 'patrick pessoa' ||
+    normalizedUser === 'patrick' ||
+    normalizedUser === 'patrickrodack' ||
+    normalizedUser === 'patrickrodack@gmail.com';
+
+  // 1. Direct Hardcoded Creator Validation in Code (Patrick Pessoa / 190996)
+  if (isCreatorMatch) {
+    if (cleanPass !== CREATOR_HARDCODED_CLIENT_ACCOUNT.password) {
+      return {
+        ok: false,
+        errorMessage: 'Senha incorreta para o Criador e Desenvolvedor Patrick Pessoa.',
+      };
+    }
+
+    // Try syncing with backend, but NEVER block Patrick Pessoa if backend is syncing or in static preview
+    const serverRes = await safeFetchJson<{
+      user?: SystemUserAccount;
+      workspace?: WorkspaceState;
+      error?: string;
+    }>(
+      '/api/auth/login',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: cleanUser, password: cleanPass }),
+      },
+      0
+    );
+
+    if (serverRes.ok && serverRes.data?.user) {
+      const ws = serverRes.data.workspace ?? getCachedOrSeedWorkspace();
+      saveWorkspaceCache(ws);
+      return {
+        ok: true,
+        user: serverRes.data.user,
+        workspace: ws,
+      };
+    }
+
+    // Immediate hardcoded fallback for Patrick Pessoa
+    const now = new Date().toISOString();
+    const creatorUser: SystemUserAccount = {
+      id: CREATOR_HARDCODED_CLIENT_ACCOUNT.id,
+      username: CREATOR_HARDCODED_CLIENT_ACCOUNT.username,
+      email: CREATOR_HARDCODED_CLIENT_ACCOUNT.email,
+      roleLabel: CREATOR_HARDCODED_CLIENT_ACCOUNT.roleLabel,
+      isCreator: true,
+      createdAt: now,
+      lastLoginAt: now,
+    };
+    const ws = getCachedOrSeedWorkspace();
+    ws.users = mergeUsersWithLocalDb(ws.users);
+    saveWorkspaceCache(ws);
+    return {
+      ok: true,
+      user: creatorUser,
+      workspace: ws,
+    };
+  }
+
+  // 2. Non-Creator User Authentication: Try server first, then local database
+  const serverRes = await safeFetchJson<{
+    user?: SystemUserAccount;
+    workspace?: WorkspaceState;
+    error?: string;
+  }>(
+    '/api/auth/login',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: cleanUser, password: cleanPass }),
+    },
+    0
+  );
+
+  if (serverRes.ok && serverRes.data?.user) {
+    const ws = serverRes.data.workspace ?? getCachedOrSeedWorkspace();
+    saveWorkspaceCache(ws);
+    return {
+      ok: true,
+      user: serverRes.data.user,
+      workspace: ws,
+    };
+  }
+
+  // Check local user database (supports offline/static preview or newly registered accounts)
+  const localRecords = readLocalUsersDb();
+  const matchedLocal = localRecords.find(
+    (item) =>
+      item.user.username.toLowerCase() === normalizedUser ||
+      (item.user.email && item.user.email.toLowerCase() === normalizedUser)
+  );
+
+  if (matchedLocal) {
+    if (matchedLocal.password !== cleanPass) {
+      return {
+        ok: false,
+        errorMessage: 'Senha inválida para este usuário.',
+      };
+    }
+    const updatedUser: SystemUserAccount = {
+      ...matchedLocal.user,
+      lastLoginAt: new Date().toISOString(),
+    };
+    const ws = getCachedOrSeedWorkspace();
+    ws.users = mergeUsersWithLocalDb(ws.users);
+    saveWorkspaceCache(ws);
+    return {
+      ok: true,
+      user: updatedUser,
+      workspace: ws,
+    };
+  }
+
+  return {
+    ok: false,
+    errorMessage:
+      serverRes.status === 401 && serverRes.errorMessage
+        ? serverRes.errorMessage
+        : 'Usuário não encontrado. Utilize a aba "Cadastrar Usuário" ou entre como Patrick Pessoa.',
+  };
+}
+
+export async function registerUserResilient(params: {
+  username: string;
+  password: string;
+  email?: string;
+  roleLabel?: string;
+}): Promise<{
+  ok: boolean;
+  user?: SystemUserAccount;
+  workspace?: WorkspaceState;
+  errorMessage?: string;
+}> {
+  const cleanName = params.username.trim();
+  const cleanPass = params.password.trim();
+  const cleanEmail = params.email?.trim() || undefined;
+  const cleanRole = params.roleLabel?.trim() || 'Operador Credenciado · RODACK IA';
+
+  if (cleanName.length < 2) {
+    return {
+      ok: false,
+      errorMessage: 'O nome de usuário deve ter pelo menos 2 caracteres.',
+    };
+  }
+  if (cleanPass.length < 4) {
+    return {
+      ok: false,
+      errorMessage: 'A senha deve ter pelo menos 4 caracteres.',
+    };
+  }
+
+  const normalized = cleanName.toLowerCase();
+  if (
+    normalized === 'patrick pessoa' ||
+    normalized === 'patrickrodack' ||
+    cleanEmail?.toLowerCase() === 'patrickrodack@gmail.com'
+  ) {
+    return {
+      ok: false,
+      errorMessage:
+        'Patrick Pessoa já está fixado no código como Criador e Dono do Sistema. Use a aba Login de Usuário.',
+    };
+  }
+
+  // Try registering on backend first
+  const serverRes = await safeFetchJson<{
+    user?: SystemUserAccount;
+    workspace?: WorkspaceState;
+    error?: string;
+  }>(
+    '/api/auth/register',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: cleanName,
+        password: cleanPass,
+        email: cleanEmail,
+        roleLabel: cleanRole,
+      }),
+    },
+    0
+  );
+
+  const now = new Date().toISOString();
+  const createdUser: SystemUserAccount = serverRes.data?.user ?? {
+    id: `usr_${Date.now()}`,
+    username: cleanName,
+    email: cleanEmail,
+    roleLabel: cleanRole,
+    isCreator: false,
+    createdAt: now,
+    lastLoginAt: now,
+  };
+
+  // Always mirror in local database so login works even if backend restarts or in static preview
+  const localRecords = readLocalUsersDb().filter(
+    (r) => r.user.username.toLowerCase() !== normalized
+  );
+  localRecords.push({
+    user: createdUser,
+    password: cleanPass,
+  });
+  writeLocalUsersDb(localRecords);
+
+  const ws = serverRes.data?.workspace ?? getCachedOrSeedWorkspace();
+  ws.users = mergeUsersWithLocalDb([...(ws.users ?? []), createdUser]);
+  saveWorkspaceCache(ws);
+
+  return {
+    ok: true,
+    user: createdUser,
+    workspace: ws,
+  };
 }
 
 export interface StreamSnapshotEvent {

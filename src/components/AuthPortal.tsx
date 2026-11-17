@@ -14,7 +14,10 @@ import {
   X,
 } from 'lucide-react';
 import type { AssistantTurn, SystemUserAccount, WorkspaceState } from '../types/assistant';
-import { safeFetchJson } from '../utils/apiClient';
+import {
+  authenticateUserResilient,
+  registerUserResilient,
+} from '../utils/apiClient';
 import { triggerHaptic } from '../utils/haptics';
 
 export interface LogoutGreetingSummary {
@@ -54,7 +57,7 @@ export function AuthPortal({
 }: AuthPortalProps) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('Patrick Pessoa');
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState('190996');
   const [email, setEmail] = useState('');
   const [roleLabel, setRoleLabel] = useState('Engenheiro / Operador Convidado');
   const [isLoading, setIsLoading] = useState(false);
@@ -81,20 +84,9 @@ export function AuthPortal({
 
     try {
       if (mode === 'login') {
-        const res = await safeFetchJson<{
-          user?: SystemUserAccount;
-          workspace?: WorkspaceState;
-          error?: string;
-        }>('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            username: username.trim(),
-            password,
-          }),
-        });
+        const res = await authenticateUserResilient(username.trim(), password);
 
-        if (!res.ok || !res.data?.user) {
+        if (!res.ok || !res.user) {
           setErrorMsg(
             res.errorMessage || 'Credenciais negadas. Verifique o usuário e a senha informados.'
           );
@@ -104,24 +96,16 @@ export function AuthPortal({
         }
 
         triggerHaptic('success');
-        onAuthenticated(res.data.user, res.data.workspace);
+        onAuthenticated(res.user, res.workspace);
       } else {
-        const res = await safeFetchJson<{
-          user?: SystemUserAccount;
-          workspace?: WorkspaceState;
-          error?: string;
-        }>('/api/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            username: username.trim(),
-            password,
-            email: email.trim(),
-            roleLabel: roleLabel.trim() || 'Operador Credenciado',
-          }),
+        const res = await registerUserResilient({
+          username: username.trim(),
+          password,
+          email: email.trim(),
+          roleLabel: roleLabel.trim() || 'Operador Credenciado',
         });
 
-        if (!res.ok || !res.data?.user) {
+        if (!res.ok || !res.user) {
           setErrorMsg(
             res.errorMessage || 'Não foi possível concluir o cadastro do usuário.'
           );
@@ -132,9 +116,9 @@ export function AuthPortal({
 
         triggerHaptic('success');
         setSuccessBanner(
-          `Credencial de ${res.data.user.username} registrada com sucesso! Iniciando console...`
+          `Credencial de ${res.user.username} registrada com sucesso! Iniciando console...`
         );
-        onAuthenticated(res.data.user, res.data.workspace);
+        onAuthenticated(res.user, res.workspace);
       }
     } catch {
       setErrorMsg('Falha de comunicação com o núcleo de autenticação.');
