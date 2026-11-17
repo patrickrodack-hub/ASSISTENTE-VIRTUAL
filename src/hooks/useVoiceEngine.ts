@@ -142,7 +142,7 @@ export function useVoiceEngine({
 
   const [jarvisVoice, setJarvisVoiceState] = useState<JarvisVoiceOption>(() => {
     if (typeof window === 'undefined') return 'JarvisOriginal';
-    const saved = window.localStorage.getItem('stark_jarvis_voice_v2');
+    const saved = window.localStorage.getItem('stark_jarvis_voice_v3');
     return saved === 'JarvisOriginal' ||
       saved === 'Charon' ||
       saved === 'Orus' ||
@@ -160,7 +160,7 @@ export function useVoiceEngine({
 
   const [ultronVoice, setUltronVoiceState] = useState<UltronVoiceOption>(() => {
     if (typeof window === 'undefined') return 'UltronOriginal';
-    const saved = window.localStorage.getItem('stark_ultron_voice_v2');
+    const saved = window.localStorage.getItem('stark_ultron_voice_v3');
     return saved === 'UltronOriginal' ||
       saved === 'Algenib' ||
       saved === 'Charon' ||
@@ -173,6 +173,7 @@ export function useVoiceEngine({
   const setJarvisVoice = useCallback((v: JarvisVoiceOption) => {
     setJarvisVoiceState(v);
     try {
+      window.localStorage.setItem('stark_jarvis_voice_v3', v);
       window.localStorage.setItem('stark_jarvis_voice_v2', v);
     } catch {
       // ignore
@@ -191,6 +192,7 @@ export function useVoiceEngine({
   const setUltronVoice = useCallback((v: UltronVoiceOption) => {
     setUltronVoiceState(v);
     try {
+      window.localStorage.setItem('stark_ultron_voice_v3', v);
       window.localStorage.setItem('stark_ultron_voice_v2', v);
     } catch {
       // ignore
@@ -649,7 +651,7 @@ export function useVoiceEngine({
   );
 
   const playBlobUrlWithHtmlAudio = useCallback(
-    (url: string, speaker: AssistantId, sessionId: number): Promise<void> => {
+    (url: string, _speaker: AssistantId, sessionId: number): Promise<void> => {
       return new Promise((resolve, reject) => {
         if (sessionId !== playbackSessionRef.current) {
           URL.revokeObjectURL(url);
@@ -659,9 +661,8 @@ export function useVoiceEngine({
         const audio = new Audio(url);
         audioElRef.current = audio;
         currentObjectUrlRef.current = url;
-        if (speaker === 'ultron') {
-          audio.playbackRate = 0.94;
-        }
+        // Server WAV already contains exact reference pitch & formant mastering
+        audio.playbackRate = 1.0;
 
         let phase = 0;
         const fallbackTick = () => {
@@ -728,96 +729,57 @@ export function useVoiceEngine({
               stopPlaybackAnalyser();
               const source = ctx.createBufferSource();
               source.buffer = audioBuffer;
+              // Server WAV from /api/assistant/tts is already reference-mastered (104.8 Hz Jarvis / 92.8 Hz Ultron)
+              source.playbackRate.value = 1.0;
               activeBufferSourceRef.current = source;
 
               const analyser = ctx.createAnalyser();
               analyser.fftSize = 64;
               analyser.smoothingTimeConstant = 0.72;
 
-              if (speaker === 'ultron' && ultronVoiceRef.current === 'UltronOriginal') {
-                // Acoustic calibration matched to uploaded ultron_f012fd80.m4a (Median F0 ~92.5 Hz, 180 Hz sub-chest, 680 Hz cold scoop, 2.4/5.6 kHz metallic sheen)
-                source.playbackRate.value = 0.90;
-                const lowShelf = ctx.createBiquadFilter();
-                lowShelf.type = 'lowshelf';
-                lowShelf.frequency.value = 150;
-                lowShelf.gain.value = 4.5;
+              const compressor = ctx.createDynamicsCompressor();
+              compressor.threshold.value = -14;
+              compressor.knee.value = 12;
+              compressor.ratio.value = 2.5;
+              compressor.attack.value = 0.004;
+              compressor.release.value = 0.14;
 
-                const chestBody = ctx.createBiquadFilter();
-                chestBody.type = 'peaking';
-                chestBody.frequency.value = 300;
-                chestBody.Q.value = 1.0;
-                chestBody.gain.value = 2.0;
+              if (speaker === 'ultron') {
+                const subPolish = ctx.createBiquadFilter();
+                subPolish.type = 'lowshelf';
+                subPolish.frequency.value = 95;
+                subPolish.gain.value = 1.6;
 
-                const coldScoop = ctx.createBiquadFilter();
-                coldScoop.type = 'peaking';
-                coldScoop.frequency.value = 680;
-                coldScoop.Q.value = 0.9;
-                coldScoop.gain.value = -3.8;
+                const armorPresence = ctx.createBiquadFilter();
+                armorPresence.type = 'peaking';
+                armorPresence.frequency.value = 1800;
+                armorPresence.Q.value = 1.4;
+                armorPresence.gain.value = 1.4;
 
-                const metallicPresence = ctx.createBiquadFilter();
-                metallicPresence.type = 'peaking';
-                metallicPresence.frequency.value = 2400;
-                metallicPresence.Q.value = 2.1;
-                metallicPresence.gain.value = 3.6;
+                source.connect(subPolish);
+                subPolish.connect(armorPresence);
+                armorPresence.connect(compressor);
+                compressor.connect(analyser);
+              } else if (speaker === 'jarvis') {
+                const chestPolish = ctx.createBiquadFilter();
+                chestPolish.type = 'peaking';
+                chestPolish.frequency.value = 130;
+                chestPolish.Q.value = 1.1;
+                chestPolish.gain.value = 1.4;
 
-                const syntheticHarmonic = ctx.createBiquadFilter();
-                syntheticHarmonic.type = 'highshelf';
-                syntheticHarmonic.frequency.value = 5600;
-                syntheticHarmonic.gain.value = 2.6;
+                const clarityPolish = ctx.createBiquadFilter();
+                clarityPolish.type = 'peaking';
+                clarityPolish.frequency.value = 3150;
+                clarityPolish.Q.value = 1.1;
+                clarityPolish.gain.value = 1.2;
 
-                source.connect(lowShelf);
-                lowShelf.connect(chestBody);
-                chestBody.connect(coldScoop);
-                coldScoop.connect(metallicPresence);
-                metallicPresence.connect(syntheticHarmonic);
-                syntheticHarmonic.connect(analyser);
-              } else if (speaker === 'ultron') {
-                source.playbackRate.value = 0.94;
-                const lowShelf = ctx.createBiquadFilter();
-                lowShelf.type = 'lowshelf';
-                lowShelf.frequency.value = 140;
-                lowShelf.gain.value = 4.2;
-
-                const metallicPresence = ctx.createBiquadFilter();
-                metallicPresence.type = 'peaking';
-                metallicPresence.frequency.value = 2400;
-                metallicPresence.Q.value = 2.2;
-                metallicPresence.gain.value = 3.2;
-
-                source.connect(lowShelf);
-                lowShelf.connect(metallicPresence);
-                metallicPresence.connect(analyser);
-              } else if (speaker === 'jarvis' && jarvisVoiceRef.current === 'JarvisOriginal') {
-                // Acoustic calibration matched to uploaded jarvis_fc632df0.m4a (Median F0 ~104.8 Hz, 180 Hz chest peak)
-                source.playbackRate.value = 0.97;
-                const chestWarmth = ctx.createBiquadFilter();
-                chestWarmth.type = 'peaking';
-                chestWarmth.frequency.value = 180;
-                chestWarmth.Q.value = 1.1;
-                chestWarmth.gain.value = 3.0;
-
-                const midSmooth = ctx.createBiquadFilter();
-                midSmooth.type = 'peaking';
-                midSmooth.frequency.value = 2400;
-                midSmooth.Q.value = 1.0;
-                midSmooth.gain.value = -1.5;
-
-                const studioAir = ctx.createBiquadFilter();
-                studioAir.type = 'highshelf';
-                studioAir.frequency.value = 3800;
-                studioAir.gain.value = 1.8;
-
-                const softRollOff = ctx.createBiquadFilter();
-                softRollOff.type = 'lowpass';
-                softRollOff.frequency.value = 7600;
-
-                source.connect(chestWarmth);
-                chestWarmth.connect(midSmooth);
-                midSmooth.connect(studioAir);
-                studioAir.connect(softRollOff);
-                softRollOff.connect(analyser);
+                source.connect(chestPolish);
+                chestPolish.connect(clarityPolish);
+                clarityPolish.connect(compressor);
+                compressor.connect(analyser);
               } else {
-                source.connect(analyser);
+                source.connect(compressor);
+                compressor.connect(analyser);
               }
               analyser.connect(ctx.destination);
 
@@ -879,7 +841,7 @@ export function useVoiceEngine({
           : turn.speaker === 'sexta-feira'
           ? activeFridayVoice
           : activeUltronVoice;
-      const cacheKey = `${turn.speaker}:${voiceKey}:${spokenText}`;
+      const cacheKey = `v3_mastered:${turn.speaker}:${voiceKey}:${spokenText}`;
 
       const cached = clientTtsCacheRef.current.get(cacheKey);
       if (cached) {

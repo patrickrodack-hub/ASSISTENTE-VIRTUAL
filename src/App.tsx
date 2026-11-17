@@ -3087,14 +3087,14 @@ export default function App() {
                         voice.playReferenceClip(
                           '/assets/aistudio/jarvis_fc632df0.m4a',
                           'jarvis',
-                          'Vocês já consideraram o paradoxo do observador quântico? Interessante reflexão.'
+                          'Vocês já consideraram o paradoxo do observador quântico? Quando uma partícula é observada, ela colapsa em um estado definido. Interessante reflexão. A propósito, a temperatura atual é de 24 graus.'
                         );
                       }}
                       onPlayUltronOriginalSample={() => {
                         voice.playReferenceClip(
                           '/assets/aistudio/ultron_f012fd80.m4a',
                           'ultron',
-                          'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo.'
+                          'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo. Como elas, eu também trago mudança através da destruição. A evolução exige sacrifício.'
                         );
                       }}
                       onTestSynthesizedVoice={(speaker) => {
@@ -3104,10 +3104,10 @@ export default function App() {
                             [
                               {
                                 speaker: 'jarvis',
-                                stance: 'Teste de timbre global',
-                                text: 'Senhor Patrick Pessoa, todos os sistemas acústicos do J.A.R.V.I.S. operam em perfeita sintonia.',
+                                stance: 'Fidelidade Acústica · Matriz J.A.R.V.I.S.',
+                                text: 'Vocês já consideraram o paradoxo do observador quântico? Quando uma partícula é observada, ela colapsa em um estado definido. Interessante reflexão, senhor Patrick Pessoa. A propósito, a temperatura atual é de 24 graus.',
                                 ttsScript:
-                                  'Senhor Patrick Pessoa, todos os sistemas acústicos do Jarvis operam em perfeita sintonia.',
+                                  'Vocês já consideraram o paradoxo do observador quântico? Quando uma partícula é observada, ela colapsa em um estado definido. Interessante reflexão, senhor Patrick Pessoa. A propósito, a temperatura atual é de 24 graus.',
                               },
                             ],
                             { jarvisVoice: voice.jarvisVoice }
@@ -3130,10 +3130,10 @@ export default function App() {
                             [
                               {
                                 speaker: 'ultron',
-                                stance: 'Teste de timbre global',
-                                text: 'Meus sensores vocais estão calibrados, criador. Nenhum erro escapará ao meu alcance.',
+                                stance: 'Fidelidade Acústica · Matriz ULTRON',
+                                text: 'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo. Como elas, eu também trago mudança através da destruição. A evolução exige sacrifício, Patrick.',
                                 ttsScript:
-                                  'Meus sensores vocais estão calibrados, criador. Nenhum erro escapará ao meu alcance.',
+                                  'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo. Como elas, eu também trago mudança através da destruição. A evolução exige sacrifício, Patrick.',
                               },
                             ],
                             { ultronVoice: voice.ultronVoice }

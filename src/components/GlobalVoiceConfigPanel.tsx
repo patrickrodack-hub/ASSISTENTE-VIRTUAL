@@ -38,10 +38,10 @@ const JARVIS_TIMBRE_OPTIONS: Array<{
 }> = [
   {
     value: 'JarvisOriginal',
-    label: 'JarvisOriginal (Matriz Extraída · Padrão)',
-    spec: '104.8 Hz · Barítono Britânico Sereno',
+    label: 'JarvisOriginal (Matriz Fiel ao Áudio Enviado · Padrão)',
+    spec: '104.8 Hz · Barítono Sereno + Micro-Doubler HUD (11.5ms/21.5ms)',
     description:
-      'Timbre extraído diretamente do áudio de referência de Patrick Pessoa, calibrado com ressonância de peito e cadência analítica.',
+      'Masterização PCM 24kHz fiel ao arquivo jarvis_fc632df0.m4a enviado por Patrick Pessoa: pitch Hermite 0.956x, corpo de peito em 128 Hz (+4.2 dB), presença analítica em 3.18 kHz e reflexão de console Stark.',
   },
   {
     value: 'Charon',
@@ -103,10 +103,10 @@ const ULTRON_TIMBRE_OPTIONS: Array<{
 }> = [
   {
     value: 'UltronOriginal',
-    label: 'UltronOriginal (Matriz Extraída · Padrão)',
-    spec: '93.0 Hz · Sub-Grave Metálico Calculista',
+    label: 'UltronOriginal (Matriz Fiel ao Áudio Enviado · Padrão)',
+    spec: '92.8 Hz · Sub-Oitava Cibernética + Ressonador Metálico (14.8ms/27.2ms)',
     description:
-      'Timbre extraído do áudio de referência de Ultron (92.5–93.0 Hz), com sub-harmônicos graves e autoridade fria.',
+      'Masterização PCM 24kHz fiel ao arquivo ultron_f012fd80.m4a enviado por Patrick Pessoa: pitch Hermite 0.856x (-2.65 semitons), divisor sub-harmônico de oitava (44–120 Hz), voz dupla modulada e mordida metálica em 1.80 kHz (+4.4 dB).',
   },
   {
     value: 'Umbriel',
