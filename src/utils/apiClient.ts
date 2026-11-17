@@ -331,6 +331,11 @@ export async function streamAssistantInteraction(
     useWebSearch: WebSearchMode;
     clientTimeIso: string;
     clientTimezone: string;
+    activeUser?: {
+      username: string;
+      roleLabel: string;
+      isCreator: boolean;
+    };
   },
   callbacks: StreamInteractionCallbacks
 ): Promise<void> {

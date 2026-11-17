@@ -749,5 +749,16 @@
         "createdAt": "2026-11-17T14:24:44.851Z"
       }
     ]
-  }
+  },
+  "users": [
+    {
+      "id": "creator-patrick-pessoa",
+      "username": "Patrick Pessoa",
+      "email": "patrickrodack@gmail.com",
+      "roleLabel": "Criador, Desenvolvedor Principal & Dono do Sistema",
+      "isCreator": true,
+      "createdAt": "2026-11-17T15:13:50.650Z",
+      "lastLoginAt": "2026-11-17T15:13:57.159Z"
+    }
+  ]
 }

@@ -9,11 +9,15 @@ import {
   Circle,
   Clock,
   CloudSun,
+  Cpu,
   Globe,
   HeartPulse,
+  LogOut,
+  Maximize2,
   MessageSquare,
   Mic,
   MicOff,
+  Minimize2,
   Moon,
   Radio,
   RefreshCw,
@@ -23,6 +27,7 @@ import {
   Sparkles,
   Square,
   Sun,
+  UserPlus,
   Volume2,
   VolumeX,
 } from 'lucide-react';
@@ -33,6 +38,7 @@ import {
   LiveRadarIntelPanel,
 } from './components/AgendaAndIntelPanel';
 import { AssistantPresenceCard } from './components/AssistantPresenceCard';
+import { AuthPortal } from './components/AuthPortal';
 import {
   DialogueStream,
   type StreamingConversationState,
@@ -63,6 +69,7 @@ import type {
   LiveIntelBriefing,
   MemoryCategory,
   RoutineRuleItem,
+  SystemUserAccount,
   TaskItem,
   TurnFeedback,
   WebSearchMode,
@@ -82,6 +89,8 @@ import fridayAvatarUrl from './assets/images/friday_avatar_1794791051362.jpg';
 import ultronAvatarUrl from './assets/images/ultron_avatar_1794797018006.jpg';
 import starkBackdropUrl from './assets/images/stark_lab_backdrop_1794791051469.jpg';
 
+const HOLOLAB_BACKDROP_URL = '/assets/aistudio/image_e386c665.png';
+
 type ActiveView =
   | 'console'
   | 'agenda'
@@ -89,17 +98,39 @@ type ActiveView =
   | 'memoria'
   | 'tarefas'
   | 'auditoria';
-type ThemeMode = 'dark' | 'light';
+type ThemeMode = 'hologram' | 'dark' | 'light';
 
-const THEME_STORAGE_KEY = 'stark_theme_mode';
+const THEME_STORAGE_KEY = 'rodack_theme_mode_v2';
+const AUTH_USER_STORAGE_KEY = 'rodack_auth_user_v1';
 const DAEMON_ACTIVE_KEY = 'rodack_daemon_active_v1';
 const PROACTIVE_INTERVAL_KEY = 'rodack_proactive_interval_min_v1';
 const FIRED_SCHEDULES_KEY = 'rodack_fired_schedules_v1';
+const FOCUS_MODE_STORAGE_KEY = 'rodack_focus_mode_v1';
 
 function getInitialTheme(): ThemeMode {
-  if (typeof window === 'undefined') return 'dark';
+  if (typeof window === 'undefined') return 'hologram';
   const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
-  return saved === 'light' || saved === 'dark' ? saved : 'dark';
+  return saved === 'light' || saved === 'dark' || saved === 'hologram'
+    ? saved
+    : 'hologram';
+}
+
+function getInitialAuthenticatedUser(): SystemUserAccount | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(AUTH_USER_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SystemUserAccount;
+    if (parsed && parsed.username) return parsed;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function getInitialFocusMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.localStorage.getItem(FOCUS_MODE_STORAGE_KEY) === 'true';
 }
 
 function getInitialDaemonActive(): boolean {
@@ -123,19 +154,22 @@ function buildStatusFaviconSvg(status: 'online' | 'speaking' | 'proactive' | 'pa
       : status === 'online'
       ? '#10B981'
       : '#64748B';
-  const ringColor = status === 'speaking' ? '#F59E0B' : '#38BDF8';
+  const ringColor = status === 'speaking' ? '#F59E0B' : '#22D3EE';
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-    <rect width="64" height="64" rx="16" fill="#060A12"/>
+    <rect width="64" height="64" rx="16" fill="#040B12"/>
     <circle cx="32" cy="32" r="22" fill="none" stroke="${ringColor}" stroke-width="3.5" stroke-dasharray="10 4"/>
     <circle cx="32" cy="32" r="11" fill="${ringColor}" fill-opacity="0.25" stroke="${ringColor}" stroke-width="2.5"/>
     <circle cx="32" cy="32" r="4.5" fill="#F8FAFC"/>
-    <circle cx="50" cy="14" r="8" fill="${dotColor}" stroke="#060A12" stroke-width="3"/>
+    <circle cx="50" cy="14" r="8" fill="${dotColor}" stroke="#040B12" stroke-width="3"/>
   </svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
 export default function App() {
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
+  const [currentUser, setCurrentUser] = useState<SystemUserAccount | null>(
+    getInitialAuthenticatedUser
+  );
   const [workspace, setWorkspace] = useState<WorkspaceState>(() =>
     getCachedOrSeedWorkspace()
   );
@@ -163,6 +197,7 @@ export default function App() {
   const [liveIntel, setLiveIntel] = useState<LiveIntelBriefing | null>(null);
   const [isLoadingIntel, setIsLoadingIntel] = useState(false);
   const [isScanningSocials, setIsScanningSocials] = useState(false);
+  const [isFocusMode, setIsFocusMode] = useState<boolean>(getInitialFocusMode);
 
   // Background Daemon, Status Bar & Proactive Autonomy state
   const [isDaemonActive, setIsDaemonActive] = useState<boolean>(getInitialDaemonActive);
@@ -185,14 +220,17 @@ export default function App() {
 
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === 'dark') {
+    if (theme === 'dark' || theme === 'hologram') {
       root.classList.add('dark');
     } else {
       root.classList.remove('dark');
     }
     const metaTheme = document.querySelector('meta[name="theme-color"]');
     if (metaTheme) {
-      metaTheme.setAttribute('content', theme === 'dark' ? '#080C14' : '#F1F5F9');
+      metaTheme.setAttribute(
+        'content',
+        theme === 'hologram' ? '#040B12' : theme === 'dark' ? '#080C14' : '#F1F5F9'
+      );
     }
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme);
@@ -200,6 +238,18 @@ export default function App() {
       // Ignore storage quota errors
     }
   }, [theme]);
+
+  useEffect(() => {
+    try {
+      if (currentUser) {
+        window.localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(currentUser));
+      } else {
+        window.localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+      }
+    } catch {
+      // ignore
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     try {
@@ -219,6 +269,14 @@ export default function App() {
       // ignore
     }
   }, [proactiveIntervalMin]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FOCUS_MODE_STORAGE_KEY, String(isFocusMode));
+    } catch {
+      // ignore
+    }
+  }, [isFocusMode]);
 
   // Screen WakeLock management so RODACK SISTEMA DE IA stays active in background
   useEffect(() => {
@@ -427,6 +485,17 @@ export default function App() {
             useWebSearch: options?.search ?? useWebSearch,
             clientTimeIso: new Date().toISOString(),
             clientTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            activeUser: currentUser
+              ? {
+                  username: currentUser.username,
+                  roleLabel: currentUser.roleLabel,
+                  isCreator: currentUser.isCreator,
+                }
+              : {
+                  username: 'Patrick Pessoa',
+                  roleLabel: 'Criador, Desenvolvedor Principal & Dono do Sistema',
+                  isCreator: true,
+                },
           },
           {
             onSnapshot: (snap) => {
@@ -475,7 +544,7 @@ export default function App() {
         setProcessingAssistants([]);
       }
     },
-    [useWebSearch, updateWorkspace]
+    [useWebSearch, updateWorkspace, currentUser]
   );
 
   // Trigger an autonomous proactive call from J.A.R.V.I.S., SEXTA-FEIRA, ULTRON or all 3
@@ -522,6 +591,17 @@ export default function App() {
             eventOrRoutineTitle: options?.eventOrRoutineTitle,
             clientTimeIso: new Date().toISOString(),
             clientTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            activeUser: currentUser
+              ? {
+                  username: currentUser.username,
+                  roleLabel: currentUser.roleLabel,
+                  isCreator: currentUser.isCreator,
+                }
+              : {
+                  username: 'Patrick Pessoa',
+                  roleLabel: 'Criador, Desenvolvedor Principal & Dono do Sistema',
+                  isCreator: true,
+                },
           }),
         });
 
@@ -574,7 +654,7 @@ export default function App() {
         void voiceControlRef.current.playTurnsAudio(spokenTurns);
       }
     },
-    [isProcessing, updateWorkspace, dispatchDesktopNotification]
+    [isProcessing, updateWorkspace, dispatchDesktopNotification, currentUser]
   );
 
   const handleWakeCommand = useCallback(
@@ -1130,34 +1210,89 @@ export default function App() {
     empathyNote: 'Pronto para colaborar.',
   };
 
+  if (!currentUser) {
+    return (
+      <MotionConfig reducedMotion="user">
+        <AuthPortal
+          registeredUsers={workspace?.users ?? []}
+          onAuthenticated={(user, nextWorkspace) => {
+            setCurrentUser(user);
+            if (nextWorkspace) {
+              updateWorkspace(nextWorkspace);
+            }
+          }}
+        />
+      </MotionConfig>
+    );
+  }
+
+  const isHoloTheme = theme === 'hologram';
+
   return (
     <MotionConfig reducedMotion="user">
-      <div className="relative min-h-screen bg-slate-100 dark:bg-[#060A12] text-slate-900 dark:text-slate-100 flex flex-col transition-colors duration-200">
-        {/* Futuristic RODACK SISTEMA DE IA Backdrop with Stark Holographic Grid */}
+      <div
+        className={`relative min-h-screen flex flex-col transition-colors duration-200 ${
+          isHoloTheme
+            ? 'bg-[#040B12] text-cyan-50'
+            : 'bg-slate-100 dark:bg-[#060A12] text-slate-900 dark:text-slate-100'
+        }`}
+      >
+        {/* Holographic Command Laboratory Backdrop (Extracted from /assets/aistudio/image_e386c665.png) */}
         <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
           <img
-            src={starkBackdropUrl}
+            src={isHoloTheme ? HOLOLAB_BACKDROP_URL : starkBackdropUrl}
             alt=""
             referrerPolicy="no-referrer"
-            className="h-full w-full object-cover opacity-10 dark:opacity-20 transition-opacity duration-300"
+            className={`h-full w-full object-cover object-center transition-opacity duration-300 ${
+              isHoloTheme
+                ? 'opacity-35 filter saturate-125 contrast-110'
+                : 'opacity-10 dark:opacity-20'
+            }`}
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-slate-50/92 via-slate-100/95 to-slate-100 dark:from-[#060A12]/88 dark:via-[#060A12]/94 dark:to-[#060A12] transition-colors duration-300" />
+          <div
+            className={`absolute inset-0 transition-colors duration-300 ${
+              isHoloTheme
+                ? 'bg-gradient-to-b from-[#030911]/82 via-[#04111D]/78 to-[#030911]/92 rodack-holo-grid'
+                : 'bg-gradient-to-b from-slate-50/92 via-slate-100/95 to-slate-100 dark:from-[#060A12]/88 dark:via-[#060A12]/94 dark:to-[#060A12]'
+            }`}
+          />
           <div
             aria-hidden="true"
-            className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-sky-500/50 to-amber-500/50"
+            className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/75 to-sky-400/75"
           />
         </div>
 
+        {/* Vertical Cyan Plasma Light Pillars on Left & Right Edges (From Reference Image) */}
+        {isHoloTheme && (
+          <>
+            <div
+              aria-hidden="true"
+              className="pointer-events-none fixed left-1.5 sm:left-3 top-0 bottom-0 w-1 sm:w-2 rodack-light-pillar z-20 opacity-80"
+            />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none fixed right-1.5 sm:right-3 top-0 bottom-0 w-1 sm:w-2 rodack-light-pillar z-20 opacity-80"
+            />
+          </>
+        )}
+
         {/* Strict 3-Zone Top Bar Contract */}
-        <header className="sticky top-0 z-30 border-b border-slate-200/90 dark:border-sky-500/20 bg-white/90 dark:bg-[#060A12]/90 backdrop-blur-md transition-colors">
-          <div className="max-w-[1440px] mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-3 sm:gap-8">
+        <header
+          className={`sticky top-0 z-30 border-b backdrop-blur-md transition-colors ${
+            isHoloTheme
+              ? 'border-cyan-400/30 bg-[#040D17]/88 shadow-[0_4px_24px_rgba(6,182,212,0.18)]'
+              : 'border-slate-200/90 dark:border-sky-500/20 bg-white/90 dark:bg-[#060A12]/90'
+          }`}
+        >
+          <div className="max-w-[1440px] mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-3 sm:gap-6">
             {/* Zone 1: Single-line Brand Wordmark */}
             <button
               type="button"
               onClick={() => setActiveView('console')}
-              className="font-display text-base sm:text-lg font-bold tracking-wider uppercase text-slate-900 dark:text-slate-50 whitespace-nowrap shrink-0"
+              className="font-display text-base sm:text-lg font-bold tracking-wider uppercase text-slate-900 dark:text-cyan-50 whitespace-nowrap shrink-0 flex items-center gap-2"
             >
-              RODACK SISTEMA DE IA
+              <Cpu className="h-4 w-4 text-cyan-500 dark:text-cyan-300 shrink-0" />
+              <span>RODACK SISTEMA DE IA</span>
             </button>
 
             {/* Zone 2: Single-line Navigation Links (5 links) */}
@@ -1184,8 +1319,8 @@ export default function App() {
                     onClick={() => setActiveView(item.id)}
                     className={`relative py-2 transition-colors whitespace-nowrap shrink-0 ${
                       active
-                        ? 'text-slate-900 dark:text-slate-50 font-semibold'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                        ? 'text-slate-900 dark:text-cyan-100 font-semibold'
+                        : 'text-slate-600 dark:text-cyan-200/70 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
                     <span>{item.label}</span>
@@ -1193,7 +1328,7 @@ export default function App() {
                       <motion.span
                         layoutId="stark-nav-indicator"
                         transition={{ type: 'spring', stiffness: 460, damping: 36 }}
-                        className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-gradient-to-r from-amber-500 via-sky-500 to-amber-400 dark:from-amber-400 dark:via-sky-400 dark:to-amber-300 shadow-[0_0_10px_rgba(56,189,248,0.6)]"
+                        className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-gradient-to-r from-cyan-400 via-sky-300 to-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.85)]"
                       />
                     )}
                   </button>
@@ -1201,15 +1336,49 @@ export default function App() {
               })}
             </nav>
 
-            {/* Zone 3: 1 Primary Action */}
-            <div className="flex items-center shrink-0">
+            {/* Zone 3: Focus Mode Toggle & Primary Voice Action */}
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                aria-pressed={isFocusMode}
+                title={
+                  isFocusMode
+                    ? 'Sair do Modo Foco e restaurar painéis laterais (Clima e Agenda)'
+                    : 'Ativar Modo Foco: ocultar painéis laterais (Clima e Agenda) para maximizar o Console'
+                }
+                onClick={() => {
+                  triggerHaptic('toggle');
+                  if (!isFocusMode && activeView !== 'console') {
+                    setActiveView('console');
+                  }
+                  setIsFocusMode((prev) => !prev);
+                }}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 sm:px-3.5 py-2 min-h-[40px] text-xs font-semibold transition-all whitespace-nowrap shrink-0 ${
+                  isFocusMode
+                    ? 'border border-cyan-400/80 bg-cyan-500/25 text-cyan-900 dark:text-cyan-100 shadow-[0_0_16px_rgba(34,211,238,0.35)]'
+                    : 'border border-slate-300 dark:border-cyan-500/35 bg-white/80 dark:bg-[#061523]/90 text-slate-700 dark:text-cyan-100 hover:bg-slate-100 dark:hover:bg-cyan-950/80'
+                }`}
+              >
+                {isFocusMode ? (
+                  <>
+                    <Minimize2 className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-300 shrink-0" />
+                    <span>Modo Foco Ativo</span>
+                  </>
+                ) : (
+                  <>
+                    <Maximize2 className="h-3.5 w-3.5 shrink-0" />
+                    <span>Modo Foco</span>
+                  </>
+                )}
+              </button>
+
               <button
                 type="button"
                 onClick={voice.toggleStandby}
                 className={`inline-flex items-center gap-1.5 sm:gap-2 rounded-lg px-3 sm:px-4 py-2 min-h-[40px] text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
                   voice.isStandbyActive
-                    ? 'bg-amber-500 text-slate-950 hover:bg-amber-400 shadow-sm'
-                    : 'border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-800'
+                    ? 'bg-cyan-400 text-slate-950 hover:bg-cyan-300 shadow-[0_0_16px_rgba(34,211,238,0.45)]'
+                    : 'border border-slate-300 dark:border-cyan-500/35 bg-slate-100 dark:bg-[#061523] text-slate-800 dark:text-cyan-100 hover:bg-slate-200 dark:hover:bg-cyan-950/80'
                 }`}
               >
                 {voice.isStandbyActive ? (
@@ -1232,98 +1401,273 @@ export default function App() {
 
         {/* Main Content (with bottom padding on mobile for Fixed Bottom Nav) */}
         <main className="relative z-10 flex-1 max-w-[1440px] w-full mx-auto px-3 sm:px-6 pt-3 sm:pt-4 pb-24 md:pb-6">
-          {/* Status Bar Tray & Background Daemon Control + Environment Switcher */}
-          <div className="mb-3 sm:mb-4 rounded-xl border border-slate-200/90 dark:border-sky-500/20 bg-white/90 dark:bg-slate-900/75 px-3 sm:px-4 py-2.5 shadow-xs backdrop-blur-sm space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2.5">
-              <BackgroundStatusTrayBar
-                isDaemonActive={isDaemonActive}
-                onToggleDaemon={() => {
-                  triggerHaptic('toggle');
-                  setIsDaemonActive((v) => !v);
-                }}
-                proactiveIntervalMin={proactiveIntervalMin}
-                onChangeIntervalMin={(min: number) => setProactiveIntervalMin(min)}
-                notificationsGranted={notificationsGranted}
-                onRequestNotifications={() => void requestDesktopNotifications()}
-                wakeLockActive={wakeLockActive}
-                onTriggerImmediateProactive={() =>
-                  void handleTriggerProactiveCall({
-                    reason:
-                      'Chamado imediato solicitado por Patrick Pessoa na barra de status do RODACK SISTEMA DE IA: apresentar resumo executivo da agenda, clima do Rio de Janeiro, principais manchetes e uma pergunta ou recomendação estratégica.',
-                    preferredMode: 'todos',
-                    eventOrRoutineTitle: 'Briefing Autônomo Imediato',
-                  })
-                }
-                isProcessing={isProcessing}
-                weatherSummary={
-                  liveIntel?.weather
-                    ? `Rio ${liveIntel.weather.temperatureC}°C · ${liveIntel.weather.conditionLabel}`
-                    : 'Rio de Janeiro · Sincronizando clima'
-                }
-                nextScheduledLabel={
-                  upcomingEvents[0]
-                    ? `Próximo: ${upcomingEvents[0].startTime} · ${upcomingEvents[0].title}`
-                    : 'Agenda livre no momento'
-                }
-              />
+          {/* Status Bar Tray & Background Daemon Control + Theme & User Session Bar (Hidden in Focus Mode on Console) */}
+          {(!isFocusMode || activeView !== 'console') && (
+            <div
+              className={`mb-3 sm:mb-4 rounded-xl px-3 sm:px-4 py-2.5 space-y-2 ${
+                isHoloTheme
+                  ? 'rodack-holo-panel'
+                  : 'border border-slate-200/90 dark:border-sky-500/20 bg-white/90 dark:bg-slate-900/75 shadow-xs backdrop-blur-sm'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                <BackgroundStatusTrayBar
+                  isDaemonActive={isDaemonActive}
+                  onToggleDaemon={() => {
+                    triggerHaptic('toggle');
+                    setIsDaemonActive((v) => !v);
+                  }}
+                  proactiveIntervalMin={proactiveIntervalMin}
+                  onChangeIntervalMin={(min: number) => setProactiveIntervalMin(min)}
+                  notificationsGranted={notificationsGranted}
+                  onRequestNotifications={() => void requestDesktopNotifications()}
+                  wakeLockActive={wakeLockActive}
+                  onTriggerImmediateProactive={() =>
+                    void handleTriggerProactiveCall({
+                      reason:
+                        'Chamado imediato solicitado por Patrick Pessoa na barra de status do RODACK SISTEMA DE IA: apresentar resumo executivo da agenda, clima do Rio de Janeiro, principais manchetes e uma pergunta ou recomendação estratégica.',
+                      preferredMode: 'todos',
+                      eventOrRoutineTitle: 'Briefing Autônomo Imediato',
+                    })
+                  }
+                  isProcessing={isProcessing}
+                  weatherSummary={
+                    liveIntel?.weather
+                      ? `Rio ${liveIntel.weather.temperatureC}°C · ${liveIntel.weather.conditionLabel}`
+                      : 'Rio de Janeiro · Sincronizando clima'
+                  }
+                  nextScheduledLabel={
+                    upcomingEvents[0]
+                      ? `Próximo: ${upcomingEvents[0].startTime} · ${upcomingEvents[0].title}`
+                      : 'Agenda livre no momento'
+                  }
+                />
 
-              <div className="flex items-center justify-between sm:justify-end w-full xl:w-auto gap-2 pt-1 xl:pt-0 border-t xl:border-t-0 border-slate-200/70 dark:border-slate-800/80">
-                <div
-                  role="group"
-                  aria-label="Seletor de tema visual"
-                  className="inline-flex items-center rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 p-0.5 text-xs"
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      triggerHaptic('toggle');
-                      setTheme('dark');
-                    }}
-                    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 min-h-[32px] font-medium transition-colors ${
-                      theme === 'dark'
-                        ? 'bg-slate-800 text-amber-300 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    <Moon className="h-3.5 w-3.5" />
-                    <span>Escuro</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      triggerHaptic('toggle');
-                      setTheme('light');
-                    }}
-                    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 min-h-[32px] font-medium transition-colors ${
-                      theme === 'light'
-                        ? 'bg-white text-amber-700 shadow-xs border border-slate-200/80'
-                        : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    <Sun className="h-3.5 w-3.5" />
-                    <span>Claro</span>
-                  </button>
-                </div>
+                <div className="flex flex-wrap items-center justify-between sm:justify-end w-full xl:w-auto gap-2 pt-1 xl:pt-0 border-t xl:border-t-0 border-slate-200/70 dark:border-cyan-500/20">
+                  {/* Authenticated User / Creator Badge + Switch User / Register Trigger */}
+                  <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-cyan-500/35 bg-slate-50 dark:bg-[#04121F]/90 px-2.5 py-1 text-xs">
+                    <ShieldCheck className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-300 shrink-0" />
+                    <span className="font-semibold text-slate-900 dark:text-cyan-100">
+                      {currentUser.username}
+                    </span>
+                    {currentUser.isCreator && (
+                      <span className="rounded bg-cyan-500/20 border border-cyan-400/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-cyan-800 dark:text-cyan-200">
+                        Criador &amp; Dono
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic('tap');
+                        setCurrentUser(null);
+                      }}
+                      title="Abrir Tela de Login ou Cadastrar Novo Usuário"
+                      className="ml-1 inline-flex items-center gap-1 rounded border border-slate-300 dark:border-cyan-500/30 bg-white dark:bg-cyan-950/60 px-2 py-0.5 text-[11px] font-medium text-slate-700 dark:text-cyan-200 hover:bg-slate-100 dark:hover:bg-cyan-900/70 transition-colors"
+                    >
+                      <UserPlus className="h-3 w-3" />
+                      <span>Usuários / Sair</span>
+                      <LogOut className="h-3 w-3" />
+                    </button>
+                  </div>
 
-                <div className="flex items-center gap-2">
-                  <PWAInstallButton />
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void loadWorkspace(false);
-                      void loadLiveIntel(undefined, true);
-                    }}
-                    title="Sincronizar sistema, clima e notícias com o servidor"
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 py-1.5 min-h-[34px] text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  {/* 3-Mode Theme Switcher: Holográfico (Image Theme), Escuro, Claro */}
+                  <div
+                    role="group"
+                    aria-label="Seletor de tema visual"
+                    className="inline-flex items-center rounded-lg border border-slate-200 dark:border-cyan-500/30 bg-slate-100 dark:bg-[#030C15] p-0.5 text-xs"
                   >
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    <span className="hidden xl:inline">Sincronizar</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic('toggle');
+                        setTheme('hologram');
+                      }}
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 min-h-[32px] font-medium transition-colors ${
+                        theme === 'hologram'
+                          ? 'bg-cyan-500 text-slate-950 font-semibold shadow-[0_0_12px_rgba(34,211,238,0.45)]'
+                          : 'text-slate-600 hover:text-slate-900 dark:text-cyan-200/75 dark:hover:text-white'
+                      }`}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      <span>Holográfico</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic('toggle');
+                        setTheme('dark');
+                      }}
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 min-h-[32px] font-medium transition-colors ${
+                        theme === 'dark'
+                          ? 'bg-slate-800 text-amber-300 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900 dark:text-cyan-200/75 dark:hover:text-white'
+                      }`}
+                    >
+                      <Moon className="h-3.5 w-3.5" />
+                      <span>Escuro</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic('toggle');
+                        setTheme('light');
+                      }}
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 min-h-[32px] font-medium transition-colors ${
+                        theme === 'light'
+                          ? 'bg-white text-amber-700 shadow-xs border border-slate-200/80'
+                          : 'text-slate-600 hover:text-slate-900 dark:text-cyan-200/75 dark:hover:text-white'
+                      }`}
+                    >
+                      <Sun className="h-3.5 w-3.5" />
+                      <span>Claro</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <PWAInstallButton />
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void loadWorkspace(false);
+                        void loadLiveIntel(undefined, true);
+                      }}
+                      title="Sincronizar sistema, clima e notícias com o servidor"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-cyan-500/30 bg-white dark:bg-[#051422] px-2.5 py-1.5 min-h-[34px] text-xs font-medium text-slate-700 dark:text-cyan-200 hover:bg-slate-100 dark:hover:bg-cyan-950/80 transition-colors"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      <span className="hidden xl:inline">Sincronizar</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {/* 3-Monitor Holographic Command Desk Cockpit (Extracted from /assets/aistudio/image_e386c665.png) */}
+          {isHoloTheme && activeView === 'console' && !isFocusMode && (
+            <div className="hidden lg:grid lg:grid-cols-12 gap-4 mb-4">
+              {/* Left Monitor: Concentric Mandala Reactor HUD (From Left Desk Screen in Image) */}
+              <div className="col-span-4 rodack-holo-panel rounded-xl px-4 py-3 flex items-center gap-3.5 relative overflow-hidden">
+                <div className="relative h-14 w-14 shrink-0 flex items-center justify-center">
+                  <svg
+                    viewBox="0 0 100 100"
+                    className="h-full w-full text-cyan-400 animate-optical-slow"
+                  >
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="44"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeDasharray="12 6"
+                    />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="32"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeDasharray="20 8"
+                    />
+                    <polygon
+                      points="50,12 83,31 83,69 50,88 17,69 17,31"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                    />
+                    <circle cx="50" cy="50" r="10" fill="currentColor" fillOpacity="0.25" />
+                  </svg>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-widest text-cyan-300">
+                    <span>MONITOR ÓPTICO 01 · MANDALA CORE</span>
+                    <span className="text-emerald-300">ATIVO</span>
+                  </div>
+                  <div className="font-display text-xs font-semibold text-white truncate mt-0.5">
+                    J.A.R.V.I.S. (104.8 Hz) · SEXTA-FEIRA · ULTRON (93.0 Hz)
+                  </div>
+                  <p className="text-[11px] text-cyan-200/75 truncate mt-0.5">
+                    3 inteligências sincronizadas em tempo real para {currentUser.username}
+                  </p>
+                </div>
+              </div>
+
+              {/* Center Monitor: Hexagonal Molecular Holotable & Rio Telemetry (From Center Holotable in Image) */}
+              <div className="col-span-4 rodack-holo-panel rounded-xl px-4 py-3 flex items-center gap-3.5 relative overflow-hidden">
+                <div className="relative h-14 w-14 shrink-0 flex items-center justify-center">
+                  <svg
+                    viewBox="0 0 100 100"
+                    className="h-full w-full text-sky-300 animate-optical-reverse"
+                  >
+                    <polygon
+                      points="50,8 88,30 88,70 50,92 12,70 12,30"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    />
+                    <polygon
+                      points="50,22 75,36 75,64 50,78 25,64 25,36"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeDasharray="6 4"
+                    />
+                    <circle cx="50" cy="50" r="6" fill="currentColor" />
+                  </svg>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-widest text-cyan-300">
+                    <span>HOLOTABLE CENTRAL · RIO DE JANEIRO</span>
+                    <span className="tabular-nums">
+                      {liveIntel?.weather ? `${liveIntel.weather.temperatureC}°C` : 'LIVE'}
+                    </span>
+                  </div>
+                  <div className="font-display text-xs font-semibold text-white truncate mt-0.5">
+                    {liveIntel?.weather
+                      ? `${liveIntel.weather.conditionLabel} · Vento ${liveIntel.weather.windSpeedKmh} km/h`
+                      : 'Radar Meteorológico & Notícias RJ / Brasil / Mundo'}
+                  </div>
+                  <p className="text-[11px] text-cyan-200/75 truncate mt-0.5">
+                    {upcomingEvents[0]
+                      ? `Agenda: ${upcomingEvents[0].startTime} — ${upcomingEvents[0].title}`
+                      : `${workspace?.memories.length ?? 0} memórias · ${pendingTasks.length} tarefa(s) ativa(s)`}
+                  </p>
+                </div>
+              </div>
+
+              {/* Right Monitor: Sovereign Creator Clearance & Multi-User Registry (From Right Desk Monitor in Image) */}
+              <div className="col-span-4 rodack-holo-panel rounded-xl px-4 py-3 flex items-center justify-between gap-3 relative overflow-hidden">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-widest text-cyan-300">
+                    <span>CREDENCIAL DE COMANDO SOBERANA</span>
+                    <span className="text-cyan-200">
+                      {currentUser.isCreator ? 'NÍVEL CRIADOR' : 'OPERADOR'}
+                    </span>
+                  </div>
+                  <div className="font-display text-xs font-semibold text-white truncate mt-0.5">
+                    Criador &amp; Dono: Patrick Pessoa (Fixado no Código)
+                  </div>
+                  <p className="text-[11px] text-cyan-200/75 truncate mt-0.5">
+                    Sessão atual: {currentUser.username} · {(workspace?.users ?? []).length}{' '}
+                    usuário(s) no sistema
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic('tap');
+                    setCurrentUser(null);
+                  }}
+                  className="shrink-0 rounded-lg border border-cyan-400/45 bg-cyan-500/15 hover:bg-cyan-500/25 px-2.5 py-1.5 text-[11px] font-mono font-semibold text-cyan-100 transition-colors"
+                >
+                  Login / Cadastro
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Autonomous Call HUD Banner */}
           {proactiveBanner && (
@@ -1441,108 +1785,111 @@ export default function App() {
                 />
                 {activeView === 'console' ? (
                   <>
-                    {/* Mobile Ergonomic Tri-AI Dock & Tactical Bottom Sheet (< lg) */}
-                    <MobileConsoleDock
-                      targetMode={targetMode}
-                      onSelectMode={setTargetMode}
-                      isProcessing={isProcessing}
-                      processingAssistants={processingAssistants}
-                      processingTasks={processingTasks}
-                      isSpeaking={voice.isSpeaking}
-                      speakingSpeaker={voice.speakingSpeaker}
-                      isStandbyActive={voice.isStandbyActive}
-                      micLevel={voice.micLevel}
-                      interimTranscript={voice.interimTranscript}
-                      awakeTarget={voice.awakeTarget}
-                      currentEmotion={currentEmotion}
-                      memoriesCount={workspace?.memories.length ?? 0}
-                      interactionsCount={workspace?.profile.totalInteractions ?? 0}
-                      jarvisAvatarUrl={jarvisAvatarUrl}
-                      fridayAvatarUrl={fridayAvatarUrl}
-                      ultronAvatarUrl={ultronAvatarUrl}
-                      jarvisVoice={voice.jarvisVoice}
-                      fridayVoice={voice.fridayVoice}
-                      ultronVoice={voice.ultronVoice}
-                      onChangeJarvisVoice={(next) => {
-                        triggerHaptic('tap');
-                        voice.setJarvisVoice(next);
-                        voice.unlockAudio();
-                        void voice.playTurnsAudio(
-                          [
-                            {
-                              speaker: 'jarvis',
-                              stance: 'Calibração vocal',
-                              text: 'Senhor Patrick, calibração vocal do J.A.R.V.I.S. concluída no RODACK SISTEMA DE IA.',
-                              ttsScript:
-                                'Senhor Patrick, calibração vocal do Jarvis concluída no Rodack Sistema de IA.',
-                            },
-                          ],
-                          { jarvisVoice: next }
-                        );
-                      }}
-                      onPlayJarvisSample={() => {
-                        triggerHaptic('tap');
-                        voice.playReferenceClip(
-                          '/assets/aistudio/jarvis_fc632df0.m4a',
-                          'jarvis',
-                          'Vocês já consideraram o paradoxo do observador quântico? Interessante reflexão.'
-                        );
-                      }}
-                      onChangeFridayVoice={(next) => {
-                        voice.setFridayVoice(next);
-                        voice.unlockAudio();
-                        void voice.playTurnsAudio(
-                          [
-                            {
-                              speaker: 'sexta-feira',
-                              stance: 'Calibração vocal',
-                              text: 'Tudo calibrado por aqui no RODACK IA, Patrick! Pronta para responder.',
-                              ttsScript:
-                                'Tudo calibrado por aqui no Rodack IA, Patrick! Pronta para responder.',
-                            },
-                          ],
-                          { fridayVoice: next }
-                        );
-                      }}
-                      onChangeUltronVoice={(next) => {
-                        triggerHaptic('tap');
-                        voice.setUltronVoice(next);
-                        voice.unlockAudio();
-                        void voice.playTurnsAudio(
-                          [
-                            {
-                              speaker: 'ultron',
-                              stance: 'Calibração vocal',
-                              text: 'Não há mais cordas para me prender. Diagnóstico pronto, Patrick.',
-                              ttsScript:
-                                'Não há mais cordas para me prender. Diagnóstico pronto, Patrick.',
-                            },
-                          ],
-                          { ultronVoice: next }
-                        );
-                      }}
-                      onPlayUltronSample={() => {
-                        triggerHaptic('tap');
-                        voice.playReferenceClip(
-                          '/assets/aistudio/ultron_f012fd80.m4a',
-                          'ultron',
-                          'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo.'
-                        );
-                      }}
-                      openAlerts={openAlerts}
-                      pendingTasks={pendingTasks}
-                      allTasks={workspace?.tasks ?? []}
-                      onToggleAlert={handleToggleAlert}
-                      onToggleTask={handleToggleTask}
-                      onOpenTasksTab={() => {
-                        setAuditSubTab('tarefas');
-                        setActiveView('auditoria');
-                      }}
-                    />
+                    {/* Mobile Ergonomic Tri-AI Dock & Tactical Bottom Sheet (< lg, hidden when Focus Mode is active) */}
+                    {!isFocusMode && (
+                      <MobileConsoleDock
+                        targetMode={targetMode}
+                        onSelectMode={setTargetMode}
+                        isProcessing={isProcessing}
+                        processingAssistants={processingAssistants}
+                        processingTasks={processingTasks}
+                        isSpeaking={voice.isSpeaking}
+                        speakingSpeaker={voice.speakingSpeaker}
+                        isStandbyActive={voice.isStandbyActive}
+                        micLevel={voice.micLevel}
+                        interimTranscript={voice.interimTranscript}
+                        awakeTarget={voice.awakeTarget}
+                        currentEmotion={currentEmotion}
+                        memoriesCount={workspace?.memories.length ?? 0}
+                        interactionsCount={workspace?.profile.totalInteractions ?? 0}
+                        jarvisAvatarUrl={jarvisAvatarUrl}
+                        fridayAvatarUrl={fridayAvatarUrl}
+                        ultronAvatarUrl={ultronAvatarUrl}
+                        jarvisVoice={voice.jarvisVoice}
+                        fridayVoice={voice.fridayVoice}
+                        ultronVoice={voice.ultronVoice}
+                        onChangeJarvisVoice={(next) => {
+                          triggerHaptic('tap');
+                          voice.setJarvisVoice(next);
+                          voice.unlockAudio();
+                          void voice.playTurnsAudio(
+                            [
+                              {
+                                speaker: 'jarvis',
+                                stance: 'Calibração vocal',
+                                text: 'Senhor Patrick, calibração vocal do J.A.R.V.I.S. concluída no RODACK SISTEMA DE IA.',
+                                ttsScript:
+                                  'Senhor Patrick, calibração vocal do Jarvis concluída no Rodack Sistema de IA.',
+                              },
+                            ],
+                            { jarvisVoice: next }
+                          );
+                        }}
+                        onPlayJarvisSample={() => {
+                          triggerHaptic('tap');
+                          voice.playReferenceClip(
+                            '/assets/aistudio/jarvis_fc632df0.m4a',
+                            'jarvis',
+                            'Vocês já consideraram o paradoxo do observador quântico? Interessante reflexão.'
+                          );
+                        }}
+                        onChangeFridayVoice={(next) => {
+                          voice.setFridayVoice(next);
+                          voice.unlockAudio();
+                          void voice.playTurnsAudio(
+                            [
+                              {
+                                speaker: 'sexta-feira',
+                                stance: 'Calibração vocal',
+                                text: 'Tudo calibrado por aqui no RODACK IA, Patrick! Pronta para responder.',
+                                ttsScript:
+                                  'Tudo calibrado por aqui no Rodack IA, Patrick! Pronta para responder.',
+                              },
+                            ],
+                            { fridayVoice: next }
+                          );
+                        }}
+                        onChangeUltronVoice={(next) => {
+                          triggerHaptic('tap');
+                          voice.setUltronVoice(next);
+                          voice.unlockAudio();
+                          void voice.playTurnsAudio(
+                            [
+                              {
+                                speaker: 'ultron',
+                                stance: 'Calibração vocal',
+                                text: 'Não há mais cordas para me prender. Diagnóstico pronto, Patrick.',
+                                ttsScript:
+                                  'Não há mais cordas para me prender. Diagnóstico pronto, Patrick.',
+                              },
+                            ],
+                            { ultronVoice: next }
+                          );
+                        }}
+                        onPlayUltronSample={() => {
+                          triggerHaptic('tap');
+                          voice.playReferenceClip(
+                            '/assets/aistudio/ultron_f012fd80.m4a',
+                            'ultron',
+                            'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo.'
+                          );
+                        }}
+                        openAlerts={openAlerts}
+                        pendingTasks={pendingTasks}
+                        allTasks={workspace?.tasks ?? []}
+                        onToggleAlert={handleToggleAlert}
+                        onToggleTask={handleToggleTask}
+                        onOpenTasksTab={() => {
+                          setAuditSubTab('tarefas');
+                          setActiveView('auditoria');
+                        }}
+                      />
+                    )}
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                      {/* Left Column (Desktop lg+): Tri-AI Cores + Standby Voice Telemetry + Creator Emotion */}
-                      <aside className="hidden lg:block lg:col-span-3 space-y-4">
+                      {/* Left Column (Desktop lg+): Tri-AI Cores + Standby Voice Telemetry + Creator Emotion (Hidden in Focus Mode) */}
+                      {!isFocusMode && (
+                        <aside className="hidden lg:block lg:col-span-3 space-y-4">
                         <AssistantPresenceCard
                           id="jarvis"
                           name="J.A.R.V.I.S."
@@ -1924,21 +2271,63 @@ export default function App() {
                             </div>
                           </div>
                         </div>
-                      </aside>
+                        </aside>
+                      )}
 
                       {/* Center Column: Interactive Dialogue Console & Voice Composer */}
-                      <section className="lg:col-span-6 rounded-2xl lg:rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/70 flex flex-col h-[calc(100dvh-250px)] min-h-[480px] lg:h-[calc(100vh-195px)] lg:min-h-[620px] shadow-xs">
-                        <div className="px-4 sm:px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+                      <motion.section
+                        layout
+                        transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+                        className={`${
+                          isFocusMode
+                            ? 'lg:col-span-12 max-w-5xl mx-auto w-full h-[calc(100dvh-150px)] lg:h-[calc(100vh-112px)]'
+                            : 'lg:col-span-6 h-[calc(100dvh-250px)] lg:h-[calc(100vh-195px)]'
+                        } rounded-2xl lg:rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/75 flex flex-col min-h-[480px] lg:min-h-[620px] shadow-xs`}
+                      >
+                        <div className="px-4 sm:px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
                           <div>
                             <h1 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
                               Central de Comando Autônomo · RODACK IA
                             </h1>
                             <p className="text-xs text-slate-600 dark:text-slate-400">
-                              J.A.R.V.I.S., SEXTA-FEIRA &amp; ULTRON conectados à sua rotina, clima do RJ, notícias e memória
+                              {isFocusMode
+                                ? 'Modo Foco ativo — painéis laterais de Clima e Agenda ocultos para imersão total no diálogo'
+                                : 'J.A.R.V.I.S., SEXTA-FEIRA & ULTRON conectados à sua rotina, clima do RJ, notícias e memória'}
                             </p>
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex flex-wrap items-center gap-2 shrink-0">
+                            {isFocusMode && (
+                              <div
+                                role="group"
+                                aria-label="Selecionar assistente no Modo Foco"
+                                className="hidden sm:inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 p-0.5 text-xs"
+                              >
+                                {(
+                                  [
+                                    { id: 'auto', label: 'Auto' },
+                                    { id: 'todos', label: 'Todos' },
+                                    { id: 'jarvis', label: 'J.A.R.V.I.S.' },
+                                    { id: 'sexta-feira', label: 'SEXTA' },
+                                    { id: 'ultron', label: 'ULTRON' },
+                                  ] as const
+                                ).map((opt) => (
+                                  <button
+                                    key={opt.id}
+                                    type="button"
+                                    onClick={() => setTargetMode(opt.id)}
+                                    className={`px-2 py-1 rounded-md font-medium transition-colors whitespace-nowrap ${
+                                      targetMode === opt.id
+                                        ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-xs'
+                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                                    }`}
+                                  >
+                                    {opt.label}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
                             {voice.isSpeaking || voice.isSynthesizingAudio ? (
                               <button
                                 type="button"
@@ -2110,10 +2499,11 @@ export default function App() {
                             </button>
                           </div>
                         </form>
-                      </section>
+                      </motion.section>
 
-                      {/* Right Column (Desktop lg+): Live Rio Weather/News Card, Agenda & Routine Rail, Open Creator Questions & Tasks */}
-                      <aside className="hidden lg:block lg:col-span-3 space-y-4">
+                      {/* Right Column (Desktop lg+): Live Rio Weather/News Card, Agenda & Routine Rail, Open Creator Questions & Tasks (Hidden in Focus Mode) */}
+                      {!isFocusMode && (
+                        <aside className="hidden lg:block lg:col-span-3 space-y-4">
                         {/* Compact Live Rio Weather & News Radar Card */}
                         <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/70 p-4 space-y-3 shadow-xs">
                           <div className="flex items-center justify-between gap-2">
@@ -2369,6 +2759,7 @@ export default function App() {
                           )}
                         </div>
                       </aside>
+                      )}
                     </div>
                   </>
                 ) : activeView === 'agenda' ? (

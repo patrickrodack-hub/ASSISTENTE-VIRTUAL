@@ -188,10 +188,22 @@ export interface GroundingSource {
   sourceType?: string;
 }
 
+export interface SystemUserAccount {
+  id: string;
+  username: string;
+  email?: string;
+  roleLabel: string;
+  isCreator: boolean;
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
 export interface ConversationEntry {
   id: string;
   timestamp: string;
   userMessage: string;
+  userName?: string;
+  isCreator?: boolean;
   triggerType: 'voz' | 'texto' | 'auditoria' | 'proativo';
   requestedMode: InteractionMode;
   resolvedMode: AssistantId | 'ambos' | 'todos';
@@ -238,6 +250,8 @@ export interface WorkspaceState {
   agenda?: AgendaEventItem[];
   routines?: RoutineRuleItem[];
   creatorDossier?: CreatorDossier;
+  users?: SystemUserAccount[];
   conversations: ConversationEntry[];
   telemetryLog?: TelemetryEntry[];
 }
+

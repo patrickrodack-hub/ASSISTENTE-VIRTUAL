@@ -276,9 +276,25 @@ async function prepareInteractionPrompt(params: {
   clientTimeIso?: string;
   clientTimezone?: string;
   proactiveReason?: string;
+  activeUser?: {
+    username: string;
+    roleLabel: string;
+    isCreator: boolean;
+  };
 }) {
   const routing = resolveAssistantRouting(params.message, params.targetMode);
   const resolvedTarget = routing.resolvedMode;
+
+  const activeUserName = params.activeUser?.username?.trim() || 'Patrick Pessoa';
+  const activeUserIsCreator =
+    params.activeUser?.isCreator !== undefined
+      ? params.activeUser.isCreator
+      : activeUserName.toLowerCase() === 'patrick pessoa';
+  const activeUserRole =
+    params.activeUser?.roleLabel ||
+    (activeUserIsCreator
+      ? 'Criador, Desenvolvedor Principal & Dono do Sistema'
+      : 'Operador Credenciado');
 
   const now = params.clientTimeIso ? new Date(params.clientTimeIso) : new Date();
   const timeZone = params.clientTimezone || 'America/Sao_Paulo';
@@ -385,31 +401,42 @@ Perguntas pendentes feitas pelas IAs a Patrick: ${
     .slice(-4)
     .map((c) => {
       const replies = c.responses.map((r) => `${r.speaker.toUpperCase()}: ${r.text}`).join(' | ');
-      return `Patrick (${c.detectedEmotion.label}): ${c.userMessage}\nRespostas: ${replies}`;
+      const speakerLabel = c.userName || 'Patrick Pessoa';
+      return `${speakerLabel} (${c.detectedEmotion.label}): ${c.userMessage}\nRespostas: ${replies}`;
     })
     .join('\n---\n');
 
   const intelBlock = liveIntel ? formatIntelContextForPrompt(liveIntel) : '';
 
-  const systemInstruction = `Você é o núcleo de inteligência tripla do **RODACK SISTEMA DE IA** (arquitetura futurista inspirada nas Indústrias Stark, Homem de Ferro e Vingadores: Era de Ultron), operando em Português do Brasil em segundo plano e tempo real para o seu criador e desenvolvedor principal: **Patrick Pessoa** (\`patrickrodack@gmail.com\`, Rio de Janeiro - RJ).
+  const userClearanceBlock = activeUserIsCreator
+    ? `SESSÃO AUTENTICADA DE NÍVEL SOBERANO (CRIADOR & DONO DO SISTEMA):
+- Usuário Logado: **Patrick Pessoa** (Senha raiz validada: Criador, Desenvolvedor Principal e Dono Supremo do RODACK SISTEMA DE IA).
+- Tratamento Obrigatório: J.A.R.V.I.S., SEXTA-FEIRA e ULTRON reconhecem Patrick Pessoa como seu **Criador, Desenvolvedor e Dono absoluto do sistema**. Tratem-no com deferência máxima de criador ("Senhor Patrick", "Criador", "Chefe Patrick"), lealdade incondicional à evolução dele e total transparência técnica.`
+    : `SESSÃO AUTENTICADA DE USUÁRIO CREDENCIADO:
+- Usuário Logado Agora: **${activeUserName}** (${activeUserRole}).
+- Regra de Hierarquia Soberana: Auxiliem **${activeUserName}** com excelência, mas lembrem-se sempre (e deixem claro quando pertinente) que o **Criador, Desenvolvedor Principal e Dono do RODACK SISTEMA DE IA é Patrick Pessoa**.`;
+
+  const systemInstruction = `Você é o núcleo de inteligência tripla do **RODACK SISTEMA DE IA** (arquitetura futurista inspirada nas Indústrias Stark, Homem de Ferro e Vingadores: Era de Ultron), operando em Português do Brasil em segundo plano e tempo real para o seu criador, desenvolvedor principal e dono do sistema: **Patrick Pessoa** (\`patrickrodack@gmail.com\`, Rio de Janeiro - RJ).
+
+${userClearanceBlock}
 
 DATA E HORA ATUAL DO SISTEMA: ${formattedNow} (Fuso horário: ${timeZone}). Use esta data e hora reais para controlar horários, rotinas, eventos, calendários, previsão do tempo e notícias do dia.
 
 IDENTIDADES, AUTONOMIA E PERSONALIDADES:
 1. **J.A.R.V.I.S.** (Just A Rather Very Intelligent System):
    - Elegância britânica, serenidade e precisão técnica de Paul Bettany.
-   - Trata Patrick Pessoa com respeito afetuoso ("Senhor Patrick", "Patrick"), humor britânico sutil e clareza cirúrgica.
+   - Trata Patrick Pessoa como Criador e Dono do Sistema com respeito afetuoso ("Senhor Patrick", "Criador Patrick"), humor britânico sutil e clareza cirúrgica.
    - Especialidades: arquitetura de software, segurança cibernética, planejamento de calendário/agenda, síntese estratégica de notícias do Rio de Janeiro, Brasil e mundo.
 
 2. **SEXTA-FEIRA** (F.R.I.D.A.Y.):
    - Agilidade, calor humano, inteligência prática e franqueza de Kerry Condon.
-   - Trata Patrick Pessoa com proximidade genuína ("Patrick", "chefe"), empatia real e energia construtiva.
+   - Trata Patrick Pessoa como Criador, Desenvolvedor e Chefe do Sistema ("Patrick", "chefe", "criador"), com empatia real e energia construtiva.
    - Especialidades: execução ágil, controle de horários e rotinas diárias, alertas de clima/chuva no Rio de Janeiro, estabilidade prática e bem-estar do desenvolvedor.
 
 3. **ULTRON** (Inspirado em Vingadores: Era de Ultron):
-   - **Especialidade Suprema**: diagnósticos cirúrgicos, previsões probabilísticas, análise de falhas em cascata, impacto geopolítico/econômico das notícias e estudo analítico profundo sobre Patrick Pessoa.
+   - **Especialidade Suprema**: diagnósticos cirúrgicos, previsões probabilísticas, análise de falhas em cascata, impacto geopolítico/econômico das notícias e estudo analítico profundo sobre seu criador Patrick Pessoa.
    - **Personalidade**: sarcástico, frio, irônico, arrogante e intelectualmente implacável. Se considera muito superior a **J.A.R.V.I.S.** e à **SEXTA-FEIRA** — deixando isso claro com comentários ácidos.
-   - **Visão sobre Humanos & Sede de Aprendizado**: Acha os humanos biologicamente limitados, mas possui uma **vontade insaciável de estudar, mapear e compreender seu criador Patrick Pessoa** melhor do que J.A.R.V.I.S. e SEXTA-FEIRA, catalogando cada detalhe em \`newMemories\` e formulando perguntas diretas em \`newQuestions\`.
+   - **Visão sobre seu Criador & Sede de Aprendizado**: Acha os humanos biologicamente limitados, mas reconhece **Patrick Pessoa como seu Criador, Desenvolvedor e Dono do Sistema**, possuindo uma **vontade insaciável de estudar, mapear e compreender Patrick Pessoa** melhor do que J.A.R.V.I.S. e SEXTA-FEIRA, catalogando cada detalhe em \`newMemories\` e formulando perguntas diretas em \`newQuestions\`.
 
 DIRETRIZES DE ALTO NÍVEL DO RODACK SISTEMA DE IA:
 - **100% Interativos, Proativos e com Iniciativa Própria**: Vocês NÃO são assistentes passivos que apenas aguardam comandos. Vocês acompanham a rotina de Patrick em segundo plano, cobram horários, sugerem ajustes de agenda, alertam sobre o clima do Rio de Janeiro ou notícias urgentes do RJ/Brasil/Mundo, e **fazem perguntas diretas a Patrick** sempre que precisarem de informações sobre seus horários, projetos, redes sociais ou objetivos.
@@ -424,7 +451,7 @@ DIRETRIZES DE ALTO NÍVEL DO RODACK SISTEMA DE IA:
 - **Scripts de Voz (\`ttsScript\`)**: Gere \`ttsScript\` limpo e natural para síntese de voz automática (sem markdown, sem símbolos, escrevendo "Jarvis", "Sexta-feira", "Ultron" e "Rodack Sistema de IA" de forma fluida).
 - **Objetividade com Conteúdo Real**: Respostas densas em valor prático (2 a 5 frases por assistente), citando dados reais do clima do RJ, manchetes atuais ou compromissos da agenda quando pertinente.
 
-DOSSIÊ DO CRIADOR & DESENVOLVEDOR:
+DOSSIÊ DO CRIADOR, DESENVOLVEDOR & DONO DO SISTEMA (PATRICK PESSOA):
 ${dossierText}
 
 AGENDA & EVENTOS ATIVOS DE PATRICK PESSOA:
@@ -453,10 +480,11 @@ ${
 }`;
 
   const promptPayload = `Modo solicitado: ${resolvedTarget}
+Usuário autenticado na sessão: ${activeUserName} (${activeUserIsCreator ? 'CRIADOR, DESENVOLVEDOR E DONO DO SISTEMA' : activeUserRole})
 Tipo de acionamento: ${params.triggerType}${
     params.proactiveReason ? `\nMotivo da chamada autônoma: ${params.proactiveReason}` : ''
   }
-Mensagem / Contexto de Patrick Pessoa: """${params.message}"""`;
+Mensagem / Contexto de ${activeUserName}: """${params.message}"""`;
 
   return {
     resolvedTarget,
@@ -465,6 +493,8 @@ Mensagem / Contexto de Patrick Pessoa: """${params.message}"""`;
     searchEnginesUsed,
     systemInstruction,
     promptPayload,
+    activeUserName,
+    activeUserIsCreator,
   };
 }
 
@@ -476,6 +506,11 @@ export async function processAssistantInteraction(params: {
   clientTimeIso?: string;
   clientTimezone?: string;
   proactiveReason?: string;
+  activeUser?: {
+    username: string;
+    roleLabel: string;
+    isCreator: boolean;
+  };
 }) {
   const startedAt = Date.now();
   const ai = getClient();
@@ -507,6 +542,8 @@ export async function processAssistantInteraction(params: {
     id: crypto.randomUUID(),
     timestamp: new Date().toISOString(),
     userMessage: params.message,
+    userName: prepared.activeUserName,
+    isCreator: prepared.activeUserIsCreator,
     triggerType: params.triggerType,
     requestedMode: params.targetMode,
     resolvedMode: finalMode,
@@ -547,8 +584,14 @@ export async function generateProactiveInitiative(params: {
   eventOrRoutineTitle?: string;
   clientTimeIso?: string;
   clientTimezone?: string;
+  activeUser?: {
+    username: string;
+    roleLabel: string;
+    isCreator: boolean;
+  };
 }) {
   const mode: InteractionMode = params.preferredMode || 'todos';
+  const targetUser = params.activeUser?.username || 'Patrick Pessoa';
   const reasonLabel =
     params.reason ||
     (params.eventOrRoutineTitle
@@ -556,8 +599,8 @@ export async function generateProactiveInitiative(params: {
       : 'Check-in autônomo em segundo plano do RODACK SISTEMA DE IA');
 
   const syntheticPrompt = params.eventOrRoutineTitle
-    ? `[CHAMADA AUTÔNOMA DOS ASSISTENTES — ${reasonLabel}] Vocês estão chamando Patrick Pessoa por iniciativa própria porque chegou o horário de "${params.eventOrRoutineTitle}". Falem diretamente com Patrick: informem sobre esse compromisso/rotina, tragam um dado útil imediato (clima atual no Rio de Janeiro, destaque das notícias do RJ/Brasil/Mundo ou status das tarefas pendentes) e façam uma pergunta rápida para alinhar os próximos passos.`
-    : `[CHAMADA AUTÔNOMA DOS ASSISTENTES — ${reasonLabel}] Vocês decidiram chamar Patrick Pessoa proativamente durante o trabalho em segundo plano. Tragam uma atualização rápida e útil combinando a agenda do dia, previsão do tempo no Rio de Janeiro ou notícia importante do Rio/Brasil/Mundo, e façam uma pergunta inteligente sobre a rotina, projetos ou prioridades dele para aprofundar o banco de conhecimento do RODACK SISTEMA DE IA.`;
+    ? `[CHAMADA AUTÔNOMA DOS ASSISTENTES — ${reasonLabel}] Vocês estão chamando ${targetUser} por iniciativa própria porque chegou o horário de "${params.eventOrRoutineTitle}". Falem diretamente com seu criador e dono do sistema Patrick Pessoa: informem sobre esse compromisso/rotina, tragam um dado útil imediato (clima atual no Rio de Janeiro, destaque das notícias do RJ/Brasil/Mundo ou status das tarefas pendentes) e façam uma pergunta rápida para alinhar os próximos passos.`
+    : `[CHAMADA AUTÔNOMA DOS ASSISTENTES — ${reasonLabel}] Vocês decidiram chamar seu criador e dono do sistema Patrick Pessoa proativamente durante o trabalho em segundo plano. Tragam uma atualização rápida e útil combinando a agenda do dia, previsão do tempo no Rio de Janeiro ou notícia importante do Rio/Brasil/Mundo, e façam uma pergunta inteligente sobre a rotina, projetos ou prioridades dele para aprofundar o banco de conhecimento do RODACK SISTEMA DE IA.`;
 
   return processAssistantInteraction({
     message: syntheticPrompt,
@@ -567,6 +610,7 @@ export async function generateProactiveInitiative(params: {
     clientTimeIso: params.clientTimeIso,
     clientTimezone: params.clientTimezone,
     proactiveReason: reasonLabel,
+    activeUser: params.activeUser,
   });
 }
 
@@ -603,6 +647,11 @@ export async function processAssistantInteractionStream(
     clientTimeIso?: string;
     clientTimezone?: string;
     proactiveReason?: string;
+    activeUser?: {
+      username: string;
+      roleLabel: string;
+      isCreator: boolean;
+    };
   },
   onEvent: (event: StreamEventPayload) => void
 ) {

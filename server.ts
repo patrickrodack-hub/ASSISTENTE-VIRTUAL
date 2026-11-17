@@ -3,11 +3,13 @@ import express from 'express';
 import { createServer as createHttpServer } from 'node:http';
 import path from 'node:path';
 import {
+  CREATOR_HARDCODED_ACCOUNT,
   addAgendaEvent,
   addMemory,
   addRoutineRule,
   addTask,
   answerCreatorQuestion,
+  authenticateSystemUser,
   clearConversations,
   deleteAgendaEvent,
   deleteAlert,
@@ -15,6 +17,7 @@ import {
   deleteRoutineRule,
   deleteTask,
   readWorkspace,
+  registerSystemUser,
   setTurnFeedback,
   toggleAlertResolved,
   updateAgendaEvent,
@@ -41,6 +44,62 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: '15mb' }));
+
+  // Authentication & User Registration Module
+  app.get('/api/auth/users', async (_req, res) => {
+    try {
+      const workspace = await readWorkspace();
+      res.json({
+        users: workspace.users ?? [],
+        creatorUsername: CREATOR_HARDCODED_ACCOUNT.username,
+      });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao listar usuários.',
+      });
+    }
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { username, password } = req.body ?? {};
+      if (!username || typeof username !== 'string' || !password || typeof password !== 'string') {
+        res.status(400).json({ error: 'Informe o nome de usuário e a senha de acesso.' });
+        return;
+      }
+
+      const result = await authenticateSystemUser(username, password);
+      res.json({
+        user: result.user,
+        workspace: result.workspace,
+      });
+    } catch (err) {
+      res.status(401).json({
+        error: err instanceof Error ? err.message : 'Erro ao autenticar usuário no sistema.',
+      });
+    }
+  });
+
+  app.post('/api/auth/register', async (req, res) => {
+    try {
+      const { username, password, email = '', roleLabel = 'Operador Credenciado' } = req.body ?? {};
+      const result = await registerSystemUser({
+        username: String(username ?? ''),
+        password: String(password ?? ''),
+        email: String(email ?? ''),
+        roleLabel: String(roleLabel ?? 'Operador Credenciado'),
+      });
+
+      res.json({
+        user: result.user,
+        workspace: result.workspace,
+      });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Erro ao cadastrar novo usuário.',
+      });
+    }
+  });
 
   // Workspace state
   app.get('/api/workspace', async (_req, res) => {
@@ -80,6 +139,7 @@ async function startServer() {
         useWebSearch = 'auto',
         clientTimeIso,
         clientTimezone,
+        activeUser,
       } = req.body ?? {};
       if (!message || typeof message !== 'string' || !message.trim()) {
         res.status(400).json({ error: 'Envie uma mensagem válida para os assistentes.' });
@@ -93,6 +153,7 @@ async function startServer() {
         useWebSearch,
         clientTimeIso,
         clientTimezone,
+        activeUser,
       });
 
       res.json(result);
@@ -110,6 +171,7 @@ async function startServer() {
         eventOrRoutineTitle,
         clientTimeIso,
         clientTimezone,
+        activeUser,
       } = req.body ?? {};
 
       const result = await generateProactiveInitiative({
@@ -118,6 +180,7 @@ async function startServer() {
         eventOrRoutineTitle,
         clientTimeIso,
         clientTimezone,
+        activeUser,
       });
 
       res.json(result);
@@ -135,6 +198,7 @@ async function startServer() {
       useWebSearch = 'auto',
       clientTimeIso,
       clientTimezone,
+      activeUser,
     } = req.body ?? {};
 
     if (!message || typeof message !== 'string' || !message.trim()) {
@@ -167,6 +231,7 @@ async function startServer() {
           useWebSearch,
           clientTimeIso,
           clientTimezone,
+          activeUser,
         },
         (event) => {
           sendEvent(event.type, event);

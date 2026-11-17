@@ -347,15 +347,20 @@ export function DialogueStream({
               transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
               className="space-y-4 pb-6 border-b border-slate-200 dark:border-slate-800/70 last:border-b-0"
             >
-              {/* Patrick Pessoa's Prompt Header */}
+              {/* User / Creator Prompt Header */}
               <div className="flex flex-col gap-1.5">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-slate-800 dark:text-slate-200">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-slate-800 dark:text-cyan-100">
                       {entry.triggerType === 'proativo'
-                        ? 'RODACK IA → Patrick Pessoa'
-                        : 'Patrick Pessoa'}
+                        ? `RODACK IA → ${entry.userName || 'Patrick Pessoa'}`
+                        : entry.userName || 'Patrick Pessoa'}
                     </span>
+                    {entry.isCreator !== false && (
+                      <span className="rounded border border-cyan-500/40 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider text-cyan-700 dark:text-cyan-300">
+                        Criador &amp; Dono
+                      </span>
+                    )}
                     <span aria-hidden="true">·</span>
                     <span
                       className={

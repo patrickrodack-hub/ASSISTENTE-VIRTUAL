@@ -11,6 +11,7 @@ import type {
   DetectedEmotion,
   MemoryItem,
   RoutineRuleItem,
+  SystemUserAccount,
   TaskItem,
   TelemetryEntry,
   TurnFeedback,
@@ -19,6 +20,34 @@ import type {
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'stark_memory.json');
+const USERS_PASSWORDS_FILE = path.join(DATA_DIR, 'stark_user_passwords.json');
+
+export const CREATOR_HARDCODED_ACCOUNT = {
+  id: 'creator-patrick-pessoa',
+  username: 'Patrick Pessoa',
+  email: 'patrickrodack@gmail.com',
+  password: '190996',
+  roleLabel: 'Criador, Desenvolvedor Principal & Dono do Sistema',
+  isCreator: true,
+} as const;
+
+function hashPassword(raw: string): string {
+  return crypto.createHash('sha256').update(`rodack_salt_${raw}`).digest('hex');
+}
+
+async function readPasswordStore(): Promise<Record<string, string>> {
+  try {
+    const raw = await fs.readFile(USERS_PASSWORDS_FILE, 'utf-8');
+    return JSON.parse(raw) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+async function writePasswordStore(store: Record<string, string>): Promise<void> {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(USERS_PASSWORDS_FILE, JSON.stringify(store, null, 2), 'utf-8');
+}
 
 function getTodayDateString(): string {
   try {
@@ -433,6 +462,23 @@ async function ensureFile(): Promise<WorkspaceState> {
       changed = true;
     }
 
+    if (!Array.isArray(state.users)) {
+      state.users = [];
+      changed = true;
+    }
+    const hasCreatorAccount = state.users.some((u) => u.isCreator);
+    if (!hasCreatorAccount) {
+      state.users.unshift({
+        id: CREATOR_HARDCODED_ACCOUNT.id,
+        username: CREATOR_HARDCODED_ACCOUNT.username,
+        email: CREATOR_HARDCODED_ACCOUNT.email,
+        roleLabel: CREATOR_HARDCODED_ACCOUNT.roleLabel,
+        isCreator: true,
+        createdAt: new Date().toISOString(),
+      });
+      changed = true;
+    }
+
     cachedWorkspace = state;
     if (changed) {
       await fs.writeFile(DATA_FILE, JSON.stringify(state, null, 2), 'utf-8');
@@ -821,3 +867,151 @@ export async function clearConversations(): Promise<WorkspaceState> {
     state.conversations = [];
   });
 }
+
+export async function authenticateSystemUser(
+  usernameInput: string,
+  passwordInput: string
+): Promise<{ user: SystemUserAccount; workspace: WorkspaceState }> {
+  const cleanUser = usernameInput.trim();
+  const cleanPass = passwordInput.trim();
+
+  if (!cleanUser || !cleanPass) {
+    throw new Error('Informe o usuário e a senha para autenticar no RODACK SISTEMA DE IA.');
+  }
+
+  const normalizedUser = cleanUser.toLowerCase();
+  const isCreatorMatch =
+    normalizedUser === 'patrick pessoa' ||
+    normalizedUser === 'patrick' ||
+    normalizedUser === 'patrickrodack' ||
+    normalizedUser === 'patrickrodack@gmail.com';
+
+  if (isCreatorMatch) {
+    if (cleanPass !== CREATOR_HARDCODED_ACCOUNT.password) {
+      throw new Error(
+        'Senha incorreta para o Criador e Desenvolvedor Patrick Pessoa.'
+      );
+    }
+
+    let creatorRecord!: SystemUserAccount;
+    const workspace = await updateWorkspace((state) => {
+      if (!Array.isArray(state.users)) state.users = [];
+      let existing = state.users.find((u) => u.isCreator);
+      const now = new Date().toISOString();
+      if (!existing) {
+        existing = {
+          id: CREATOR_HARDCODED_ACCOUNT.id,
+          username: CREATOR_HARDCODED_ACCOUNT.username,
+          email: CREATOR_HARDCODED_ACCOUNT.email,
+          roleLabel: CREATOR_HARDCODED_ACCOUNT.roleLabel,
+          isCreator: true,
+          createdAt: now,
+          lastLoginAt: now,
+        };
+        state.users.unshift(existing);
+      } else {
+        existing.username = CREATOR_HARDCODED_ACCOUNT.username;
+        existing.roleLabel = CREATOR_HARDCODED_ACCOUNT.roleLabel;
+        existing.isCreator = true;
+        existing.lastLoginAt = now;
+      }
+      creatorRecord = { ...existing };
+    });
+
+    return { user: creatorRecord, workspace };
+  }
+
+  const currentWorkspace = await readWorkspace();
+  const matchedAccount = (currentWorkspace.users ?? []).find(
+    (u) =>
+      !u.isCreator &&
+      (u.username.toLowerCase() === normalizedUser ||
+        (u.email && u.email.toLowerCase() === normalizedUser))
+  );
+
+  if (!matchedAccount) {
+    throw new Error(
+      'Usuário não encontrado. Utilize o Módulo de Cadastro para criar sua conta ou entre como Patrick Pessoa.'
+    );
+  }
+
+  const passStore = await readPasswordStore();
+  const expectedHash = passStore[matchedAccount.id];
+  if (!expectedHash || expectedHash !== hashPassword(cleanPass)) {
+    throw new Error('Senha inválida para este usuário.');
+  }
+
+  let updatedUser: SystemUserAccount = matchedAccount;
+  const workspace = await updateWorkspace((state) => {
+    const target = (state.users ?? []).find((u) => u.id === matchedAccount.id);
+    if (target) {
+      target.lastLoginAt = new Date().toISOString();
+      updatedUser = { ...target };
+    }
+  });
+
+  return { user: updatedUser, workspace };
+}
+
+export async function registerSystemUser(params: {
+  username: string;
+  password: string;
+  email?: string;
+  roleLabel?: string;
+}): Promise<{ user: SystemUserAccount; workspace: WorkspaceState }> {
+  const cleanName = params.username.trim();
+  const cleanPass = params.password.trim();
+  const cleanEmail = params.email?.trim() || undefined;
+  const cleanRole = params.roleLabel?.trim() || 'Operador Autorizado · RODACK IA';
+
+  if (cleanName.length < 2) {
+    throw new Error('O nome de usuário deve ter pelo menos 2 caracteres.');
+  }
+  if (cleanPass.length < 4) {
+    throw new Error('A senha deve ter pelo menos 4 caracteres.');
+  }
+
+  const normalized = cleanName.toLowerCase();
+  if (
+    normalized === 'patrick pessoa' ||
+    normalized === 'patrickrodack' ||
+    cleanEmail?.toLowerCase() === 'patrickrodack@gmail.com'
+  ) {
+    throw new Error(
+      'O usuário Patrick Pessoa já está registrado no código-fonte como Criador, Desenvolvedor e Dono do Sistema. Faça login direto.'
+    );
+  }
+
+  const currentWorkspace = await readWorkspace();
+  const duplicate = (currentWorkspace.users ?? []).some(
+    (u) =>
+      u.username.toLowerCase() === normalized ||
+      (cleanEmail && u.email?.toLowerCase() === cleanEmail.toLowerCase())
+  );
+  if (duplicate) {
+    throw new Error('Já existe um usuário cadastrado com este nome ou e-mail.');
+  }
+
+  const now = new Date().toISOString();
+  const newUser: SystemUserAccount = {
+    id: `usr-${crypto.randomUUID()}`,
+    username: cleanName,
+    email: cleanEmail,
+    roleLabel: cleanRole,
+    isCreator: false,
+    createdAt: now,
+    lastLoginAt: now,
+  };
+
+  const passStore = await readPasswordStore();
+  passStore[newUser.id] = hashPassword(cleanPass);
+  await writePasswordStore(passStore);
+
+  const workspace = await updateWorkspace((state) => {
+    if (!Array.isArray(state.users)) state.users = [];
+    state.users.push(newUser);
+  });
+
+  return { user: newUser, workspace };
+}
+
