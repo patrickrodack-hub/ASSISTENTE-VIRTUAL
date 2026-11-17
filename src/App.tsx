@@ -10,6 +10,7 @@ import {
   Clock,
   CloudSun,
   Cpu,
+  Database,
   Globe,
   HeartPulse,
   LogOut,
@@ -39,6 +40,7 @@ import {
 } from './components/AgendaAndIntelPanel';
 import { AssistantPresenceCard } from './components/AssistantPresenceCard';
 import { AuthPortal, type LogoutGreetingSummary } from './components/AuthPortal';
+import { DatabaseManagerPanel } from './components/DatabaseManagerPanel';
 import {
   DialogueStream,
   type StreamingConversationState,
@@ -1565,12 +1567,24 @@ export default function App() {
                     )}
                     <button
                       type="button"
+                      onClick={() => {
+                        triggerHaptic('tap');
+                        setActiveView('memoria');
+                      }}
+                      title="Abrir Banco de Dados de Usuários & Registros"
+                      className="inline-flex items-center gap-1 rounded border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.5 text-[11px] font-medium text-cyan-800 dark:text-cyan-200 hover:bg-cyan-500/25 transition-colors"
+                    >
+                      <Database className="h-3 w-3" />
+                      <span>Banco de Dados</span>
+                    </button>
+                    <button
+                      type="button"
                       disabled={isProcessing}
                       onClick={() => {
                         void handleLogoutSession();
                       }}
                       title="Encerrar sessão com saudação dos assistentes ou trocar de usuário"
-                      className="ml-1 inline-flex items-center gap-1 rounded border border-slate-300 dark:border-cyan-500/30 bg-white dark:bg-cyan-950/60 px-2 py-0.5 text-[11px] font-medium text-slate-700 dark:text-cyan-200 hover:bg-slate-100 dark:hover:bg-cyan-900/70 transition-colors disabled:opacity-50"
+                      className="inline-flex items-center gap-1 rounded border border-slate-300 dark:border-cyan-500/30 bg-white dark:bg-cyan-950/60 px-2 py-0.5 text-[11px] font-medium text-slate-700 dark:text-cyan-200 hover:bg-slate-100 dark:hover:bg-cyan-900/70 transition-colors disabled:opacity-50"
                     >
                       <UserPlus className="h-3 w-3" />
                       <span>Usuários / Sair</span>
@@ -2911,6 +2925,11 @@ export default function App() {
                   />
                 ) : activeView === 'memoria' ? (
                   <div className="space-y-8">
+                    <DatabaseManagerPanel
+                      workspace={workspace}
+                      currentUser={currentUser}
+                      onWorkspaceUpdated={updateWorkspace}
+                    />
                     <GlobalVoiceConfigPanel
                       jarvisVoice={voice.jarvisVoice}
                       fridayVoice={voice.fridayVoice}

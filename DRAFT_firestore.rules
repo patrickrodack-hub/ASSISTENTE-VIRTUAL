@@ -1,0 +1,281 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Reusable Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'patrickrodack@gmail.com'
+      );
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    // Validation Blueprint: UserProfile (/users/{userId})
+    function isValidUserProfile(data) {
+      return data.keys().hasAll([
+          'id',
+          'username',
+          'roleLabel',
+          'isCreator',
+          'ownerUid',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'username',
+          'roleLabel',
+          'isCreator',
+          'ownerUid',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.id is string &&
+        data.id.size() >= 1 &&
+        data.id.size() <= 128 &&
+        data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.username is string &&
+        data.username.size() >= 2 &&
+        data.username.size() <= 80 &&
+        data.roleLabel is string &&
+        data.roleLabel.size() >= 2 &&
+        data.roleLabel.size() <= 120 &&
+        data.isCreator is bool &&
+        data.ownerUid is string &&
+        data.ownerUid.size() >= 1 &&
+        data.ownerUid.size() <= 128 &&
+        data.ownerUid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerUid == request.auth.uid &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: UserPrivateInfo (/users/{userId}/private/{infoId})
+    function isValidUserPrivateInfo(data) {
+      return data.keys().hasAll(['ownerUid', 'email', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'email', 'createdAt', 'updatedAt']) &&
+        data.ownerUid is string &&
+        data.ownerUid.size() >= 1 &&
+        data.ownerUid.size() <= 128 &&
+        data.ownerUid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerUid == request.auth.uid &&
+        data.email is string &&
+        data.email.size() >= 3 &&
+        data.email.size() <= 160 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: SystemRecord (/system_records/{recordId})
+    function isValidSystemRecord(data) {
+      return data.keys().hasAll([
+          'id',
+          'recordType',
+          'title',
+          'summary',
+          'status',
+          'ownerUid',
+          'createdByUsername',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'recordType',
+          'title',
+          'summary',
+          'status',
+          'ownerUid',
+          'createdByUsername',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.id is string &&
+        data.id.size() >= 1 &&
+        data.id.size() <= 128 &&
+        data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.recordType is string &&
+        data.recordType.size() >= 4 &&
+        data.recordType.size() <= 32 &&
+        data.recordType in [
+          'usuario',
+          'memoria',
+          'tarefa',
+          'agenda',
+          'rotina',
+          'alerta',
+          'conversa',
+          'dossie'
+        ] &&
+        data.title is string &&
+        data.title.size() >= 1 &&
+        data.title.size() <= 200 &&
+        data.summary is string &&
+        data.summary.size() >= 1 &&
+        data.summary.size() <= 4000 &&
+        data.status is string &&
+        data.status.size() >= 4 &&
+        data.status.size() <= 32 &&
+        data.status in ['ativo', 'pendente', 'concluido', 'arquivado'] &&
+        data.ownerUid is string &&
+        data.ownerUid.size() >= 1 &&
+        data.ownerUid.size() <= 128 &&
+        data.ownerUid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerUid == request.auth.uid &&
+        data.createdByUsername is string &&
+        data.createdByUsername.size() >= 1 &&
+        data.createdByUsername.size() <= 80 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Collection: /admins/{adminUid}
+    match /admins/{adminUid} {
+      allow get: if isValidId(adminUid) && (isOwner(adminUid) || isAdmin());
+      allow list, create, update, delete: if false;
+    }
+
+    // Collection: /users/{userId}
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isVerifiedUser() && (existing().ownerUid == request.auth.uid || isAdmin());
+
+      allow create: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().id == userId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (incoming().isCreator == false || isAdmin());
+
+      allow update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().ownerUid == existing().ownerUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() || (
+            isOwner(userId) &&
+            incoming().isCreator == existing().isCreator &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['username', 'roleLabel', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(userId) && isAdmin();
+
+      // Subcollection: /users/{userId}/private/{infoId} (PII Split Collection)
+      match /private/{infoId} {
+        allow get: if isValidId(userId) &&
+          isValidId(infoId) &&
+          (isOwner(userId) || isAdmin()) &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          get(/databases/$(database)/documents/users/$(userId)).data.ownerUid == userId;
+
+        allow list: if false;
+
+        allow create: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(infoId) &&
+          isValidUserPrivateInfo(incoming()) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          get(/databases/$(database)/documents/users/$(userId)).data.ownerUid == request.auth.uid;
+
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(infoId) &&
+          isValidUserPrivateInfo(incoming()) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          get(/databases/$(database)/documents/users/$(userId)).data.ownerUid == userId && (
+            isAdmin() || (
+              isOwner(userId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt'])
+            )
+          );
+
+        allow delete: if isValidId(userId) && isValidId(infoId) && (isOwner(userId) || isAdmin());
+      }
+    }
+
+    // Collection: /system_records/{recordId}
+    match /system_records/{recordId} {
+      allow get: if isValidId(recordId) &&
+        isVerifiedUser() &&
+        (existing().ownerUid == request.auth.uid || isAdmin());
+
+      allow list: if isVerifiedUser() &&
+        (existing().ownerUid == request.auth.uid || isAdmin());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(recordId) &&
+        isValidSystemRecord(incoming()) &&
+        incoming().id == recordId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.ownerUid == request.auth.uid;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(recordId) &&
+        isValidSystemRecord(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().ownerUid == existing().ownerUid &&
+        incoming().recordType == existing().recordType &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() || (
+            existing().ownerUid == request.auth.uid &&
+            existing().status != 'arquivado' && (
+              // Action 1: Update Content & Summary
+              incoming().diff(existing()).affectedKeys().hasOnly(['title', 'summary', 'updatedAt']) ||
+              // Action 2: Transition Status
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) ||
+              // Action 3: Full Record Refresh
+              incoming().diff(existing()).affectedKeys().hasOnly(['title', 'summary', 'status', 'updatedAt'])
+            )
+          )
+        );
+
+      allow delete: if isValidId(recordId) &&
+        isVerifiedUser() &&
+        (
+          isAdmin() ||
+          (existing().ownerUid == request.auth.uid && existing().status != 'arquivado')
+        );
+    }
+  }
+}

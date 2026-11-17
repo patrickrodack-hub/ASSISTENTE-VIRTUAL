@@ -1015,3 +1015,114 @@ export async function registerSystemUser(params: {
   return { user: newUser, workspace };
 }
 
+export async function updateSystemUser(
+  userId: string,
+  patch: {
+    username?: string;
+    email?: string;
+    roleLabel?: string;
+    password?: string;
+  }
+): Promise<{ user: SystemUserAccount; workspace: WorkspaceState }> {
+  const current = await readWorkspace();
+  const existing = (current.users ?? []).find((u) => u.id === userId);
+  if (!existing) {
+    throw new Error('Usuário não encontrado no banco de dados.');
+  }
+
+  if (existing.isCreator || existing.id === CREATOR_HARDCODED_ACCOUNT.id) {
+    throw new Error(
+      'As credenciais raiz do Criador e Desenvolvedor Patrick Pessoa são soberanas e protegidas no código.'
+    );
+  }
+
+  if (patch.password && patch.password.trim().length > 0) {
+    if (patch.password.trim().length < 4) {
+      throw new Error('A nova senha deve ter pelo menos 4 caracteres.');
+    }
+    const passStore = await readPasswordStore();
+    passStore[userId] = hashPassword(patch.password.trim());
+    await writePasswordStore(passStore);
+  }
+
+  let updatedUser!: SystemUserAccount;
+  const workspace = await updateWorkspace((state) => {
+    const target = (state.users ?? []).find((u) => u.id === userId);
+    if (target) {
+      if (patch.username && patch.username.trim().length >= 2) {
+        target.username = patch.username.trim().slice(0, 80);
+      }
+      if (patch.email !== undefined) {
+        target.email = patch.email.trim() ? patch.email.trim().slice(0, 160) : undefined;
+      }
+      if (patch.roleLabel && patch.roleLabel.trim().length >= 2) {
+        target.roleLabel = patch.roleLabel.trim().slice(0, 120);
+      }
+      updatedUser = { ...target };
+    }
+  });
+
+  return { user: updatedUser, workspace };
+}
+
+export async function deleteSystemUser(userId: string): Promise<WorkspaceState> {
+  const current = await readWorkspace();
+  const target = (current.users ?? []).find((u) => u.id === userId);
+  if (!target) {
+    throw new Error('Usuário não encontrado no banco de dados.');
+  }
+  if (target.isCreator || target.id === CREATOR_HARDCODED_ACCOUNT.id) {
+    throw new Error(
+      'Não é permitido remover o Criador, Desenvolvedor e Dono do Sistema (Patrick Pessoa).'
+    );
+  }
+
+  const passStore = await readPasswordStore();
+  delete passStore[userId];
+  await writePasswordStore(passStore);
+
+  return updateWorkspace((state) => {
+    state.users = (state.users ?? []).filter((u) => u.id !== userId);
+  });
+}
+
+export async function getDatabaseSummary() {
+  const workspace = await readWorkspace();
+  let storageBytes = 0;
+  let lastModifiedIso = new Date().toISOString();
+  try {
+    const stat = await fs.stat(DATA_FILE);
+    storageBytes = stat.size;
+    lastModifiedIso = stat.mtime.toISOString();
+  } catch {
+    // ignore
+  }
+
+  return {
+    engine: 'Hybrid Cloud Firestore + Local JSON Persistent Engine',
+    firestoreDatabaseId:
+      'ai-studio-jarvissextafeira-a1e5b3ec-d96a-4eb6-b275-13d0b6498e23',
+    firebaseProjectId: 'gen-lang-client-0571301083',
+    storageBytes,
+    lastModifiedIso,
+    counts: {
+      users: (workspace.users ?? []).length,
+      memories: (workspace.memories ?? []).length,
+      tasks: (workspace.tasks ?? []).length,
+      agenda: (workspace.agenda ?? []).length,
+      routines: (workspace.routines ?? []).length,
+      alerts: (workspace.alerts ?? []).length,
+      conversations: (workspace.conversations ?? []).length,
+      dossierQuestions: (workspace.creatorDossier?.openQuestions ?? []).length,
+      socialProfiles: (workspace.creatorDossier?.socialProfiles ?? []).length,
+    },
+    creatorAccount: {
+      username: CREATOR_HARDCODED_ACCOUNT.username,
+      email: CREATOR_HARDCODED_ACCOUNT.email,
+      roleLabel: CREATOR_HARDCODED_ACCOUNT.roleLabel,
+      hardcodedProtection: true,
+    },
+  };
+}
+
+

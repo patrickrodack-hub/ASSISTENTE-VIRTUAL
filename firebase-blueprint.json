@@ -1,0 +1,205 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Perfil de usuário credenciado no RODACK SISTEMA DE IA (sem dados sensíveis de PII, seguindo isolamento Split Collection).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Identificador único do usuário.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "username": {
+          "type": "string",
+          "description": "Nome de exibição ou login do usuário (ex: Patrick Pessoa).",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "roleLabel": {
+          "type": "string",
+          "description": "Cargo ou função no laboratório holográfico.",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "isCreator": {
+          "type": "boolean",
+          "description": "Indica se é o Criador e Dono Soberano do sistema (Patrick Pessoa)."
+        },
+        "ownerUid": {
+          "type": "string",
+          "description": "UID do proprietário autenticado no Firebase Auth.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp de criação do registro no servidor."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp da última atualização no servidor."
+        }
+      },
+      "required": [
+        "id",
+        "username",
+        "roleLabel",
+        "isCreator",
+        "ownerUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Dados privados (PII como e-mail) isolados em subcoleção restrita ao proprietário ou administrador.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "description": "UID do usuário proprietário dos dados privados.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Endereço de e-mail privado do usuário.",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp de criação."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp de atualização."
+        }
+      },
+      "required": [
+        "ownerUid",
+        "email",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SystemRecord": {
+      "title": "SystemRecord",
+      "description": "Registro persistente do RODACK SISTEMA DE IA (usuários sincronizados, memórias, tarefas, agenda, rotinas, alertas, conversas e dossiê).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID único do registro.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "recordType": {
+          "type": "string",
+          "description": "Categoria da entidade armazenada no banco de dados.",
+          "enum": [
+            "usuario",
+            "memoria",
+            "tarefa",
+            "agenda",
+            "rotina",
+            "alerta",
+            "conversa",
+            "dossie"
+          ],
+          "minLength": 4,
+          "maxLength": 32
+        },
+        "title": {
+          "type": "string",
+          "description": "Título descritivo do registro.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "summary": {
+          "type": "string",
+          "description": "Resumo ou conteúdo principal do registro.",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "status": {
+          "type": "string",
+          "description": "Estado operacional do registro.",
+          "enum": [
+            "ativo",
+            "pendente",
+            "concluido",
+            "arquivado"
+          ],
+          "minLength": 4,
+          "maxLength": 32
+        },
+        "ownerUid": {
+          "type": "string",
+          "description": "UID do usuário autenticado responsável pelo registro.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdByUsername": {
+          "type": "string",
+          "description": "Nome do usuário ou assistente que originou o registro.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp de criação validado pelo servidor."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp de atualização validado pelo servidor."
+        }
+      },
+      "required": [
+        "id",
+        "recordType",
+        "title",
+        "summary",
+        "status",
+        "ownerUid",
+        "createdByUsername",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Coleção principal de perfis de usuários do RODACK SISTEMA DE IA."
+    },
+    "/users/{userId}/private/{infoId}": {
+      "schema": {
+        "$ref": "#/entities/UserPrivateInfo"
+      },
+      "description": "Subcoleção isolada de informações privadas (PII/e-mail) do usuário."
+    },
+    "/system_records/{recordId}": {
+      "schema": {
+        "$ref": "#/entities/SystemRecord"
+      },
+      "description": "Coleção de registros operacionais do sistema (usuários, memórias, tarefas, agenda, rotinas, alertas, conversas e dossiê)."
+    }
+  }
+}

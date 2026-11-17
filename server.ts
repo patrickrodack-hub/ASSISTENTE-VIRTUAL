@@ -15,7 +15,9 @@ import {
   deleteAlert,
   deleteMemory,
   deleteRoutineRule,
+  deleteSystemUser,
   deleteTask,
+  getDatabaseSummary,
   readWorkspace,
   registerSystemUser,
   setTurnFeedback,
@@ -23,6 +25,7 @@ import {
   updateAgendaEvent,
   updateCreatorDossier,
   updateRoutineRule,
+  updateSystemUser,
   updateTask,
 } from './server/memoryStore.ts';
 import {
@@ -44,6 +47,18 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: '15mb' }));
+
+  // Database Summary & Health Endpoint
+  app.get('/api/database/summary', async (_req, res) => {
+    try {
+      const summary = await getDatabaseSummary();
+      res.json(summary);
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao consultar banco de dados.',
+      });
+    }
+  });
 
   // Authentication & User Registration Module
   app.get('/api/auth/users', async (_req, res) => {
@@ -97,6 +112,28 @@ async function startServer() {
     } catch (err) {
       res.status(400).json({
         error: err instanceof Error ? err.message : 'Erro ao cadastrar novo usuário.',
+      });
+    }
+  });
+
+  app.patch('/api/auth/users/:id', async (req, res) => {
+    try {
+      const result = await updateSystemUser(req.params.id, req.body ?? {});
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Erro ao atualizar usuário no banco de dados.',
+      });
+    }
+  });
+
+  app.delete('/api/auth/users/:id', async (req, res) => {
+    try {
+      const workspace = await deleteSystemUser(req.params.id);
+      res.json({ workspace });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Erro ao remover usuário do banco de dados.',
       });
     }
   });
