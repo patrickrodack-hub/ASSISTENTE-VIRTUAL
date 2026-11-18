@@ -413,28 +413,20 @@ export function MobileConsoleDock({
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
-                      <label
-                        htmlFor="mobile-ultron-voice"
-                        className="text-xs font-semibold text-red-600 dark:text-red-400"
-                      >
+                      <span className="text-xs font-semibold text-red-600 dark:text-red-400">
                         ULTRON
-                      </label>
-                      <select
-                        id="mobile-ultron-voice"
-                        value={ultronVoice}
-                        onChange={(e) => {
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
                           triggerHaptic('tap');
-                          onChangeUltronVoice(e.target.value as UltronVoiceOption);
+                          onChangeUltronVoice(ultronVoice);
                         }}
-                        className="min-h-[40px] w-52 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                        className="min-h-[38px] w-52 rounded-xl border border-red-500/40 bg-red-500/10 dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-red-700 dark:text-red-300 flex items-center justify-between gap-1.5 active:scale-[0.98]"
                       >
-                        <option value="UltronOriginal">
-                          Áudio Ultron Extraído (Padrão · 93 Hz)
-                        </option>
-                        <option value="Umbriel">Umbriel (Frio · Calculista)</option>
-                        <option value="Algenib">Algenib (Metálico · Era de Ultron)</option>
-                        <option value="Fenrir">Fenrir (Intenso · Implacável)</option>
-                      </select>
+                        <span className="truncate">Exclusiva · {ultronVoice}</span>
+                        <span className="font-mono text-[10px] shrink-0">90.2 Hz</span>
+                      </button>
                     </div>
                     {onPlayUltronSample && (
                       <button
@@ -443,7 +435,7 @@ export function MobileConsoleDock({
                         className="w-full min-h-[38px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-red-500/35 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-700 dark:text-red-300 active:scale-[0.98]"
                       >
                         <Volume2 className="h-3.5 w-3.5 shrink-0" />
-                        <span>Ouvir Amostra Original (93 Hz)</span>
+                        <span>Ouvir Matriz Exclusiva (90.2 Hz)</span>
                       </button>
                     )}
                   </div>

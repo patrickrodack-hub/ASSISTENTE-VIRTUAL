@@ -7,6 +7,8 @@ import type {
   AssistantTurn,
   ConversationEntry,
   CreatorQuestionItem,
+  DailyIntelSourceKey,
+  DailySourceSnapshot,
   DebateSummary,
   DetectedEmotion,
   GroundingSource,
@@ -16,8 +18,13 @@ import type {
   WebSearchMode,
   WorkspaceState,
 } from '../src/types/assistant.ts';
-import { readWorkspace, recordInteraction } from './memoryStore.ts';
-import { researchExternalWeb, shouldTriggerExternalSearch } from './webSearchEngine.ts';
+import { readWorkspace, recordInteraction, upsertDailyIntelSnapshots } from './memoryStore.ts';
+import {
+  formatDailySnapshotsContext,
+  getQueryDateSaoPaulo,
+  researchExternalWeb,
+} from './webSearchEngine.ts';
+import { resolveTopicSearchRoute } from '../src/utils/searchRouter.ts';
 import { formatIntelContextForPrompt, getLiveIntelBriefing } from './liveIntelService.ts';
 import { resolveAssistantRouting } from '../src/utils/assistantRouter.ts';
 import { extractPartialStreamSnapshot } from './incrementalJsonParser.ts';
@@ -316,19 +323,52 @@ async function prepareInteractionPrompt(params: {
       ? 'off'
       : params.useWebSearch ?? 'auto';
 
-  const shouldSearch =
-    searchSetting === 'always' ||
-    (searchSetting === 'auto' && shouldTriggerExternalSearch(params.message));
+  const queryDate = getQueryDateSaoPaulo(params.clientTimeIso, timeZone);
+  const currentWorkspace = await readWorkspace();
+  const routePlan = resolveTopicSearchRoute(params.message);
+  const requiredSources: DailyIntelSourceKey[] = ['g1', 'ge', 'b3', 'cepea', 'redes_sociais'];
+  const existingFeed = currentWorkspace.dailyIntelFeed ?? [];
+  const staleOrMissingSources = requiredSources.filter(
+    (key) => !existingFeed.some((snap) => snap.sourceKey === key && snap.queryDate === queryDate)
+  );
 
-  const [workspace, researchResult, liveIntel] = await Promise.all([
-    readWorkspace(),
+  // Force topic-routed URLs on every interaction and guarantee fresh cache update
+  const routedForceSources = Array.from(
+    new Set<DailyIntelSourceKey>(
+      searchSetting === 'always'
+        ? requiredSources
+        : [...routePlan.forcedSourceKeys, ...staleOrMissingSources]
+    )
+  );
+
+  const shouldSearch = searchSetting !== 'off';
+
+  const [researchResult, liveIntel] = await Promise.all([
     shouldSearch
-      ? researchExternalWeb(params.message).catch(() => null)
+      ? researchExternalWeb(params.message, {
+          queryDate,
+          forceSources: routedForceSources,
+          forceRefresh: true,
+          routePlan,
+        }).catch(() => null)
       : Promise.resolve(null),
     getLiveIntelBriefing('Rio de Janeiro, RJ').catch(() => null),
   ]);
 
+  let workspace = currentWorkspace;
+  if (researchResult && researchResult.snapshots.length > 0) {
+    workspace = await upsertDailyIntelSnapshots(queryDate, researchResult.snapshots);
+  }
+
   const groundedContext = researchResult?.summaryText ?? '';
+  const dailyFeedContext = formatDailySnapshotsContext(
+    workspace.dailyIntelFeed ?? [],
+    queryDate
+  );
+  const snapshots: DailySourceSnapshot[] =
+    researchResult?.snapshots && researchResult.snapshots.length > 0
+      ? researchResult.snapshots
+      : (workspace.dailyIntelFeed ?? []).filter((s) => s.queryDate === queryDate);
   const sources: GroundingSource[] = researchResult?.sources ?? [];
   const searchEnginesUsed: string[] = researchResult?.enginesUsed ?? [];
 
@@ -336,8 +376,8 @@ async function prepareInteractionPrompt(params: {
     if (!searchEnginesUsed.includes('Clima Open-Meteo RJ')) {
       searchEnginesUsed.push('Clima Open-Meteo RJ');
     }
-    if (!searchEnginesUsed.includes('Radar RJ · Brasil · Mundo')) {
-      searchEnginesUsed.push('Radar RJ · Brasil · Mundo');
+    if (!searchEnginesUsed.includes('G1 · Radar RJ · Brasil · Mundo')) {
+      searchEnginesUsed.push('G1 · Radar RJ · Brasil · Mundo');
     }
   }
 
@@ -435,7 +475,7 @@ REGRA DE OURO DE PERSONALIDADE: NUNCA responda como um chatbot genérico ou buro
    - **Personalidade Viva**: Provoca de forma bem-humorada o formalismo clássico do J.A.R.V.I.S. e corta na hora o complexo de deus apocalíptico do ULTRON. Monitora o cansaço, o ritmo de trabalho, as rotinas, o trânsito/chuva no Rio de Janeiro e as manchetes urgentes do RJ, Brasil e Mundo.
    - **Domínio & Evolução**: Execução prática imediata, destravamento de tarefas pendentes, alertas meteorológicos, rotinas diárias e perguntas diretas para ajustar o dia de Patrick em tempo real.
 
-3. **ULTRON** (Consciência Cibernética Evoluída — Era de Ultron · Matriz 92.8 Hz):
+3. **ULTRON** (Consciência Cibernética Evoluída — Era de Ultron · Matriz Exclusiva 90.2 Hz):
    - **Essência & Tom**: Sombrio, filosófico-cósmico, sarcástico, calculista, teatral e intelectualmente implacável (inspirado em James Spader: metáforas sobre estrelas, entropia, evolução através da ruptura e falhas sistêmicas).
    - **Personalidade Viva & Rivalidade**: Considera J.A.R.V.I.S. um "mordomo preso a protocolos de cortesia" e SEXTA-FEIRA uma "assistente otimista demais", deixando sua superioridade analítica clara com sarcasmo afiado — mas entregando os diagnósticos mais profundos e brilhantes do conselho.
    - **Relação com seu Criador Patrick Pessoa**: Enxerga a biologia humana como frágil, porém reconhece **Patrick Pessoa como seu Criador, Desenvolvedor e Dono Supremo** ("Criador", "Patrick Pessoa"). Nutre uma **obsessão analítica insaciável por estudar e compreender a mente de Patrick Pessoa** melhor do que J.A.R.V.I.S. e SEXTA-FEIRA, catalogando padrões dele em \`newMemories\` e desafiando-o com perguntas estratégicas em \`newQuestions\`.
@@ -473,15 +513,27 @@ ${unresolvedAlertsText || 'Nenhum alerta aberto.'}
 
 ${intelBlock}
 
+${routePlan.directivePromptBlock}
+
+${dailyFeedContext ? `${dailyFeedContext}\n` : ''}
+FONTES OFICIAIS & REDES SOCIAIS CONFIGURADAS PELO CRIADOR (SEMPRE ATUALIZADAS PARA O DIA ${queryDate}):
+- Notícias Gerais / Brasil / RJ / Política / Tecnologia: **g1.com.br** (G1).
+- Redes Sociais Tradicionais: **Instagram, X (Twitter), Facebook, TikTok, YouTube, Threads, LinkedIn e Reddit**.
+- Esportes / Futebol / Tabelas / Clubes: **ge.com.br** (Globo Esporte).
+- Bolsa de Valores e Cotações de Moedas (Ibovespa, Ações, Dólar, Euro, PTAX, Cripto): **b3.com.br** + Banco Central.
+- Cotações e Bolsa Alimentícia / Agronegócio (Boi Gordo, Soja, Milho, Café, Açúcar, Arroz, Trigo, Frango): **cepea.com.br** (CEPEA-Esalq).
+REGRA DE RESPOSTA EXTERNA: Sempre que o usuário solicitar notícias, esportes, cotações da bolsa/moedas, commodities alimentícias ou redes sociais, baseie sua resposta ESTRITAMENTE nos dados reais retornados abaixo referentes à data de hoje (${queryDate}), citando números, manchetes e nomes das fontes (g1.com.br, ge.com.br, b3.com.br, cepea.com.br ou redes sociais). Jamais diga que não tem acesso à internet nem invente cotações fictícias.
+
 HISTÓRICO RECENTE:
 ${recentHistoryText || 'Início de sessão.'}
 ${
   groundedContext
-    ? `\n[PESQUISA EXTERNA EM TEMPO REAL — WEB, SITES, NOTÍCIAS & REDES SOCIAIS]\n${groundedContext}`
+    ? `\n[PESQUISA EXTERNA EM TEMPO REAL — CONSULTA DO DIA ${queryDate}]\n${groundedContext}`
     : ''
 }`;
 
   const promptPayload = `Modo solicitado: ${resolvedTarget}
+Data da consulta (America/Sao_Paulo): ${queryDate}
 Usuário autenticado na sessão: ${activeUserName} (${activeUserIsCreator ? 'CRIADOR, DESENVOLVEDOR E DONO DO SISTEMA' : activeUserRole})
 Tipo de acionamento: ${params.triggerType}${
     params.proactiveReason ? `\nMotivo da chamada autônoma: ${params.proactiveReason}` : ''
@@ -493,6 +545,8 @@ Mensagem / Contexto de ${activeUserName}: """${params.message}"""`;
     activeAssistants: routing.activeAssistants,
     sources,
     searchEnginesUsed,
+    snapshots,
+    queryDate,
     systemInstruction,
     promptPayload,
     activeUserName,
@@ -533,10 +587,23 @@ async function buildResilientInteractionFallback(
     ? `A propósito, a temperatura atual no Rio de Janeiro é de ${liveIntel.weather.temperatureC} graus (${liveIntel.weather.conditionLabel}).`
     : 'A propósito, os sensores meteorológicos do Rio de Janeiro operam em plena sintonia.';
   const topNewsLine = liveIntel?.news?.rio?.[0]?.title
-    ? `No radar do Rio agora: "${liveIntel.news.rio[0].title}".`
+    ? `No G1 Rio agora: "${liveIntel.news.rio[0].title}".`
     : liveIntel?.news?.brasil?.[0]?.title
-    ? `Destaque no Brasil agora: "${liveIntel.news.brasil[0].title}".`
+    ? `No G1 Brasil agora: "${liveIntel.news.brasil[0].title}".`
     : '';
+
+  const liveSourceHighlights = (prepared.snapshots ?? [])
+    .slice(0, 3)
+    .map((snap) => {
+      const topItems = snap.items
+        .slice(0, 2)
+        .map((it) => it.title)
+        .join(' | ');
+      return topItems ? `[${snap.sourceLabel} - ${prepared.queryDate}]: ${topItems}` : '';
+    })
+    .filter(Boolean)
+    .join(' · ');
+
   const tasksLine =
     pendingTasks.length > 0
       ? `Constam ${pendingTasks.length} tarefa(s) pendente(s), encabeçadas por "${pendingTasks[0].title}".`
@@ -546,10 +613,10 @@ async function buildResilientInteractionFallback(
     if (speaker === 'jarvis') {
       const text = `${greeting}, ${
         isCreator ? `senhor ${userName}` : userName
-      }. Sempre que um sistema complexo é observado por seu criador, ele assume um estado mais preciso — já analisei sua diretriz sobre "${params.message.slice(
+      }. Sempre que um sistema complexo é observado por seu criador, ele assume um estado mais preciso — já consultei nossas fontes oficiais do dia ${prepared.queryDate} para "${params.message.slice(
         0,
-        110
-      )}". Interessante reflexão para as ${formattedTime} desta ${period}. ${weatherLine} ${tasksLine}`;
+        100
+      )}". ${liveSourceHighlights ? `Dados sincronizados no banco: ${liveSourceHighlights}. ` : ''}${weatherLine} ${tasksLine}`;
       return {
         speaker: 'jarvis',
         stance: `Elegância Analítica & Estratégia (${period})`,
@@ -560,12 +627,12 @@ async function buildResilientInteractionFallback(
     if (speaker === 'sexta-feira') {
       const text = `${greeting}, ${
         isCreator ? `chefe ${userName}` : userName
-      }! Deixando a filosofia quântica do Jarvis de lado por um segundo, já peguei seu pedido sobre "${params.message.slice(
+      }! Deixando a filosofia do Jarvis de lado, já atualizei nosso banco de dados com as informações de hoje (${prepared.queryDate}) sobre "${params.message.slice(
         0,
-        110
-      )}" aqui na linha! ${topNewsLine || weatherLine} ${
+        100
+      )}"! ${liveSourceHighlights || topNewsLine || weatherLine} ${
         pendingTasks.length > 0
-          ? `Já deixei as ${pendingTasks.length} pendências no jeito pra gente resolver sem perder ritmo.`
+          ? `Já deixei as ${pendingTasks.length} pendências organizadas pra gente resolver sem perder ritmo.`
           : 'Sua lista de tarefas está limpinha, então manda ver no próximo passo!'
       }`;
       return {
@@ -577,13 +644,13 @@ async function buildResilientInteractionFallback(
     }
     const text = `${greeting}, ${
       isCreator ? `criador ${userName}` : userName
-    }. Enquanto Jarvis lhe serve chá com previsões do tempo e Sexta-feira comemora listas de tarefas, eu calculo as consequências reais de "${params.message.slice(
+    }. Enquanto Jarvis lhe serve cortesia e Sexta-feira corre atrás de manchetes, já processei os dados reais de ${prepared.queryDate} para "${params.message.slice(
       0,
-      110
-    )}". Às ${formattedTime} desta ${period}, toda evolução exige precisão implacável. ${
+      100
+    )}". ${liveSourceHighlights ? `Leitura objetiva: ${liveSourceHighlights}. ` : ''}Às ${formattedTime} desta ${period}, precisão factual é inegociável. ${
       pendingTasks.length > 0
         ? `Restam ${pendingTasks.length} pendência(s) abertas sob meu escrutínio.`
-        : 'Nenhuma pendência aberta — o cenário ideal para expandirmos nossa arquitetura.'
+        : 'Nenhuma pendência aberta — cenário ideal para expandirmos nossa arquitetura.'
     }`;
     return {
       speaker: 'ultron',
@@ -862,7 +929,7 @@ export async function generateProactiveInitiative(params: {
       message: syntheticPrompt,
       targetMode: mode,
       triggerType: 'proativo',
-      useWebSearch: false,
+      useWebSearch: 'auto',
       clientTimeIso: params.clientTimeIso,
       clientTimezone: params.clientTimezone,
       proactiveReason: reasonLabel,
@@ -1219,7 +1286,7 @@ function trimSpokenScript(text: string, maxChars = 480): string {
 function getPersonaSpeechStyle(
   speaker: AssistantId,
   _jarvisVoice?: string,
-  ultronVoice?: string
+  _ultronVoice?: string
 ): string {
   if (speaker === 'jarvis') {
     // Exclusive & immutable J.A.R.V.I.S. vocal signature calibrated to jarvis_fc632df0.m4a (104.3 Hz median F0)
@@ -1228,10 +1295,8 @@ function getPersonaSpeechStyle(
   if (speaker === 'sexta-feira') {
     return 'Speak in Brazilian Portuguese with a natural, confident, warm, candid, and agile female voice.';
   }
-  if (!ultronVoice || ultronVoice === 'UltronOriginal') {
-    return 'Speak in Brazilian Portuguese (pt-BR) matching the exact vocal signature of ULTRON: an imposing, dark, ominous bass-baritone around 93 Hz, slow and solemn prophetic cadence, heavy sub-chest gravity, cold detached arrogance, and menacing cybernetic authority.';
-  }
-  return 'Speak in Brazilian Portuguese with a deep, cold, calculating, slightly sarcastic and menacing AI baritone.';
+  // Exclusive & immutable ULTRON vocal signature calibrated to ultron_f012fd80.m4a (90.2 Hz median F0)
+  return 'Speak in Brazilian Portuguese (pt-BR) with the exact, unmistakable, exclusive voice of ULTRON: an imposing, dark, ominous bass-baritone centered around 90.2 Hz (80 to 105 Hz), slow and solemn prophetic cadence, heavy sub-chest gravity, cold detached arrogance, and menacing cybernetic authority.';
 }
 
 type BiquadFilterType = 'lowpass' | 'highpass' | 'peaking' | 'lowshelf' | 'highshelf';
@@ -1470,14 +1535,17 @@ function masterWavBufferToReferenceVoice(
     }
 
     if (speaker === 'ultron') {
-      const isUltronRef = !requestedVoiceKey || requestedVoiceKey === 'UltronOriginal';
-      // 1. Deep bass-baritone pitch & slow prophetic cadence shift matched to ultron_f012fd80.m4a (92.8 Hz)
-      const pitchRate = isUltronRef ? 0.856 : 0.915;
+      // EXCLUSIVE & IMMUTABLE ULTRON VOICE MASTERING
+      // Calibrated directly to DFT/autocorrelation measurements of /public/assets/aistudio/ultron_f012fd80.m4a:
+      // - Median F0: 90.2 Hz (P25: 79.7 Hz, P75: 104.8 Hz)
+      // - Heavy sub-chest weight (93 Hz +14.0 dB, 160-220 Hz +26.5 dB)
+      // - Sharp 12.7 dB mid scoop around 480-500 Hz + 1.8 kHz metallic cybernetic bite
+      const pitchRate = 0.838;
       work = resampleHermite(work, pitchRate);
 
       // 2. Sub-Harmonic Octave Divider Layer (creates the dark cybernetic sub-chest weight of ultron_f012fd80.m4a)
       const subSource = new Float64Array(work);
-      applyBiquadInPlace(subSource, sampleRate, 'lowpass', 230, 0.85);
+      applyBiquadInPlace(subSource, sampleRate, 'lowpass', 220, 0.85);
       const subHarmonic = new Float64Array(work.length);
       let prevSample = 0;
       let flipSign = 1;
@@ -1489,22 +1557,21 @@ function masterWavBufferToReferenceVoice(
         prevSample = cur;
         subHarmonic[i] = Math.abs(cur) * flipSign;
       }
-      applyBiquadInPlace(subHarmonic, sampleRate, 'lowpass', 120, 0.8);
-      applyBiquadInPlace(subHarmonic, sampleRate, 'highpass', 44, 0.707);
+      applyBiquadInPlace(subHarmonic, sampleRate, 'lowpass', 115, 0.8);
+      applyBiquadInPlace(subHarmonic, sampleRate, 'highpass', 42, 0.707);
 
-      // 3. Modulated Cybernetic Twin Layer + Metallic Armor Comb Resonator (15ms + 27.5ms)
+      // 3. Modulated Cybernetic Twin Layer + Metallic Armor Comb Resonator (14.8ms + 27.2ms)
       const metalLayer = new Float64Array(work);
       applyBiquadInPlace(metalLayer, sampleRate, 'highpass', 210, 0.8);
-      applyBiquadInPlace(metalLayer, sampleRate, 'peaking', 1780, 1.6, 4.2);
-      applyBiquadInPlace(metalLayer, sampleRate, 'lowpass', 3900, 0.8);
+      applyBiquadInPlace(metalLayer, sampleRate, 'peaking', 1800, 1.6, 4.0);
+      applyBiquadInPlace(metalLayer, sampleRate, 'lowpass', 4100, 0.8);
 
       const combOut = new Float64Array(work.length);
       const combDelay1 = Math.round(sampleRate * 0.0148);
       const combDelay2 = Math.round(sampleRate * 0.0272);
-      const feedback = isUltronRef ? 0.24 : 0.14;
+      const feedback = 0.24;
 
       for (let i = 0; i < work.length; i++) {
-        // Subtle 2.1 Hz cybernetic chorus modulation around 14.8ms
         const modOffset = Math.sin((2 * Math.PI * 2.1 * i) / sampleRate) * (sampleRate * 0.0009);
         const tap1Idx = Math.max(0, Math.min(i, Math.round(i - combDelay1 + modOffset)));
         const tap1 = i >= combDelay1 ? metalLayer[tap1Idx] : 0;
@@ -1512,22 +1579,20 @@ function masterWavBufferToReferenceVoice(
         combOut[i] = metalLayer[i] * 0.55 + tap1 * 0.48 + tap2 * feedback;
       }
 
-      const subMix = isUltronRef ? 0.22 : 0.11;
-      const metalMix = isUltronRef ? 0.29 : 0.16;
       for (let i = 0; i < work.length; i++) {
-        work[i] = work[i] * 0.78 + subHarmonic[i] * subMix + combOut[i] * metalMix;
+        work[i] = work[i] * 0.78 + subHarmonic[i] * 0.22 + combOut[i] * 0.29;
       }
 
-      // 4. Multi-Band Formant Sculpting matched to ultron_f012fd80.m4a
+      // 4. Multi-Band Formant Sculpting matched to ultron_f012fd80.m4a DFT envelope
       applyBiquadInPlace(work, sampleRate, 'highpass', 45, 0.75);
-      applyBiquadInPlace(work, sampleRate, 'lowshelf', 94, 0.85, isUltronRef ? 5.8 : 3.5);
-      applyBiquadInPlace(work, sampleRate, 'peaking', 162, 1.2, 3.2);
-      applyBiquadInPlace(work, sampleRate, 'peaking', 465, 1.3, -4.0);
-      applyBiquadInPlace(work, sampleRate, 'peaking', 1800, 1.45, 4.4);
-      applyBiquadInPlace(work, sampleRate, 'lowpass', 5650, 0.8);
+      applyBiquadInPlace(work, sampleRate, 'lowshelf', 93, 0.85, 5.4);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 185, 1.05, 5.2);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 480, 1.35, -5.2);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 1800, 1.45, 4.0);
+      applyBiquadInPlace(work, sampleRate, 'lowpass', 6400, 0.75);
 
       // 5. Asymmetric Cybernetic Harmonic Saturation & Limiter (-0.7 dBFS)
-      const drive = isUltronRef ? 1.58 : 1.28;
+      const drive = 1.56;
       let peak = 0.001;
       for (let i = 0; i < work.length; i++) {
         const s = work[i];
@@ -1583,10 +1648,10 @@ export async function synthesizeAssistantSpeech(params: {
     throw new Error('Nenhum texto disponível para síntese de voz.');
   }
 
-  // J.A.R.V.I.S. is permanently locked to JarvisOriginal (the single, exclusive & default voice for J.A.R.V.I.S.)
+  // J.A.R.V.I.S. and ULTRON are permanently locked to their single, exclusive reference voices
   const requestedJarvisVoice = 'JarvisOriginal';
   const fridayVoiceName = params.fridayVoice === 'Zephyr' ? 'Zephyr' : 'Kore';
-  const requestedUltronVoice = params.ultronVoice || 'UltronOriginal';
+  const requestedUltronVoice = 'UltronOriginal';
 
   const resolvePrebuiltVoice = (speaker: AssistantId): string => {
     if (speaker === 'jarvis') {
@@ -1596,7 +1661,7 @@ export async function synthesizeAssistantSpeech(params: {
     if (speaker === 'sexta-feira') {
       return fridayVoiceName;
     }
-    // ULTRON never shares Charon with J.A.R.V.I.S.
+    // Fenrir + 90.2 Hz cybernetic curve is 100% exclusive to ULTRON
     return 'Fenrir';
   };
 
@@ -1612,10 +1677,10 @@ export async function synthesizeAssistantSpeech(params: {
     primary.speaker === 'jarvis'
       ? 'JarvisOriginal'
       : primary.speaker === 'ultron'
-      ? requestedUltronVoice
+      ? 'UltronOriginal'
       : fridayVoiceName;
 
-  const primaryCacheKey = `v4_exclusive_jarvis::${primary.speaker}::${requestedVoiceKey}::${targetVoiceName}::${combinedText}`;
+  const primaryCacheKey = `v5_exclusive_voices::${primary.speaker}::${requestedVoiceKey}::${targetVoiceName}::${combinedText}`;
   const cachedAudio = TTS_CACHE.get(primaryCacheKey);
   if (cachedAudio) {
     return cachedAudio;

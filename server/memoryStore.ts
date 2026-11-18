@@ -8,6 +8,7 @@ import type {
   ConversationEntry,
   CreatorDossier,
   CreatorQuestionItem,
+  DailySourceSnapshot,
   DetectedEmotion,
   MemoryItem,
   RoutineRuleItem,
@@ -343,6 +344,7 @@ function createSeedWorkspace(): WorkspaceState {
     agenda: createDefaultAgenda(),
     routines: createDefaultRoutines(),
     creatorDossier: createDefaultCreatorDossier(),
+    dailyIntelFeed: [],
     conversations: [
       {
         id: crypto.randomUUID(),
@@ -476,6 +478,11 @@ async function ensureFile(): Promise<WorkspaceState> {
         isCreator: true,
         createdAt: new Date().toISOString(),
       });
+      changed = true;
+    }
+
+    if (!Array.isArray(state.dailyIntelFeed)) {
+      state.dailyIntelFeed = [];
       changed = true;
     }
 
@@ -1086,6 +1093,78 @@ export async function deleteSystemUser(userId: string): Promise<WorkspaceState> 
   });
 }
 
+export async function upsertDailyIntelSnapshots(
+  queryDate: string,
+  snapshots: DailySourceSnapshot[]
+): Promise<WorkspaceState> {
+  if (!snapshots || snapshots.length === 0) {
+    return readWorkspace();
+  }
+
+  return updateWorkspace((state) => {
+    if (!Array.isArray(state.dailyIntelFeed)) {
+      state.dailyIntelFeed = [];
+    }
+
+    const bySource = new Map<string, DailySourceSnapshot>();
+    for (const existing of state.dailyIntelFeed) {
+      if (existing && existing.sourceKey) {
+        bySource.set(existing.sourceKey, existing);
+      }
+    }
+
+    for (const snap of snapshots) {
+      if (!snap || !snap.sourceKey) continue;
+      bySource.set(snap.sourceKey, {
+        ...snap,
+        queryDate,
+        updatedAt: snap.updatedAt || new Date().toISOString(),
+      });
+
+      // Mirror snapshot into Memories tagged by today's queryDate so AIs & Database stay fed
+      const memTitlePrefix = `[${snap.sourceKey.toUpperCase()} · `;
+      const exactTitle = `[${snap.sourceKey.toUpperCase()} · ${queryDate}] ${snap.sourceLabel}`;
+      const memContent = `Atualizado em ${queryDate} (${snap.domainUrl}): ${snap.items
+        .slice(0, 5)
+        .map((i) => `${i.title}${i.detail ? ` — ${i.detail}` : ''}`)
+        .join(' | ')}`;
+
+      const existingMem = state.memories.find((m) => m.title === exactTitle);
+      if (existingMem) {
+        existingMem.content = memContent;
+        existingMem.createdAt = new Date().toISOString();
+      } else {
+        // Keep at most 1 historical daily feed memory per sourceKey to prevent bloat
+        state.memories = state.memories.filter((m) => !m.title.startsWith(memTitlePrefix));
+        state.memories.unshift({
+          id: crypto.randomUUID(),
+          title: exactTitle,
+          content: memContent,
+          category: 'aprendizado',
+          sourceAssistant: 'todos',
+          importance: 'alta',
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    if (state.memories.length > 120) {
+      state.memories = state.memories.slice(0, 120);
+    }
+
+    const order: Record<string, number> = {
+      g1: 1,
+      ge: 2,
+      b3: 3,
+      cepea: 4,
+      redes_sociais: 5,
+    };
+    state.dailyIntelFeed = Array.from(bySource.values()).sort(
+      (a, b) => (order[a.sourceKey] ?? 99) - (order[b.sourceKey] ?? 99)
+    );
+  });
+}
+
 export async function getDatabaseSummary() {
   const workspace = await readWorkspace();
   let storageBytes = 0;
@@ -1115,6 +1194,7 @@ export async function getDatabaseSummary() {
       conversations: (workspace.conversations ?? []).length,
       dossierQuestions: (workspace.creatorDossier?.openQuestions ?? []).length,
       socialProfiles: (workspace.creatorDossier?.socialProfiles ?? []).length,
+      dailySources: (workspace.dailyIntelFeed ?? []).length,
     },
     creatorAccount: {
       username: CREATOR_HARDCODED_ACCOUNT.username,

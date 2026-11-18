@@ -238,6 +238,40 @@ async function fetchGoogleNewsFeed(
   }
 }
 
+async function fetchDirectG1Feed(
+  feedUrl: string,
+  region: 'rio' | 'brasil',
+  maxItems = 4
+): Promise<LiveNewsItem[]> {
+  try {
+    const res = await fetchWithTimeout(feedUrl, { headers: { 'User-Agent': BROWSER_UA } }, 2800);
+    if (!res.ok) return [];
+    const xml = await res.text();
+    const items: LiveNewsItem[] = [];
+    const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = itemRegex.exec(xml)) !== null && items.length < maxItems) {
+      const block = match[1];
+      const title = decodeHtml(block.match(/<title>([\s\S]*?)<\/title>/i)?.[1] ?? '');
+      const link = decodeHtml(block.match(/<link>([\s\S]*?)<\/link>/i)?.[1] ?? '');
+      const pubDate = decodeHtml(block.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1] ?? '');
+      if (title && link && /^https?:\/\//i.test(link)) {
+        items.push({
+          id: crypto.randomUUID(),
+          region,
+          title,
+          link,
+          source: 'G1 (g1.com.br)',
+          pubDate: pubDate || undefined,
+        });
+      }
+    }
+    return items;
+  } catch {
+    return [];
+  }
+}
+
 let cachedBriefing: {
   key: string;
   expiresAt: number;
@@ -258,12 +292,17 @@ export async function getLiveIntelBriefing(
     return cachedBriefing.data;
   }
 
-  const [weather, rioNews, brasilNews, mundoNews] = await Promise.all([
+  const [weather, g1Rio, g1Brasil, rioGoogle, brasilGoogle, mundoNews] = await Promise.all([
     fetchLiveWeather(city),
-    fetchGoogleNewsFeed('"Rio de Janeiro" when:2d', 'rio', 6),
-    fetchGoogleNewsFeed('Brasil política OR economia OR cidades when:1d', 'brasil', 6),
+    fetchDirectG1Feed('https://g1.globo.com/rss/g1/rj/rio-de-janeiro/', 'rio', 4),
+    fetchDirectG1Feed('https://g1.globo.com/rss/g1/', 'brasil', 4),
+    fetchGoogleNewsFeed('"Rio de Janeiro" when:2d', 'rio', 4),
+    fetchGoogleNewsFeed('Brasil política OR economia OR cidades when:1d', 'brasil', 4),
     fetchGoogleNewsFeed('Mundo internacional OR tecnologia global when:1d', 'mundo', 6),
   ]);
+
+  const rioNews = [...g1Rio, ...rioGoogle].slice(0, 6);
+  const brasilNews = [...g1Brasil, ...brasilGoogle].slice(0, 6);
 
   const data: LiveIntelBriefing = {
     weather,

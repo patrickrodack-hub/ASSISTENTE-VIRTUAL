@@ -5,6 +5,8 @@ import {
   Database,
   Download,
   Edit3,
+  ExternalLink,
+  Globe,
   KeyRound,
   Lock,
   Mail,
@@ -52,6 +54,7 @@ interface DatabaseSummaryResponse {
     conversations: number;
     dossierQuestions: number;
     socialProfiles: number;
+    dailySources?: number;
   };
 }
 
@@ -63,6 +66,7 @@ interface DatabaseManagerPanelProps {
 
 type DbTab =
   | 'usuarios'
+  | 'fontes_dia'
   | 'firestore_cloud'
   | 'memorias'
   | 'tarefas'
@@ -81,6 +85,7 @@ export function DatabaseManagerPanel({
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [cloudRecords, setCloudRecords] = useState<FirestoreSystemRecord[]>([]);
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [isSyncingDailySources, setIsSyncingDailySources] = useState(false);
 
   // User Registration / Edit State
   const [newUsername, setNewUsername] = useState('');
@@ -292,7 +297,7 @@ export function DatabaseManagerPanel({
       triggerHaptic('success');
       setStatusBanner({
         type: 'success',
-        message: `Sincronização concluída! ${count} registros (usuários, memórias, tarefas, agenda, rotinas e dossiê) salvos no Cloud Firestore.`,
+        message: `Sincronização concluída! ${count} registros (usuários, memórias, fontes do dia, tarefas, agenda, rotinas e dossiê) salvos no Cloud Firestore.`,
       });
     } catch (err) {
       setStatusBanner({
@@ -304,6 +309,47 @@ export function DatabaseManagerPanel({
       });
     } finally {
       setIsSyncingCloud(false);
+    }
+  };
+
+  const handleSyncDailyExternalSources = async () => {
+    setStatusBanner(null);
+    setIsSyncingDailySources(true);
+    triggerHaptic('tap');
+    try {
+      const res = await safeFetchJson<{
+        queryDate?: string;
+        snapshots?: unknown[];
+        workspace?: WorkspaceState;
+        error?: string;
+      }>(
+        '/api/intel/sync-sources',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: searchQuery.trim() }),
+        },
+        1
+      );
+      if (!res.ok || !res.data?.workspace) {
+        setStatusBanner({
+          type: 'error',
+          message:
+            res.errorMessage ||
+            'Não foi possível atualizar as fontes externas de hoje.',
+        });
+        triggerHaptic('warning');
+        return;
+      }
+      onWorkspaceUpdated(res.data.workspace);
+      await loadDbSummary();
+      triggerHaptic('success');
+      setStatusBanner({
+        type: 'success',
+        message: `Base alimentada com sucesso para o dia ${res.data.queryDate ?? 'de hoje'} (G1, GE, B3, CEPEA e Redes Sociais)!`,
+      });
+    } finally {
+      setIsSyncingDailySources(false);
     }
   };
 
@@ -431,13 +477,19 @@ export function DatabaseManagerPanel({
       </div>
 
       {/* Database Collection Counters */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
         {[
           {
             id: 'usuarios' as const,
             label: 'Usuários',
             count: (workspace.users ?? []).length,
             sub: 'Patrick + Operadores',
+          },
+          {
+            id: 'fontes_dia' as const,
+            label: 'Fontes do Dia',
+            count: (workspace.dailyIntelFeed ?? []).length,
+            sub: 'G1·GE·B3·CEPEA·Redes',
           },
           {
             id: 'firestore_cloud' as const,
@@ -775,6 +827,119 @@ export function DatabaseManagerPanel({
               })}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* TAB 1B: FONTES EXTERNAS DO DIA (G1, GE, B3, CEPEA, REDES SOCIAIS) */}
+      {activeTab === 'fontes_dia' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-cyan-500/30 bg-slate-50 dark:bg-[#030B14]/90 p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-cyan-600 dark:text-cyan-300">
+                <Globe className="h-3.5 w-3.5" />
+                <span>ALIMENTAÇÃO DIÁRIA DA BASE DE DADOS · DATA DA CONSULTA (BRT)</span>
+              </div>
+              <p className="text-xs text-slate-700 dark:text-cyan-100/85">
+                Fontes oficiais consultadas automaticamente pelos assistentes e gravadas na base:{' '}
+                <strong>g1.com.br</strong>, <strong>ge.com.br</strong>, <strong>b3.com.br</strong>,{' '}
+                <strong>cepea.com.br</strong> e <strong>Redes Sociais Tradicionais</strong>.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={isSyncingDailySources}
+              onClick={() => void handleSyncDailyExternalSources()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs px-3.5 py-2 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${isSyncingDailySources ? 'animate-spin' : ''}`}
+              />
+              <span>
+                {isSyncingDailySources
+                  ? 'Consultando Fontes de Hoje...'
+                  : 'Atualizar Fontes de Hoje Agora'}
+              </span>
+            </button>
+          </div>
+
+          {(workspace.dailyIntelFeed ?? []).length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-300 dark:border-cyan-500/30 p-6 text-center text-xs text-slate-500 dark:text-cyan-200/70 space-y-2">
+              <p>
+                Nenhuma coleta diária gravada ainda para hoje. Clique em{' '}
+                <strong>&quot;Atualizar Fontes de Hoje Agora&quot;</strong> ou faça qualquer pergunta
+                aos assistentes sobre notícias, esportes, bolsa, agro ou redes sociais.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[520px] overflow-y-auto pr-1">
+              {(workspace.dailyIntelFeed ?? [])
+                .filter(
+                  (snap) =>
+                    !searchQuery.trim() ||
+                    snap.sourceLabel.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    snap.headlineSummary.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    snap.items.some(
+                      (item) =>
+                        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                        item.detail.toLowerCase().includes(searchQuery.toLowerCase())
+                    )
+                )
+                .map((snap) => (
+                  <div
+                    key={snap.id}
+                    className="rounded-xl border border-slate-200 dark:border-cyan-500/25 bg-slate-50/80 dark:bg-[#030B14]/90 p-3.5 space-y-2.5"
+                  >
+                    <div className="flex items-start justify-between gap-2 border-b border-slate-200 dark:border-cyan-500/20 pb-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-display text-xs font-bold text-slate-900 dark:text-white">
+                            {snap.sourceLabel}
+                          </span>
+                          <span className="rounded bg-cyan-500/15 px-1.5 py-0.5 font-mono text-[10px] text-cyan-700 dark:text-cyan-300">
+                            {snap.queryDate}
+                          </span>
+                        </div>
+                        <div className="text-[10px] font-mono text-slate-500 dark:text-cyan-200/65 mt-0.5 truncate">
+                          {snap.domainUrl} · Atualizado:{' '}
+                          {new Date(snap.updatedAt).toLocaleTimeString('pt-BR')}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      {snap.items.slice(0, 5).map((item, idx) => (
+                        <div
+                          key={`${snap.id}-${idx}`}
+                          className="rounded-lg border border-slate-200/80 dark:border-cyan-500/15 bg-white dark:bg-[#051320]/80 p-2 text-xs"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="font-medium text-slate-900 dark:text-slate-100 leading-snug">
+                              {item.title}
+                            </span>
+                            {item.uri && (
+                              <a
+                                href={item.uri}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-cyan-600 dark:text-cyan-300 hover:underline shrink-0 p-0.5"
+                                title="Abrir fonte original"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            )}
+                          </div>
+                          {item.detail && (
+                            <p className="text-[11px] text-slate-600 dark:text-cyan-100/75 mt-0.5 line-clamp-2">
+                              {item.detail}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
 

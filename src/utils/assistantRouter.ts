@@ -1,4 +1,5 @@
 import type { AssistantId, InteractionMode } from '../types/assistant';
+import { resolveTopicSearchRoute } from './searchRouter';
 
 export interface AssistantRoutingDecision {
   resolvedMode: AssistantId | 'ambos' | 'todos';
@@ -42,23 +43,18 @@ export function resolveAssistantRouting(
     } else if (mentionsFriday) {
       resolvedMode = 'sexta-feira';
     } else {
-      // Smart domain routing when mode is 'auto' and no specific name was called:
-      // 1. Check if user asks for multi-perspective debate/comparison
       const wantsDebate =
         /\b(opini[oõ]es|dividam|comparem|debater|debate|qual a melhor|o que voc[eê]s acham|conselho|auditoria completa)\b/i.test(
           lower
         );
-      // 2. Check Ultron domain: diagnostics, predictions, failure analysis, probability, human behavior
       const wantsUltron =
         /\b(diagn[oó]stico|previs[aã]o|prever|futuro|falha|colapso|gargalo|probabilidade|risco oculto|anomalia|estresse|subdesenvolvid|humano|vulnerabilidade cr[ií]tica)\b/i.test(
           lower
         );
-      // 3. Check Jarvis domain: architecture, security, infrastructure, backend, code patterns, strategy
       const wantsJarvis =
         /\b(arquitetura|seguran[cç]a|criptografia|autentica[cç][aã]o|servidor|banco de dados|api|estrutura|estrat[eé]gia|padroniza[cç][aã]o|protocolo|escalabilidade)\b/i.test(
           lower
         );
-      // 4. Check Friday domain: agile execution, daily tasks, UI/UX, quick fix, productivity, well-being
       const wantsFriday =
         /\b(r[aá]pido|pr[aá]tico|tarefa|agenda|hoje|rotina|interface|ux|design|tela|bot[aã]o|cansado|foco|produtividade|resumo|direto ao ponto)\b/i.test(
           lower
@@ -75,7 +71,6 @@ export function resolveAssistantRouting(
       } else if (wantsFriday) {
         resolvedMode = 'sexta-feira';
       } else {
-        // Default fast collaborative council when open-ended
         resolvedMode = 'todos';
       }
     }
@@ -88,8 +83,10 @@ export function resolveAssistantRouting(
       ? ['jarvis', 'sexta-feira']
       : [resolvedMode];
 
-  // Dynamic, context-aware reasoning labels for each assistant
+  const routePlan = resolveTopicSearchRoute(clean);
+  const domainsLabel = routePlan.forcedDomains.join(', ');
   const isSearchQuery =
+    routePlan.routedTargets.length > 0 ||
     /\b(pesquis|busque|busca|internet|web|not[ií]cia|hoje|atual|site|rede social)\b/i.test(
       lower
     );
@@ -99,20 +96,20 @@ export function resolveAssistantRouting(
     );
 
   const reasoningTaskByAssistant: Record<AssistantId, string> = {
-    jarvis: isSearchQuery
-      ? 'Cruzando fontes externas e validando integridade técnica...'
-      : isCodeQuery
+    jarvis: isCodeQuery
       ? 'Auditando arquitetura, contratos de tipo e blindagem de segurança...'
+      : isSearchQuery
+      ? `Consultando ${domainsLabel} e atualizando cache em tempo real...`
       : 'Processando matriz estratégica e memória contextual de Patrick...',
-    'sexta-feira': isSearchQuery
-      ? 'Filtrando sinais relevantes da web para resposta tática imediata...'
-      : isCodeQuery
+    'sexta-feira': isCodeQuery
       ? 'Mapeando solução prática, fluidez de execução e estabilidade...'
+      : isSearchQuery
+      ? `Filtrando sinais ao vivo de ${domainsLabel} para resposta tática...`
       : 'Sincronizando prioridades do dia, empatia e resposta ágil...',
-    ultron: isSearchQuery
-      ? 'Rastreando padrões globais, falhas humanas e tendências ocultas...'
-      : isCodeQuery
+    ultron: isCodeQuery
       ? 'Dissecando gargalos, falhas em cascata e previsões de risco...'
+      : isSearchQuery
+      ? `Cruzando dados atualizados de ${domainsLabel} na matriz preditiva...`
       : 'Calculando diagnósticos preditivos e catalogando padrões humanos...',
   };
 

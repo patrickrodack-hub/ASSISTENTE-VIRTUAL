@@ -421,6 +421,23 @@ export async function syncWorkspaceToCloudFirestore(
     syncedCount += 1;
   }
 
+  // 7. Sync Daily External Intel Feed snapshots (G1, GE, B3, CEPEA, Redes Sociais)
+  for (const snap of (workspace.dailyIntelFeed ?? []).slice(0, 15)) {
+    const itemsSummary = snap.items
+      .slice(0, 4)
+      .map((i) => `${i.title}${i.detail ? ` — ${i.detail}` : ''}`)
+      .join(' | ');
+    await upsertFirestoreSystemRecord({
+      id: sanitizeValidFirestoreId(`intel_${snap.sourceKey}_${snap.queryDate}`),
+      recordType: 'memoria',
+      title: `[${snap.queryDate}] ${snap.sourceLabel}`,
+      summary: itemsSummary || snap.headlineSummary || snap.domainUrl,
+      status: 'ativo',
+      createdByUsername: actorName,
+    });
+    syncedCount += 1;
+  }
+
   return syncedCount;
 }
 

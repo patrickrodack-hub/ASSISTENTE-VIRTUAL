@@ -242,6 +242,27 @@ export interface CreatorProfile {
   totalInteractions: number;
 }
 
+export type DailyIntelSourceKey = 'g1' | 'ge' | 'b3' | 'cepea' | 'redes_sociais';
+
+export interface DailyIntelRecordItem {
+  title: string;
+  detail: string;
+  uri: string;
+  publishedAt?: string;
+}
+
+export interface DailySourceSnapshot {
+  id: string;
+  sourceKey: DailyIntelSourceKey;
+  sourceLabel: string;
+  domainUrl: string;
+  queryDate: string; // YYYY-MM-DD (America/Sao_Paulo)
+  updatedAt: string; // ISO timestamp
+  queryTerm: string;
+  headlineSummary: string;
+  items: DailyIntelRecordItem[];
+}
+
 export interface WorkspaceState {
   profile: CreatorProfile;
   memories: MemoryItem[];
@@ -251,7 +272,7 @@ export interface WorkspaceState {
   routines?: RoutineRuleItem[];
   creatorDossier?: CreatorDossier;
   users?: SystemUserAccount[];
+  dailyIntelFeed?: DailySourceSnapshot[];
   conversations: ConversationEntry[];
   telemetryLog?: TelemetryEntry[];
 }
-

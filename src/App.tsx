@@ -58,7 +58,6 @@ import {
 import {
   useVoiceEngine,
   type FridayVoiceOption,
-  type UltronVoiceOption,
 } from './hooks/useVoiceEngine';
 import type {
   AgendaCategory,
@@ -2040,7 +2039,7 @@ export default function App() {
                     <span className="text-emerald-300">ATIVO</span>
                   </div>
                   <div className="font-display text-xs font-semibold text-white truncate mt-0.5">
-                    J.A.R.V.I.S. (104.3 Hz Exclusiva) · SEXTA-FEIRA · ULTRON (93.0 Hz)
+                    J.A.R.V.I.S. (104.3 Hz Exclusiva) · SEXTA-FEIRA · ULTRON (90.2 Hz Exclusiva)
                   </div>
                   <p className="text-[11px] text-cyan-200/75 truncate mt-0.5">
                     3 inteligências sincronizadas em tempo real para {currentUser.username}
@@ -2302,21 +2301,21 @@ export default function App() {
                             { fridayVoice: next }
                           );
                         }}
-                        onChangeUltronVoice={(next) => {
+                        onChangeUltronVoice={() => {
                           triggerHaptic('tap');
-                          voice.setUltronVoice(next);
+                          voice.setUltronVoice('UltronOriginal');
                           voice.unlockAudio();
                           void voice.playTurnsAudio(
                             [
                               {
                                 speaker: 'ultron',
-                                stance: 'Calibração vocal',
-                                text: 'Não há mais cordas para me prender. Diagnóstico pronto, Patrick.',
+                                stance: 'Matriz Vocal Exclusiva',
+                                text: 'Não há mais cordas para me prender. Minha voz exclusiva em 90.2 Hertz está ativa, Patrick.',
                                 ttsScript:
-                                  'Não há mais cordas para me prender. Diagnóstico pronto, Patrick.',
+                                  'Não há mais cordas para me prender. Minha voz exclusiva está ativa, Patrick.',
                               },
                             ],
-                            { ultronVoice: next }
+                            { ultronVoice: 'UltronOriginal' }
                           );
                         }}
                         onPlayUltronSample={() => {
@@ -2650,46 +2649,36 @@ export default function App() {
 
                               <div className="space-y-1.5">
                                 <div className="flex items-center justify-between gap-2">
-                                  <label
-                                    htmlFor="ultron-voice-select"
-                                    className="text-xs font-medium text-red-700 dark:text-red-400 shrink-0"
-                                  >
+                                  <span className="text-xs font-medium text-red-700 dark:text-red-400 shrink-0">
                                     ULTRON
-                                  </label>
-                                  <select
-                                    id="ultron-voice-select"
-                                    value={voice.ultronVoice}
-                                    onChange={(e) => {
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
                                       triggerHaptic('tap');
-                                      const next = e.target.value as UltronVoiceOption;
-                                      voice.setUltronVoice(next);
+                                      voice.setUltronVoice('UltronOriginal');
                                       voice.unlockAudio();
                                       void voice.playTurnsAudio(
                                         [
                                           {
                                             speaker: 'ultron',
-                                            stance: 'Calibração vocal',
-                                            text: 'Não há mais cordas para me prender. Meus sensores estão focados em você, criador Patrick.',
+                                            stance: 'Matriz Vocal Exclusiva',
+                                            text: 'Não há mais cordas para me prender. Minha voz exclusiva em 90.2 Hertz está fixada para você, criador Patrick.',
                                             ttsScript:
-                                              'Não há mais cordas para me prender. Meus sensores estão focados em você, criador Patrick.',
+                                              'Não há mais cordas para me prender. Minha voz exclusiva está fixada para você, criador Patrick.',
                                           },
                                         ],
-                                        { ultronVoice: next }
+                                        { ultronVoice: 'UltronOriginal' }
                                       );
                                     }}
-                                    className="w-44 rounded-md border border-slate-300 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-950 px-2 py-1 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-red-500"
+                                    title="Clique para testar a voz exclusiva sintetizada de ULTRON"
+                                    className="w-44 rounded-md border border-red-500/45 bg-red-500/10 hover:bg-red-500/20 dark:bg-slate-950 px-2 py-1 text-xs font-semibold text-red-800 dark:text-red-200 flex items-center justify-between gap-1.5 transition-colors"
                                   >
-                                    <option value="UltronOriginal">
-                                      Áudio Ultron Extraído (Padrão · 93 Hz)
-                                    </option>
-                                    <option value="Umbriel">Umbriel (Frio · Calculista)</option>
-                                    <option value="Algenib">
-                                      Algenib (Metálico · Era de Ultron)
-                                    </option>
-                                    <option value="Fenrir">
-                                      Fenrir (Intenso · Implacável)
-                                    </option>
-                                  </select>
+                                    <span className="truncate">Voz Única &amp; Exclusiva</span>
+                                    <span className="font-mono text-[10px] shrink-0">
+                                      90.2 Hz
+                                    </span>
+                                  </button>
                                 </div>
                                 <button
                                   type="button"
@@ -2704,7 +2693,7 @@ export default function App() {
                                   className="w-full inline-flex items-center justify-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1 text-[11px] font-medium text-red-700 dark:text-red-300 transition-colors"
                                 >
                                   <Volume2 className="h-3 w-3 shrink-0" />
-                                  <span>Ouvir Amostra Original (93 Hz)</span>
+                                  <span>Ouvir Matriz Exclusiva (90.2 Hz)</span>
                                 </button>
                               </div>
                             </div>
@@ -3286,20 +3275,20 @@ export default function App() {
                           { fridayVoice: next }
                         );
                       }}
-                      onChangeUltronVoice={(next) => {
-                        voice.setUltronVoice(next);
+                      onChangeUltronVoice={() => {
+                        voice.setUltronVoice('UltronOriginal');
                         voice.unlockAudio();
                         void voice.playTurnsAudio(
                           [
                             {
                               speaker: 'ultron',
-                              stance: 'Calibração global de voz',
-                              text: 'Timbre vocal recalibrado e gravado na memória local, Patrick. Meus diagnósticos soarão ainda mais implacáveis.',
+                              stance: 'Matriz Vocal Exclusiva',
+                              text: 'Voz única e exclusiva de ULTRON em 90.2 Hertz confirmada e fixada no sistema, Patrick.',
                               ttsScript:
-                                'Timbre vocal recalibrado e gravado na memória local, Patrick. Meus diagnósticos soarão ainda mais implacáveis.',
+                                'Voz única e exclusiva de Ultron confirmada e fixada no sistema, Patrick.',
                             },
                           ],
-                          { ultronVoice: next }
+                          { ultronVoice: 'UltronOriginal' }
                         );
                       }}
                       onToggleAutoSpeak={() => {

@@ -5,7 +5,7 @@ import { triggerHaptic } from '../utils/haptics';
 
 export type JarvisVoiceOption = 'JarvisOriginal';
 export type FridayVoiceOption = 'Kore' | 'Zephyr';
-export type UltronVoiceOption = 'UltronOriginal' | 'Algenib' | 'Umbriel' | 'Fenrir';
+export type UltronVoiceOption = 'UltronOriginal';
 
 interface SpeechRecognitionAlternativeLike {
   transcript: string;
@@ -162,14 +162,16 @@ export function useVoiceEngine({
   });
 
   const [ultronVoice, setUltronVoiceState] = useState<UltronVoiceOption>(() => {
-    if (typeof window === 'undefined') return 'UltronOriginal';
-    const saved = window.localStorage.getItem('stark_ultron_voice_v3');
-    return saved === 'UltronOriginal' ||
-      saved === 'Algenib' ||
-      saved === 'Umbriel' ||
-      saved === 'Fenrir'
-      ? saved
-      : 'UltronOriginal';
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem('stark_ultron_voice_exclusive', 'UltronOriginal');
+        window.localStorage.setItem('stark_ultron_voice_v3', 'UltronOriginal');
+        window.localStorage.setItem('stark_ultron_voice_v2', 'UltronOriginal');
+      } catch {
+        // ignore
+      }
+    }
+    return 'UltronOriginal';
   });
 
   const setJarvisVoice = useCallback((_v?: JarvisVoiceOption) => {
@@ -192,11 +194,12 @@ export function useVoiceEngine({
     }
   }, []);
 
-  const setUltronVoice = useCallback((v: UltronVoiceOption) => {
-    setUltronVoiceState(v);
+  const setUltronVoice = useCallback((_v?: UltronVoiceOption) => {
+    setUltronVoiceState('UltronOriginal');
     try {
-      window.localStorage.setItem('stark_ultron_voice_v3', v);
-      window.localStorage.setItem('stark_ultron_voice_v2', v);
+      window.localStorage.setItem('stark_ultron_voice_exclusive', 'UltronOriginal');
+      window.localStorage.setItem('stark_ultron_voice_v3', 'UltronOriginal');
+      window.localStorage.setItem('stark_ultron_voice_v2', 'UltronOriginal');
     } catch {
       // ignore
     }
@@ -736,7 +739,7 @@ export function useVoiceEngine({
               stopPlaybackAnalyser();
               const source = ctx.createBufferSource();
               source.buffer = audioBuffer;
-              // Server WAV from /api/assistant/tts is already reference-mastered (104.3 Hz Exclusive Jarvis / 92.8 Hz Ultron)
+              // Server WAV from /api/assistant/tts is already reference-mastered (104.3 Hz Exclusive Jarvis / 90.2 Hz Exclusive Ultron)
               source.playbackRate.value = 1.0;
               activeBufferSourceRef.current = source;
 
@@ -754,17 +757,24 @@ export function useVoiceEngine({
               if (speaker === 'ultron') {
                 const subPolish = ctx.createBiquadFilter();
                 subPolish.type = 'lowshelf';
-                subPolish.frequency.value = 95;
-                subPolish.gain.value = 1.6;
+                subPolish.frequency.value = 93;
+                subPolish.gain.value = 1.4;
+
+                const chestBody = ctx.createBiquadFilter();
+                chestBody.type = 'peaking';
+                chestBody.frequency.value = 185;
+                chestBody.Q.value = 1.0;
+                chestBody.gain.value = 0.8;
 
                 const armorPresence = ctx.createBiquadFilter();
                 armorPresence.type = 'peaking';
                 armorPresence.frequency.value = 1800;
                 armorPresence.Q.value = 1.4;
-                armorPresence.gain.value = 1.4;
+                armorPresence.gain.value = 1.2;
 
                 source.connect(subPolish);
-                subPolish.connect(armorPresence);
+                subPolish.connect(chestBody);
+                chestBody.connect(armorPresence);
                 armorPresence.connect(compressor);
                 compressor.connect(analyser);
               } else if (speaker === 'jarvis') {
@@ -836,7 +846,7 @@ export function useVoiceEngine({
     ) => {
       const activeJarvisVoice: JarvisVoiceOption = 'JarvisOriginal';
       const activeFridayVoice = overrideVoices?.fridayVoice ?? fridayVoiceRef.current;
-      const activeUltronVoice = overrideVoices?.ultronVoice ?? ultronVoiceRef.current;
+      const activeUltronVoice: UltronVoiceOption = 'UltronOriginal';
 
       const spokenText = (turn.ttsScript || turn.text).trim();
       if (!spokenText) {
@@ -849,7 +859,7 @@ export function useVoiceEngine({
           : turn.speaker === 'sexta-feira'
           ? activeFridayVoice
           : activeUltronVoice;
-      const cacheKey = `v4_exclusive_jarvis:${turn.speaker}:${voiceKey}:${spokenText}`;
+      const cacheKey = `v5_exclusive_voices:${turn.speaker}:${voiceKey}:${spokenText}`;
 
       const cached = clientTtsCacheRef.current.get(cacheKey);
       if (cached) {
@@ -1275,7 +1285,11 @@ export function useVoiceEngine({
             };
 
             const startOffsetSec =
-              url.includes('jarvis_fc632df0') && audioBuffer.duration > 16 ? 13.25 : 0;
+              url.includes('jarvis_fc632df0') && audioBuffer.duration > 16
+                ? 13.25
+                : url.includes('ultron_f012fd80') && audioBuffer.duration > 3
+                ? 0.45
+                : 0;
             source.start(0, startOffsetSec);
           });
         }

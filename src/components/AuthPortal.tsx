@@ -207,7 +207,7 @@ export function AuthPortal({
                   Ressonância do Conselho Triplo
                 </h2>
               </div>
-              <span className="font-mono text-xs text-cyan-300 tabular-nums">104.8 Hz · 93.0 Hz</span>
+              <span className="font-mono text-xs text-cyan-300 tabular-nums">104.3 Hz · 90.2 Hz</span>
             </div>
 
             {/* Concentric Holographic Reactor Rings SVG (Extracted from Reference Image) */}
@@ -265,7 +265,7 @@ export function AuthPortal({
             <div className="space-y-2 text-xs">
               <div className="rounded-xl border border-cyan-500/25 bg-cyan-950/50 p-3">
                 <div className="flex items-center justify-between font-mono text-[11px] text-cyan-300">
-                  <span>J.A.R.V.I.S. (104.8 Hz)</span>
+                  <span>J.A.R.V.I.S. (104.3 Hz)</span>
                   <span className="text-emerald-300">ONLINE</span>
                 </div>
                 <p className="mt-1 text-cyan-100/80 text-[11px] leading-relaxed">
@@ -274,7 +274,7 @@ export function AuthPortal({
               </div>
               <div className="rounded-xl border border-cyan-500/25 bg-cyan-950/50 p-3">
                 <div className="flex items-center justify-between font-mono text-[11px] text-cyan-300">
-                  <span>SEXTA-FEIRA &amp; ULTRON (93.0 Hz)</span>
+                  <span>SEXTA-FEIRA &amp; ULTRON (90.2 Hz)</span>
                   <span className="text-emerald-300">SINCRONIZADOS</span>
                 </div>
                 <p className="mt-1 text-cyan-100/80 text-[11px] leading-relaxed">

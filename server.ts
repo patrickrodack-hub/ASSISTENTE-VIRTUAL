@@ -27,6 +27,7 @@ import {
   updateRoutineRule,
   updateSystemUser,
   updateTask,
+  upsertDailyIntelSnapshots,
 } from './server/memoryStore.ts';
 import {
   formatGeminiErrorMessage,
@@ -40,6 +41,12 @@ import {
   getLiveIntelBriefing,
   scanCreatorOnlinePresence,
 } from './server/liveIntelService.ts';
+import {
+  getQueryDateSaoPaulo,
+  getSearchCacheSnapshot,
+  refreshAllDailySourcesForDate,
+} from './server/webSearchEngine.ts';
+import { resolveTopicSearchRoute } from './src/utils/searchRouter.ts';
 
 async function startServer() {
   const app = express();
@@ -162,6 +169,38 @@ async function startServer() {
     } catch (err) {
       res.status(500).json({
         error: err instanceof Error ? err.message : 'Erro ao obter radar de clima e notícias.',
+      });
+    }
+  });
+
+  // Inspect topic-based search routing plan (g1.com.br, ge.com.br, b3.com.br, cepea.com.br) & live cache state
+  app.get('/api/intel/search-route', async (req, res) => {
+    try {
+      const q = typeof req.query.q === 'string' ? req.query.q : '';
+      const plan = resolveTopicSearchRoute(q);
+      const cache = getSearchCacheSnapshot();
+      res.json({ plan, cache });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao resolver rota de busca.',
+      });
+    }
+  });
+
+  // Daily External Sources Sync (G1, GE, B3, CEPEA, Traditional Social Media) keyed by query date
+  app.post('/api/intel/sync-sources', async (req, res) => {
+    try {
+      const { query = '', clientTimeIso, clientTimezone } = req.body ?? {};
+      const queryDate = getQueryDateSaoPaulo(
+        typeof clientTimeIso === 'string' ? clientTimeIso : undefined,
+        typeof clientTimezone === 'string' ? clientTimezone : undefined
+      );
+      const snapshots = await refreshAllDailySourcesForDate(queryDate, String(query || ''));
+      const workspace = await upsertDailyIntelSnapshots(queryDate, snapshots);
+      res.json({ queryDate, snapshots, cache: getSearchCacheSnapshot(), workspace });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao atualizar fontes diárias externas.',
       });
     }
   });

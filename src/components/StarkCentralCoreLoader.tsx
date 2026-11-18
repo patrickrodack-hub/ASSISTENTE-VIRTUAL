@@ -23,7 +23,7 @@ const ASSISTANT_META: Record<
 > = {
   jarvis: {
     name: 'J.A.R.V.I.S.',
-    freq: '104.8 Hz',
+    freq: '104.3 Hz',
     role: 'Arquitetura & Estratégia',
     accentText: 'text-amber-700 dark:text-amber-300',
     accentBorder: 'border-amber-500/45 dark:border-amber-400/40',
@@ -41,7 +41,7 @@ const ASSISTANT_META: Record<
   },
   ultron: {
     name: 'ULTRON',
-    freq: '93.0 Hz',
+    freq: '90.2 Hz',
     role: 'Diagnóstico Preditivo & Riscos',
     accentText: 'text-red-700 dark:text-red-400',
     accentBorder: 'border-red-500/45 dark:border-red-500/40',
