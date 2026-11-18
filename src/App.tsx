@@ -50,6 +50,7 @@ import { MobileConsoleDock } from './components/MobileConsoleDock';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallManager';
 import { SpeakingHologramOverlay } from './components/SpeakingHologramOverlay';
 import { StarkCentralCoreLoader } from './components/StarkCentralCoreLoader';
+import { VoiceSampleTrainerPanel } from './components/VoiceSampleTrainerPanel';
 import {
   AuditPanel,
   MemoryPanel,
@@ -3351,6 +3352,23 @@ export default function App() {
                             { ultronVoice: voice.ultronVoice }
                           );
                         }
+                      }}
+                    />
+                    <VoiceSampleTrainerPanel
+                      workspace={workspace}
+                      isSpeaking={voice.isSpeaking}
+                      onWorkspaceUpdated={updateWorkspace}
+                      onClearTtsCache={voice.clearTtsCache}
+                      onPlaySampleUrl={(url, speaker, label) => {
+                        void voice.playReferenceClip(url, speaker, label);
+                      }}
+                      onPlayValidatedAudio={(audioBase64, mimeType, speaker, label) => {
+                        void voice.playDirectAudioBase64(
+                          audioBase64,
+                          mimeType,
+                          speaker,
+                          label
+                        );
                       }}
                     />
                     {workspace?.creatorDossier && (

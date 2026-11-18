@@ -835,6 +835,10 @@ export function useVoiceEngine({
     new Map()
   );
 
+  const clearTtsCache = useCallback(() => {
+    clientTtsCacheRef.current.clear();
+  }, []);
+
   const synthesizeSingleTurn = useCallback(
     async (
       turn: AssistantTurn,
@@ -1319,6 +1323,53 @@ export function useVoiceEngine({
     ]
   );
 
+  const playDirectAudioBase64 = useCallback(
+    async (
+      audioBase64: string,
+      mimeType: string,
+      speaker: AssistantId,
+      labelText: string
+    ) => {
+      unlockAudio();
+      stopAudio();
+      const sessionId = ++playbackSessionRef.current;
+      isSpeakingRef.current = true;
+      setIsSpeaking(true);
+      setIsSynthesizingAudio(false);
+      setAudioBlockedByBrowser(false);
+      setSpeakingSpeaker(speaker);
+      setSpeakingText(labelText);
+
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.onend = null;
+          recognitionRef.current.stop();
+        } catch {
+          // ignore
+        }
+      }
+
+      try {
+        await playBase64Audio(audioBase64, mimeType, speaker, sessionId);
+      } catch (err) {
+        const name = (err as { name?: string })?.name;
+        if (name === 'NotAllowedError') {
+          setAudioBlockedByBrowser(true);
+        }
+      } finally {
+        if (sessionId === playbackSessionRef.current) {
+          isSpeakingRef.current = false;
+          setIsSpeaking(false);
+          setSpeakingSpeaker(null);
+          setSpeakingText('');
+          stopPlaybackAnalyser();
+          if (standbyRef.current) startRecognitionInstance();
+        }
+      }
+    },
+    [playBase64Audio, startRecognitionInstance, stopAudio, stopPlaybackAnalyser, unlockAudio]
+  );
+
   return {
     isStandbyActive,
     speechSupported,
@@ -1344,6 +1395,8 @@ export function useVoiceEngine({
     toggleStandby,
     playTurnsAudio,
     playReferenceClip,
+    playDirectAudioBase64,
+    clearTtsCache,
     beginAudioStreamSession,
     enqueueStreamingTurn,
     finishAudioStreamSession,

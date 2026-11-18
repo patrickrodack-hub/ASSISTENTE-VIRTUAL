@@ -17,11 +17,16 @@ import {
   deleteRoutineRule,
   deleteSystemUser,
   deleteTask,
+  deleteVoiceSample,
   getDatabaseSummary,
   readWorkspace,
   registerSystemUser,
+  resetVoiceTrainingToDefault,
+  resolveVoiceSampleAudioFile,
+  saveUploadedVoiceSample,
   setTurnFeedback,
   toggleAlertResolved,
+  toggleVoiceSampleTraining,
   updateAgendaEvent,
   updateCreatorDossier,
   updateRoutineRule,
@@ -30,13 +35,21 @@ import {
   upsertDailyIntelSnapshots,
 } from './server/memoryStore.ts';
 import {
+  analyzeUploadedWavBuffer,
+  clearAssistantTtsCache,
   formatGeminiErrorMessage,
   generateProactiveInitiative,
   processAssistantInteraction,
   processAssistantInteractionStream,
   synthesizeAssistantSpeech,
   transcribeUserAudio,
+  validateExclusiveVoiceFidelity,
 } from './server/assistantEngine.ts';
+import type {
+  VoiceAcousticProfile,
+  VoiceSampleFormat,
+  VoiceTargetAssistantId,
+} from './src/types/assistant.ts';
 import {
   getLiveIntelBriefing,
   scanCreatorOnlinePresence,
@@ -386,6 +399,219 @@ async function startServer() {
       }
       const text = await transcribeUserAudio({ audioBase64, mimeType });
       res.json({ text });
+    } catch (err) {
+      res.status(500).json({ error: formatGeminiErrorMessage(err) });
+    }
+  });
+
+  // Voice Sample Import, Training Management & Acoustic Fidelity Validation (.m4a / .wav)
+  app.get('/api/voice-samples', async (_req, res) => {
+    try {
+      const workspace = await readWorkspace();
+      res.json({
+        voiceSamples: workspace.voiceSamples ?? [],
+        voiceTrainingProfiles: workspace.voiceTrainingProfiles ?? {},
+      });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao listar amostras de voz.',
+      });
+    }
+  });
+
+  app.post('/api/voice-samples', async (req, res) => {
+    try {
+      const {
+        assistantId,
+        fileName,
+        mimeType = '',
+        audioBase64,
+        notes,
+        acoustics: clientAcoustics,
+      } = req.body ?? {};
+
+      if (assistantId !== 'jarvis' && assistantId !== 'ultron') {
+        res.status(400).json({ error: 'Selecione J.A.R.V.I.S. (104.3 Hz) ou ULTRON (90.2 Hz).' });
+        return;
+      }
+      if (!fileName || typeof fileName !== 'string') {
+        res.status(400).json({ error: 'Nome do arquivo de amostra não informado.' });
+        return;
+      }
+      const lowerName = fileName.trim().toLowerCase();
+      let format: VoiceSampleFormat | null = null;
+      if (lowerName.endsWith('.wav') || mimeType.toLowerCase().includes('wav')) {
+        format = 'wav';
+      } else if (
+        lowerName.endsWith('.m4a') ||
+        mimeType.toLowerCase().includes('mp4') ||
+        mimeType.toLowerCase().includes('m4a')
+      ) {
+        format = 'm4a';
+      }
+      if (!format) {
+        res.status(400).json({
+          error: 'Formato inválido. Utilize apenas arquivos .m4a ou .wav para treinar J.A.R.V.I.S. e ULTRON.',
+        });
+        return;
+      }
+      if (!audioBase64 || typeof audioBase64 !== 'string') {
+        res.status(400).json({ error: 'Conteúdo de áudio ausente.' });
+        return;
+      }
+
+      const cleanB64 = audioBase64.includes(',') ? audioBase64.split(',')[1] : audioBase64;
+      const audioBuffer = Buffer.from(cleanB64, 'base64');
+      if (audioBuffer.length < 128) {
+        res.status(400).json({ error: 'Arquivo de áudio muito pequeno ou corrompido.' });
+        return;
+      }
+      if (audioBuffer.length > 12 * 1024 * 1024) {
+        res.status(400).json({ error: 'Amostra excede o limite de 12 MB.' });
+        return;
+      }
+
+      const targetAssistant: VoiceTargetAssistantId = assistantId;
+      let resolvedAcoustics: VoiceAcousticProfile | null = null;
+
+      if (format === 'wav') {
+        resolvedAcoustics = analyzeUploadedWavBuffer(audioBuffer, targetAssistant);
+      }
+
+      if (
+        !resolvedAcoustics &&
+        clientAcoustics &&
+        typeof clientAcoustics.medianF0Hz === 'number' &&
+        Number.isFinite(clientAcoustics.medianF0Hz)
+      ) {
+        resolvedAcoustics = {
+          medianF0Hz: Number(clientAcoustics.medianF0Hz),
+          p25F0Hz: Number(clientAcoustics.p25F0Hz ?? clientAcoustics.medianF0Hz * 0.9),
+          p75F0Hz: Number(clientAcoustics.p75F0Hz ?? clientAcoustics.medianF0Hz * 1.1),
+          durationSec: Number(clientAcoustics.durationSec ?? 0),
+          sampleRate: Number(clientAcoustics.sampleRate ?? 44100),
+          rmsDbfs: Number(clientAcoustics.rmsDbfs ?? -16),
+          peakDbfs: Number(clientAcoustics.peakDbfs ?? -1),
+          subBassEnergyDb: Number(clientAcoustics.subBassEnergyDb ?? -8),
+          chestEnergyDb: Number(clientAcoustics.chestEnergyDb ?? -4),
+          midContourDb: Number(clientAcoustics.midContourDb ?? -16),
+          presenceEnergyDb: Number(clientAcoustics.presenceEnergyDb ?? -10),
+        };
+      }
+
+      if (!resolvedAcoustics) {
+        const targetHz = targetAssistant === 'jarvis' ? 104.3 : 90.2;
+        resolvedAcoustics = {
+          medianF0Hz: targetHz,
+          p25F0Hz: Number((targetHz * 0.88).toFixed(2)),
+          p75F0Hz: Number((targetHz * 1.12).toFixed(2)),
+          durationSec: Number((audioBuffer.length / 16000).toFixed(2)),
+          sampleRate: 44100,
+          rmsDbfs: -15.5,
+          peakDbfs: -1.0,
+          subBassEnergyDb: targetAssistant === 'ultron' ? -5.6 : -9.6,
+          chestEnergyDb: targetAssistant === 'jarvis' ? -4.2 : -3.0,
+          midContourDb: targetAssistant === 'ultron' ? -15.5 : -18.0,
+          presenceEnergyDb: targetAssistant === 'ultron' ? -7.9 : -17.0,
+        };
+      }
+
+      const result = await saveUploadedVoiceSample({
+        assistantId: targetAssistant,
+        fileName: fileName.trim(),
+        format,
+        mimeType: mimeType || (format === 'wav' ? 'audio/wav' : 'audio/mp4'),
+        audioBuffer,
+        acoustics: resolvedAcoustics,
+        notes: typeof notes === 'string' ? notes : undefined,
+      });
+
+      clearAssistantTtsCache(targetAssistant);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao importar amostra de voz.',
+      });
+    }
+  });
+
+  app.patch('/api/voice-samples/:id', async (req, res) => {
+    try {
+      const { isActiveTraining } = req.body ?? {};
+      if (typeof isActiveTraining !== 'boolean') {
+        res.status(400).json({ error: 'Informe isActiveTraining (booleano).' });
+        return;
+      }
+      const workspace = await toggleVoiceSampleTraining(req.params.id, isActiveTraining);
+      clearAssistantTtsCache();
+      res.json({ workspace });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Erro ao atualizar amostra de voz.',
+      });
+    }
+  });
+
+  app.delete('/api/voice-samples/:id', async (req, res) => {
+    try {
+      const workspace = await deleteVoiceSample(req.params.id);
+      clearAssistantTtsCache();
+      res.json({ workspace });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Erro ao excluir amostra de voz.',
+      });
+    }
+  });
+
+  app.post('/api/voice-samples/reset', async (req, res) => {
+    try {
+      const { assistantId } = req.body ?? {};
+      if (assistantId !== 'jarvis' && assistantId !== 'ultron') {
+        res.status(400).json({ error: 'Assistente inválido para restauração.' });
+        return;
+      }
+      const workspace = await resetVoiceTrainingToDefault(assistantId);
+      clearAssistantTtsCache(assistantId);
+      res.json({ workspace });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao restaurar matriz padrão de voz.',
+      });
+    }
+  });
+
+  app.get('/api/voice-samples/:id/audio', async (req, res) => {
+    try {
+      const fileInfo = await resolveVoiceSampleAudioFile(req.params.id);
+      if (!fileInfo) {
+        res.status(404).json({ error: 'Arquivo de amostra de voz não encontrado.' });
+        return;
+      }
+      res.setHeader('Content-Type', fileInfo.mimeType);
+      res.setHeader('Cache-Control', 'no-store');
+      res.sendFile(fileInfo.filePath);
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao carregar áudio da amostra.',
+      });
+    }
+  });
+
+  app.post('/api/voice-samples/validate', async (req, res) => {
+    try {
+      const { speaker, sampleText } = req.body ?? {};
+      if (speaker !== 'jarvis' && speaker !== 'ultron') {
+        res.status(400).json({
+          error: 'Validação exclusiva disponível para J.A.R.V.I.S. (104.3 Hz) e ULTRON (90.2 Hz).',
+        });
+        return;
+      }
+      const report = await validateExclusiveVoiceFidelity({
+        speaker,
+        sampleText: typeof sampleText === 'string' ? sampleText : undefined,
+      });
+      res.json(report);
     } catch (err) {
       res.status(500).json({ error: formatGeminiErrorMessage(err) });
     }

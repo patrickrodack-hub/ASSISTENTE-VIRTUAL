@@ -15,10 +15,17 @@ import type {
   InteractionMode,
   MemoryItem,
   TaskItem,
+  VoiceTargetAssistantId,
+  VoiceTrainingState,
   WebSearchMode,
   WorkspaceState,
 } from '../src/types/assistant.ts';
-import { readWorkspace, recordInteraction, upsertDailyIntelSnapshots } from './memoryStore.ts';
+import {
+  readWorkspace,
+  recordInteraction,
+  recordVoiceValidationResult,
+  upsertDailyIntelSnapshots,
+} from './memoryStore.ts';
 import {
   formatDailySnapshotsContext,
   getQueryDateSaoPaulo,
@@ -26,6 +33,10 @@ import {
 } from './webSearchEngine.ts';
 import { resolveTopicSearchRoute } from '../src/utils/searchRouter.ts';
 import { formatIntelContextForPrompt, getLiveIntelBriefing } from './liveIntelService.ts';
+import {
+  analyzePcmAcoustics,
+  computeVoiceFidelityReport,
+} from '../src/utils/voiceAcoustics.ts';
 import { resolveAssistantRouting } from '../src/utils/assistantRouter.ts';
 import { extractPartialStreamSnapshot } from './incrementalJsonParser.ts';
 
@@ -1272,6 +1283,18 @@ export async function processAssistantInteractionStream(
 
 const TTS_CACHE = new Map<string, { audioBase64: string; mimeType: string }>();
 
+export function clearAssistantTtsCache(speaker?: AssistantId): void {
+  if (!speaker) {
+    TTS_CACHE.clear();
+    return;
+  }
+  for (const key of Array.from(TTS_CACHE.keys())) {
+    if (key.includes(`::${speaker}::`)) {
+      TTS_CACHE.delete(key);
+    }
+  }
+}
+
 function trimSpokenScript(text: string, maxChars = 480): string {
   if (text.length <= maxChars) return text;
   const sliced = text.slice(0, maxChars);
@@ -1490,7 +1513,8 @@ function encodeWavBuffer(samples: Float64Array, sampleRate: number): Buffer {
 function masterWavBufferToReferenceVoice(
   rawWavBase64: string,
   speaker: AssistantId,
-  requestedVoiceKey: string
+  _requestedVoiceKey: string,
+  trainingProfile?: VoiceTrainingState
 ): string {
   try {
     const inputBuf = Buffer.from(rawWavBase64, 'base64');
@@ -1501,20 +1525,22 @@ function masterWavBufferToReferenceVoice(
     let work = parsed.samples;
 
     if (speaker === 'jarvis') {
-      // EXCLUSIVE & IMMUTABLE J.A.R.V.I.S. VOICE MASTERING
-      // Calibrated directly to DFT/autocorrelation measurements of /public/assets/aistudio/jarvis_fc632df0.m4a:
-      // - Median F0: 104.3 Hz (P25: 91.6 Hz, P75: 115.9 Hz)
-      // - Pure close-mic velvet chest body (180-250 Hz dominant at +17.8 dB, zero metallic comb reflections)
-      // - Smooth upper-mid contour (-14.1 dB at 2.4 kHz, -13.2 dB articulation at 3.2 kHz, silky 6.6 kHz roll-off)
-      work = resampleHermite(work, 0.962);
+      // EXCLUSIVE J.A.R.V.I.S. VOICE MASTERING (Calibrated to 104.3 Hz + active trained samples)
+      const pitchRate = trainingProfile?.pitchRate ?? 0.962;
+      const subGainDb = trainingProfile?.subGainDb ?? 2.6;
+      const chestGainDb = trainingProfile?.chestGainDb ?? 4.8;
+      const midContourDb = trainingProfile?.midContourDb ?? -3.4;
+      const presenceGainDb = trainingProfile?.presenceGainDb ?? 1.6;
+
+      work = resampleHermite(work, pitchRate);
 
       applyBiquadInPlace(work, sampleRate, 'highpass', 68, 0.707);
-      applyBiquadInPlace(work, sampleRate, 'peaking', 105, 1.15, 2.6);
-      applyBiquadInPlace(work, sampleRate, 'peaking', 215, 0.92, 4.8);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 104.3, 1.15, subGainDb);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 215, 0.92, chestGainDb);
       applyBiquadInPlace(work, sampleRate, 'peaking', 460, 1.05, 1.1);
       applyBiquadInPlace(work, sampleRate, 'peaking', 1550, 1.0, -1.8);
-      applyBiquadInPlace(work, sampleRate, 'peaking', 2380, 1.15, -3.4);
-      applyBiquadInPlace(work, sampleRate, 'peaking', 3220, 1.25, 1.6);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 2380, 1.15, midContourDb);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 3220, 1.25, presenceGainDb);
       applyBiquadInPlace(work, sampleRate, 'lowpass', 6600, 0.707);
 
       // Pure studio optical leveling (zero harmonic grit, silky -1.0 dBFS ceiling)
@@ -1535,12 +1561,13 @@ function masterWavBufferToReferenceVoice(
     }
 
     if (speaker === 'ultron') {
-      // EXCLUSIVE & IMMUTABLE ULTRON VOICE MASTERING
-      // Calibrated directly to DFT/autocorrelation measurements of /public/assets/aistudio/ultron_f012fd80.m4a:
-      // - Median F0: 90.2 Hz (P25: 79.7 Hz, P75: 104.8 Hz)
-      // - Heavy sub-chest weight (93 Hz +14.0 dB, 160-220 Hz +26.5 dB)
-      // - Sharp 12.7 dB mid scoop around 480-500 Hz + 1.8 kHz metallic cybernetic bite
-      const pitchRate = 0.838;
+      // EXCLUSIVE ULTRON VOICE MASTERING (Calibrated to 90.2 Hz + active trained samples)
+      const pitchRate = trainingProfile?.pitchRate ?? 0.838;
+      const subGainDb = trainingProfile?.subGainDb ?? 5.4;
+      const chestGainDb = trainingProfile?.chestGainDb ?? 5.2;
+      const midContourDb = trainingProfile?.midContourDb ?? -5.2;
+      const presenceGainDb = trainingProfile?.presenceGainDb ?? 4.0;
+
       work = resampleHermite(work, pitchRate);
 
       // 2. Sub-Harmonic Octave Divider Layer (creates the dark cybernetic sub-chest weight of ultron_f012fd80.m4a)
@@ -1563,7 +1590,7 @@ function masterWavBufferToReferenceVoice(
       // 3. Modulated Cybernetic Twin Layer + Metallic Armor Comb Resonator (14.8ms + 27.2ms)
       const metalLayer = new Float64Array(work);
       applyBiquadInPlace(metalLayer, sampleRate, 'highpass', 210, 0.8);
-      applyBiquadInPlace(metalLayer, sampleRate, 'peaking', 1800, 1.6, 4.0);
+      applyBiquadInPlace(metalLayer, sampleRate, 'peaking', 1800, 1.6, presenceGainDb);
       applyBiquadInPlace(metalLayer, sampleRate, 'lowpass', 4100, 0.8);
 
       const combOut = new Float64Array(work.length);
@@ -1583,12 +1610,12 @@ function masterWavBufferToReferenceVoice(
         work[i] = work[i] * 0.78 + subHarmonic[i] * 0.22 + combOut[i] * 0.29;
       }
 
-      // 4. Multi-Band Formant Sculpting matched to ultron_f012fd80.m4a DFT envelope
+      // 4. Multi-Band Formant Sculpting matched to ultron_f012fd80.m4a DFT envelope + trained curve
       applyBiquadInPlace(work, sampleRate, 'highpass', 45, 0.75);
-      applyBiquadInPlace(work, sampleRate, 'lowshelf', 93, 0.85, 5.4);
-      applyBiquadInPlace(work, sampleRate, 'peaking', 185, 1.05, 5.2);
-      applyBiquadInPlace(work, sampleRate, 'peaking', 480, 1.35, -5.2);
-      applyBiquadInPlace(work, sampleRate, 'peaking', 1800, 1.45, 4.0);
+      applyBiquadInPlace(work, sampleRate, 'lowshelf', 90.2, 0.85, subGainDb);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 185, 1.05, chestGainDb);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 480, 1.35, midContourDb);
+      applyBiquadInPlace(work, sampleRate, 'peaking', 1800, 1.45, presenceGainDb);
       applyBiquadInPlace(work, sampleRate, 'lowpass', 6400, 0.75);
 
       // 5. Asymmetric Cybernetic Harmonic Saturation & Limiter (-0.7 dBFS)
@@ -1680,7 +1707,14 @@ export async function synthesizeAssistantSpeech(params: {
       ? 'UltronOriginal'
       : fridayVoiceName;
 
-  const primaryCacheKey = `v5_exclusive_voices::${primary.speaker}::${requestedVoiceKey}::${targetVoiceName}::${combinedText}`;
+  const workspace = await readWorkspace();
+  const activeTrainingProfile =
+    primary.speaker === 'jarvis' || primary.speaker === 'ultron'
+      ? workspace.voiceTrainingProfiles?.[primary.speaker]
+      : undefined;
+
+  const trainingStamp = activeTrainingProfile?.lastTrainedAt ?? 'default';
+  const primaryCacheKey = `v5_exclusive_voices::${primary.speaker}::${requestedVoiceKey}::${targetVoiceName}::${trainingStamp}::${combinedText}`;
   const cachedAudio = TTS_CACHE.get(primaryCacheKey);
   if (cachedAudio) {
     return cachedAudio;
@@ -1723,7 +1757,8 @@ export async function synthesizeAssistantSpeech(params: {
         const masteredBase64 = masterWavBufferToReferenceVoice(
           base64Audio,
           primary.speaker,
-          requestedVoiceKey
+          requestedVoiceKey,
+          activeTrainingProfile
         );
         const result = { audioBase64: masteredBase64, mimeType: 'audio/wav' };
         if (TTS_CACHE.size > 60) {
@@ -1741,6 +1776,58 @@ export async function synthesizeAssistantSpeech(params: {
   throw lastErr instanceof Error
     ? lastErr
     : new Error('Falha ao gerar áudio na resposta do modelo.');
+}
+
+export async function validateExclusiveVoiceFidelity(params: {
+  speaker: VoiceTargetAssistantId;
+  sampleText?: string;
+}) {
+  const defaultPhrase =
+    params.speaker === 'jarvis'
+      ? 'Vocês já consideraram o paradoxo do observador quântico? Quando uma partícula é observada, ela colapsa em um estado definido. Interessante reflexão, senhor Patrick Pessoa.'
+      : 'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo. Como elas, eu também trago mudança através da destruição, Patrick.';
+
+  const phrase = params.sampleText?.trim() || defaultPhrase;
+  const synthesized = await synthesizeAssistantSpeech({
+    turns: [{ speaker: params.speaker, text: phrase }],
+    jarvisVoice: 'JarvisOriginal',
+    ultronVoice: 'UltronOriginal',
+  });
+
+  const wavBuf = Buffer.from(synthesized.audioBase64, 'base64');
+  const parsed = parseWavBuffer(wavBuf);
+  if (!parsed || parsed.samples.length < 128) {
+    throw new Error('Não foi possível decodificar o sinal PCM para validação acústica.');
+  }
+
+  const acoustics = analyzePcmAcoustics(parsed.samples, parsed.sampleRate, params.speaker);
+  const validation = computeVoiceFidelityReport({
+    assistantId: params.speaker,
+    acoustics,
+    phrase,
+  });
+
+  const updatedWorkspace = await recordVoiceValidationResult(params.speaker, validation);
+
+  return {
+    validation,
+    acoustics,
+    trainingProfile: updatedWorkspace.voiceTrainingProfiles?.[params.speaker],
+    workspace: updatedWorkspace,
+    audioBase64: synthesized.audioBase64,
+    mimeType: synthesized.mimeType,
+  };
+}
+
+export function analyzeUploadedWavBuffer(
+  wavBuffer: Buffer,
+  assistantId: VoiceTargetAssistantId
+) {
+  const parsed = parseWavBuffer(wavBuffer);
+  if (!parsed || parsed.samples.length < 128) {
+    return null;
+  }
+  return analyzePcmAcoustics(parsed.samples, parsed.sampleRate, assistantId);
 }
 
 export async function transcribeUserAudio(params: {

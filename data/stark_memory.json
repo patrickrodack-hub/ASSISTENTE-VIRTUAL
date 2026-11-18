@@ -1752,5 +1752,137 @@
         }
       ]
     }
-  ]
+  ],
+  "voiceSamples": [
+    {
+      "id": "jarvis-default-104hz",
+      "assistantId": "jarvis",
+      "fileName": "jarvis_fc632df0.m4a",
+      "format": "m4a",
+      "mimeType": "audio/mp4",
+      "sizeBytes": 392400,
+      "audioUrl": "/assets/aistudio/jarvis_fc632df0.m4a",
+      "isBuiltInDefault": true,
+      "isActiveTraining": true,
+      "uploadedAt": "2026-11-18T20:25:31.089Z",
+      "notes": "Matriz oficial exclusiva de J.A.R.V.I.S. (104.3 Hz · Barítono Aveludado Close-Mic).",
+      "acoustics": {
+        "medianF0Hz": 104.3,
+        "p25F0Hz": 91.6,
+        "p75F0Hz": 115.9,
+        "durationSec": 21.4,
+        "sampleRate": 44100,
+        "rmsDbfs": -15.8,
+        "peakDbfs": -1.1,
+        "subBassEnergyDb": -9.8,
+        "chestEnergyDb": -4.2,
+        "midContourDb": -18.3,
+        "presenceEnergyDb": -17.4
+      }
+    },
+    {
+      "id": "ultron-default-90hz",
+      "assistantId": "ultron",
+      "fileName": "ultron_f012fd80.m4a",
+      "format": "m4a",
+      "mimeType": "audio/mp4",
+      "sizeBytes": 248600,
+      "audioUrl": "/assets/aistudio/ultron_f012fd80.m4a",
+      "isBuiltInDefault": true,
+      "isActiveTraining": true,
+      "uploadedAt": "2026-11-18T20:25:31.089Z",
+      "notes": "Matriz oficial exclusiva de ULTRON (90.2 Hz · Baixo-Barítono Sub-Harmônico Metálico).",
+      "acoustics": {
+        "medianF0Hz": 90.2,
+        "p25F0Hz": 79.7,
+        "p75F0Hz": 104.8,
+        "durationSec": 13.8,
+        "sampleRate": 44100,
+        "rmsDbfs": -14.1,
+        "peakDbfs": -0.7,
+        "subBassEnergyDb": -5.4,
+        "chestEnergyDb": -2.8,
+        "midContourDb": -15.5,
+        "presenceEnergyDb": -7.9
+      }
+    }
+  ],
+  "voiceTrainingProfiles": {
+    "jarvis": {
+      "assistantId": "jarvis",
+      "targetF0Hz": 104.3,
+      "trainedF0Hz": 104.3,
+      "sampleCount": 1,
+      "activeSampleIds": [
+        "jarvis-default-104hz"
+      ],
+      "pitchRate": 0.962,
+      "chestGainDb": 4.8,
+      "subGainDb": 2.6,
+      "midContourDb": -3.4,
+      "presenceGainDb": 1.6,
+      "fidelityScore": 98.4,
+      "lastTrainedAt": "2026-11-18T20:25:40.777Z",
+      "lastValidation": {
+        "validatedAt": "2026-11-18T20:25:37.646Z",
+        "phrase": "Vocês já consideraram o paradoxo do observador quântico? Quando uma partícula é observada, ela colapsa em um estado definido. Interessante reflexão, senhor Patrick Pessoa.",
+        "measuredF0Hz": 101.27,
+        "targetF0Hz": 104.3,
+        "deviationHz": -3.03,
+        "fidelityPercent": 93.49,
+        "verdict": "ALTA FIDELIDADE ACÚSTICA",
+        "acoustics": {
+          "medianF0Hz": 101.27,
+          "p25F0Hz": 81.36,
+          "p75F0Hz": 122.45,
+          "durationSec": 14.84,
+          "sampleRate": 24000,
+          "rmsDbfs": -16,
+          "peakDbfs": -1.01,
+          "subBassEnergyDb": -31.17,
+          "chestEnergyDb": -28.45,
+          "midContourDb": -64.33,
+          "presenceEnergyDb": -67.94
+        }
+      }
+    },
+    "ultron": {
+      "assistantId": "ultron",
+      "targetF0Hz": 90.2,
+      "trainedF0Hz": 90.2,
+      "sampleCount": 1,
+      "activeSampleIds": [
+        "ultron-default-90hz"
+      ],
+      "pitchRate": 0.838,
+      "chestGainDb": 5.2,
+      "subGainDb": 5.4,
+      "midContourDb": -5.2,
+      "presenceGainDb": 4,
+      "fidelityScore": 89.06,
+      "lastTrainedAt": "2026-11-18T20:25:31.089Z",
+      "lastValidation": {
+        "validatedAt": "2026-11-18T20:25:40.709Z",
+        "phrase": "Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo. Como elas, eu também trago mudança através da destruição, Patrick.",
+        "measuredF0Hz": 85.11,
+        "targetF0Hz": 90.2,
+        "deviationHz": -5.09,
+        "fidelityPercent": 89.06,
+        "verdict": "CALIBRAÇÃO COMPATÍVEL COM MATRIZ",
+        "acoustics": {
+          "medianF0Hz": 85.11,
+          "p25F0Hz": 74.07,
+          "p75F0Hz": 100.42,
+          "durationSec": 17.61,
+          "sampleRate": 24000,
+          "rmsDbfs": -18.57,
+          "peakDbfs": -0.72,
+          "subBassEnergyDb": -29.64,
+          "chestEnergyDb": -31.26,
+          "midContourDb": -46.05,
+          "presenceEnergyDb": -46.96
+        }
+      }
+    }
+  }
 }

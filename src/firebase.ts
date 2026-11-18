@@ -438,6 +438,19 @@ export async function syncWorkspaceToCloudFirestore(
     syncedCount += 1;
   }
 
+  // 8. Sync Voice Sample Training Metadata (104.3 Hz J.A.R.V.I.S. / 90.2 Hz ULTRON)
+  for (const vs of (workspace.voiceSamples ?? []).slice(0, 20)) {
+    await upsertFirestoreSystemRecord({
+      id: sanitizeValidFirestoreId(`voice_${vs.id}`),
+      recordType: 'memoria',
+      title: `[VOZ ${vs.assistantId.toUpperCase()} · ${vs.acoustics.medianF0Hz} Hz] ${vs.fileName}`,
+      summary: `Formato: .${vs.format} | F0: ${vs.acoustics.medianF0Hz} Hz (${vs.acoustics.p25F0Hz}–${vs.acoustics.p75F0Hz} Hz) | RMS: ${vs.acoustics.rmsDbfs} dBFS | Treino ativo: ${vs.isActiveTraining ? 'Sim' : 'Não'}`,
+      status: vs.isActiveTraining ? 'ativo' : 'arquivado',
+      createdByUsername: actorName,
+    });
+    syncedCount += 1;
+  }
+
   return syncedCount;
 }
 

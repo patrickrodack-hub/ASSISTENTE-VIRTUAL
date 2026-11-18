@@ -263,6 +263,66 @@ export interface DailySourceSnapshot {
   items: DailyIntelRecordItem[];
 }
 
+export type VoiceSampleFormat = 'm4a' | 'wav';
+
+export type VoiceTargetAssistantId = 'jarvis' | 'ultron';
+
+export interface VoiceAcousticProfile {
+  medianF0Hz: number;
+  p25F0Hz: number;
+  p75F0Hz: number;
+  durationSec: number;
+  sampleRate: number;
+  rmsDbfs: number;
+  peakDbfs: number;
+  subBassEnergyDb: number; // ~90-104 Hz fundamental & sub-chest weight
+  chestEnergyDb: number; // ~185-215 Hz velvet baritone body
+  midContourDb: number; // ~480 Hz / 2380 Hz contour marker
+  presenceEnergyDb: number; // ~1800 Hz armor/articulation clarity
+}
+
+export interface VoiceSampleRecord {
+  id: string;
+  assistantId: VoiceTargetAssistantId;
+  fileName: string;
+  format: VoiceSampleFormat;
+  mimeType: string;
+  sizeBytes: number;
+  audioUrl: string;
+  isBuiltInDefault?: boolean;
+  isActiveTraining: boolean;
+  uploadedAt: string;
+  notes?: string;
+  acoustics: VoiceAcousticProfile;
+}
+
+export interface VoiceValidationResult {
+  validatedAt: string;
+  phrase: string;
+  measuredF0Hz: number;
+  targetF0Hz: number;
+  deviationHz: number;
+  fidelityPercent: number;
+  verdict: string;
+  acoustics: VoiceAcousticProfile;
+}
+
+export interface VoiceTrainingState {
+  assistantId: VoiceTargetAssistantId;
+  targetF0Hz: 104.3 | 90.2;
+  trainedF0Hz: number;
+  sampleCount: number;
+  activeSampleIds: string[];
+  pitchRate: number;
+  chestGainDb: number;
+  subGainDb: number;
+  midContourDb: number;
+  presenceGainDb: number;
+  fidelityScore: number;
+  lastTrainedAt: string;
+  lastValidation?: VoiceValidationResult;
+}
+
 export interface WorkspaceState {
   profile: CreatorProfile;
   memories: MemoryItem[];
@@ -273,6 +333,9 @@ export interface WorkspaceState {
   creatorDossier?: CreatorDossier;
   users?: SystemUserAccount[];
   dailyIntelFeed?: DailySourceSnapshot[];
+  voiceSamples?: VoiceSampleRecord[];
+  voiceTrainingProfiles?: Partial<Record<VoiceTargetAssistantId, VoiceTrainingState>>;
   conversations: ConversationEntry[];
   telemetryLog?: TelemetryEntry[];
 }
+

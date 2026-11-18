@@ -16,12 +16,19 @@ import type {
   TaskItem,
   TelemetryEntry,
   TurnFeedback,
+  VoiceAcousticProfile,
+  VoiceSampleFormat,
+  VoiceSampleRecord,
+  VoiceTargetAssistantId,
+  VoiceTrainingState,
+  VoiceValidationResult,
   WorkspaceState,
 } from '../src/types/assistant.ts';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'stark_memory.json');
 const USERS_PASSWORDS_FILE = path.join(DATA_DIR, 'stark_user_passwords.json');
+const VOICE_SAMPLES_DIR = path.join(DATA_DIR, 'voice_samples');
 
 export const CREATOR_HARDCODED_ACCOUNT = {
   id: 'creator-patrick-pessoa',
@@ -246,6 +253,199 @@ function createDefaultCreatorDossier(): CreatorDossier {
   };
 }
 
+function createDefaultVoiceSamples(): VoiceSampleRecord[] {
+  const now = new Date().toISOString();
+  return [
+    {
+      id: 'jarvis-default-104hz',
+      assistantId: 'jarvis',
+      fileName: 'jarvis_fc632df0.m4a',
+      format: 'm4a',
+      mimeType: 'audio/mp4',
+      sizeBytes: 392400,
+      audioUrl: '/assets/aistudio/jarvis_fc632df0.m4a',
+      isBuiltInDefault: true,
+      isActiveTraining: true,
+      uploadedAt: now,
+      notes: 'Matriz oficial exclusiva de J.A.R.V.I.S. (104.3 Hz · Barítono Aveludado Close-Mic).',
+      acoustics: {
+        medianF0Hz: 104.3,
+        p25F0Hz: 91.6,
+        p75F0Hz: 115.9,
+        durationSec: 21.4,
+        sampleRate: 44100,
+        rmsDbfs: -15.8,
+        peakDbfs: -1.1,
+        subBassEnergyDb: -9.8,
+        chestEnergyDb: -4.2,
+        midContourDb: -18.3,
+        presenceEnergyDb: -17.4,
+      },
+    },
+    {
+      id: 'ultron-default-90hz',
+      assistantId: 'ultron',
+      fileName: 'ultron_f012fd80.m4a',
+      format: 'm4a',
+      mimeType: 'audio/mp4',
+      sizeBytes: 248600,
+      audioUrl: '/assets/aistudio/ultron_f012fd80.m4a',
+      isBuiltInDefault: true,
+      isActiveTraining: true,
+      uploadedAt: now,
+      notes: 'Matriz oficial exclusiva de ULTRON (90.2 Hz · Baixo-Barítono Sub-Harmônico Metálico).',
+      acoustics: {
+        medianF0Hz: 90.2,
+        p25F0Hz: 79.7,
+        p75F0Hz: 104.8,
+        durationSec: 13.8,
+        sampleRate: 44100,
+        rmsDbfs: -14.1,
+        peakDbfs: -0.7,
+        subBassEnergyDb: -5.4,
+        chestEnergyDb: -2.8,
+        midContourDb: -15.5,
+        presenceEnergyDb: -7.9,
+      },
+    },
+  ];
+}
+
+function createDefaultVoiceTrainingProfile(
+  assistantId: VoiceTargetAssistantId,
+  existingLastValidation?: VoiceValidationResult
+): VoiceTrainingState {
+  const now = new Date().toISOString();
+  if (assistantId === 'jarvis') {
+    return {
+      assistantId: 'jarvis',
+      targetF0Hz: 104.3,
+      trainedF0Hz: 104.3,
+      sampleCount: 1,
+      activeSampleIds: ['jarvis-default-104hz'],
+      pitchRate: 0.962,
+      chestGainDb: 4.8,
+      subGainDb: 2.6,
+      midContourDb: -3.4,
+      presenceGainDb: 1.6,
+      fidelityScore: 98.4,
+      lastTrainedAt: now,
+      lastValidation: existingLastValidation,
+    };
+  }
+  return {
+    assistantId: 'ultron',
+    targetF0Hz: 90.2,
+    trainedF0Hz: 90.2,
+    sampleCount: 1,
+    activeSampleIds: ['ultron-default-90hz'],
+    pitchRate: 0.838,
+    chestGainDb: 5.2,
+    subGainDb: 5.4,
+    midContourDb: -5.2,
+    presenceGainDb: 4.0,
+    fidelityScore: 98.2,
+    lastTrainedAt: now,
+    lastValidation: existingLastValidation,
+  };
+}
+
+function createDefaultVoiceTrainingProfiles(): Record<VoiceTargetAssistantId, VoiceTrainingState> {
+  return {
+    jarvis: createDefaultVoiceTrainingProfile('jarvis'),
+    ultron: createDefaultVoiceTrainingProfile('ultron'),
+  };
+}
+
+function recalculateVoiceTrainingProfile(
+  state: WorkspaceState,
+  assistantId: VoiceTargetAssistantId
+): VoiceTrainingState {
+  const defaults = createDefaultVoiceTrainingProfile(
+    assistantId,
+    state.voiceTrainingProfiles?.[assistantId]?.lastValidation
+  );
+  const allSamples = (state.voiceSamples ?? []).filter((s) => s.assistantId === assistantId);
+  const activeSamples = allSamples.filter((s) => s.isActiveTraining);
+
+  if (activeSamples.length === 0) {
+    if (!state.voiceTrainingProfiles) state.voiceTrainingProfiles = {};
+    state.voiceTrainingProfiles[assistantId] = defaults;
+    return defaults;
+  }
+
+  const targetF0 = defaults.targetF0Hz;
+  const userSamples = activeSamples.filter((s) => !s.isBuiltInDefault);
+  const weightSum = activeSamples.reduce((acc, s) => acc + (s.isBuiltInDefault ? 1.0 : 1.35), 0);
+
+  const avgF0 =
+    activeSamples.reduce(
+      (acc, s) => acc + s.acoustics.medianF0Hz * (s.isBuiltInDefault ? 1.0 : 1.35),
+      0
+    ) / weightSum;
+  const avgChest =
+    activeSamples.reduce(
+      (acc, s) => acc + s.acoustics.chestEnergyDb * (s.isBuiltInDefault ? 1.0 : 1.35),
+      0
+    ) / weightSum;
+  const avgSub =
+    activeSamples.reduce(
+      (acc, s) => acc + s.acoustics.subBassEnergyDb * (s.isBuiltInDefault ? 1.0 : 1.35),
+      0
+    ) / weightSum;
+  const avgPresence =
+    activeSamples.reduce(
+      (acc, s) => acc + s.acoustics.presenceEnergyDb * (s.isBuiltInDefault ? 1.0 : 1.35),
+      0
+    ) / weightSum;
+
+  // Compute gentle bounded calibration centered on the exclusive 104.3 Hz / 90.2 Hz matrices
+  const f0Delta = Math.max(-6, Math.min(6, avgF0 - targetF0));
+  const pitchFactorOffset = f0Delta / targetF0;
+
+  const clamp = (val: number, min: number, max: number) =>
+    Math.round(Math.max(min, Math.min(max, val)) * 1000) / 1000;
+
+  const builtInDefault = createDefaultVoiceSamples().find((s) => s.assistantId === assistantId)!;
+  const chestDelta = Math.max(-2.2, Math.min(2.2, (avgChest - builtInDefault.acoustics.chestEnergyDb) * 0.28));
+  const subDelta = Math.max(-2.2, Math.min(2.2, (avgSub - builtInDefault.acoustics.subBassEnergyDb) * 0.28));
+  const presenceDelta = Math.max(
+    -2.0,
+    Math.min(2.0, (avgPresence - builtInDefault.acoustics.presenceEnergyDb) * 0.24)
+  );
+
+  const trainedF0Hz = Math.round((targetF0 + f0Delta * 0.35) * 10) / 10;
+  const fidelityEstimate = Math.max(
+    84,
+    Math.min(99.5, 98.4 - Math.abs(trainedF0Hz - targetF0) * 1.4 + (userSamples.length > 0 ? 0.5 : 0))
+  );
+
+  const nextProfile: VoiceTrainingState = {
+    assistantId,
+    targetF0Hz: targetF0,
+    trainedF0Hz,
+    sampleCount: activeSamples.length,
+    activeSampleIds: activeSamples.map((s) => s.id),
+    pitchRate:
+      assistantId === 'jarvis'
+        ? clamp(0.962 * (1 + pitchFactorOffset * 0.35), 0.925, 0.995)
+        : clamp(0.838 * (1 + pitchFactorOffset * 0.35), 0.805, 0.875),
+    chestGainDb: clamp(defaults.chestGainDb + chestDelta, 2.5, 7.5),
+    subGainDb: clamp(defaults.subGainDb + subDelta, 1.0, 7.8),
+    midContourDb: defaults.midContourDb,
+    presenceGainDb: clamp(defaults.presenceGainDb + presenceDelta, -0.5, 6.2),
+    fidelityScore: Math.round(fidelityEstimate * 10) / 10,
+    lastTrainedAt: new Date().toISOString(),
+    lastValidation: defaults.lastValidation,
+  };
+
+  if (!state.voiceTrainingProfiles) {
+    state.voiceTrainingProfiles = {};
+  }
+  state.voiceTrainingProfiles[assistantId] = nextProfile;
+  return nextProfile;
+}
+
 function createSeedWorkspace(): WorkspaceState {
   const now = new Date().toISOString();
   return {
@@ -345,6 +545,8 @@ function createSeedWorkspace(): WorkspaceState {
     routines: createDefaultRoutines(),
     creatorDossier: createDefaultCreatorDossier(),
     dailyIntelFeed: [],
+    voiceSamples: createDefaultVoiceSamples(),
+    voiceTrainingProfiles: createDefaultVoiceTrainingProfiles(),
     conversations: [
       {
         id: crypto.randomUUID(),
@@ -483,6 +685,29 @@ async function ensureFile(): Promise<WorkspaceState> {
 
     if (!Array.isArray(state.dailyIntelFeed)) {
       state.dailyIntelFeed = [];
+      changed = true;
+    }
+
+    if (!Array.isArray(state.voiceSamples) || state.voiceSamples.length === 0) {
+      state.voiceSamples = createDefaultVoiceSamples();
+      changed = true;
+    } else {
+      const defaults = createDefaultVoiceSamples();
+      for (const def of defaults) {
+        if (!state.voiceSamples.some((s) => s.id === def.id)) {
+          state.voiceSamples.push(def);
+          changed = true;
+        }
+      }
+    }
+
+    if (
+      !state.voiceTrainingProfiles ||
+      !state.voiceTrainingProfiles.jarvis ||
+      !state.voiceTrainingProfiles.ultron
+    ) {
+      recalculateVoiceTrainingProfile(state, 'jarvis');
+      recalculateVoiceTrainingProfile(state, 'ultron');
       changed = true;
     }
 
@@ -1165,6 +1390,145 @@ export async function upsertDailyIntelSnapshots(
   });
 }
 
+export async function saveUploadedVoiceSample(params: {
+  assistantId: VoiceTargetAssistantId;
+  fileName: string;
+  format: VoiceSampleFormat;
+  mimeType: string;
+  audioBuffer: Buffer;
+  acoustics: VoiceAcousticProfile;
+  notes?: string;
+}): Promise<{ created: VoiceSampleRecord; workspace: WorkspaceState }> {
+  await fs.mkdir(VOICE_SAMPLES_DIR, { recursive: true });
+  const id = `vs-${params.assistantId}-${crypto.randomUUID().slice(0, 8)}`;
+  const diskFileName = `${id}.${params.format}`;
+  const diskPath = path.join(VOICE_SAMPLES_DIR, diskFileName);
+  await fs.writeFile(diskPath, params.audioBuffer);
+
+  const created: VoiceSampleRecord = {
+    id,
+    assistantId: params.assistantId,
+    fileName: params.fileName.trim().slice(0, 140),
+    format: params.format,
+    mimeType:
+      params.mimeType ||
+      (params.format === 'wav' ? 'audio/wav' : 'audio/mp4'),
+    sizeBytes: params.audioBuffer.length,
+    audioUrl: `/api/voice-samples/${id}/audio`,
+    isBuiltInDefault: false,
+    isActiveTraining: true,
+    uploadedAt: new Date().toISOString(),
+    notes: params.notes?.trim() || undefined,
+    acoustics: params.acoustics,
+  };
+
+  const workspace = await updateWorkspace((state) => {
+    if (!Array.isArray(state.voiceSamples)) {
+      state.voiceSamples = createDefaultVoiceSamples();
+    }
+    state.voiceSamples.unshift(created);
+    recalculateVoiceTrainingProfile(state, params.assistantId);
+  });
+
+  return { created, workspace };
+}
+
+export async function toggleVoiceSampleTraining(
+  sampleId: string,
+  isActiveTraining: boolean
+): Promise<WorkspaceState> {
+  return updateWorkspace((state) => {
+    if (!Array.isArray(state.voiceSamples)) {
+      state.voiceSamples = createDefaultVoiceSamples();
+    }
+    const target = state.voiceSamples.find((s) => s.id === sampleId);
+    if (!target) {
+      throw new Error('Amostra de voz não encontrada.');
+    }
+    target.isActiveTraining = isActiveTraining;
+    recalculateVoiceTrainingProfile(state, target.assistantId);
+  });
+}
+
+export async function deleteVoiceSample(sampleId: string): Promise<WorkspaceState> {
+  const current = await readWorkspace();
+  const target = (current.voiceSamples ?? []).find((s) => s.id === sampleId);
+  if (!target) {
+    throw new Error('Amostra de voz não encontrada.');
+  }
+  if (target.isBuiltInDefault) {
+    throw new Error('As matrizes oficiais exclusivas de 104.3 Hz e 90.2 Hz são protegidas contra exclusão.');
+  }
+
+  const diskPath = path.join(VOICE_SAMPLES_DIR, `${target.id}.${target.format}`);
+  try {
+    await fs.unlink(diskPath);
+  } catch {
+    // ignore if already removed
+  }
+
+  return updateWorkspace((state) => {
+    state.voiceSamples = (state.voiceSamples ?? []).filter((s) => s.id !== sampleId);
+    recalculateVoiceTrainingProfile(state, target.assistantId);
+  });
+}
+
+export async function resetVoiceTrainingToDefault(
+  assistantId: VoiceTargetAssistantId
+): Promise<WorkspaceState> {
+  return updateWorkspace((state) => {
+    if (!Array.isArray(state.voiceSamples)) {
+      state.voiceSamples = createDefaultVoiceSamples();
+    }
+    for (const sample of state.voiceSamples) {
+      if (sample.assistantId === assistantId) {
+        sample.isActiveTraining = Boolean(sample.isBuiltInDefault);
+      }
+    }
+    recalculateVoiceTrainingProfile(state, assistantId);
+  });
+}
+
+export async function recordVoiceValidationResult(
+  assistantId: VoiceTargetAssistantId,
+  validation: VoiceValidationResult
+): Promise<WorkspaceState> {
+  return updateWorkspace((state) => {
+    if (!state.voiceTrainingProfiles) {
+      state.voiceTrainingProfiles = createDefaultVoiceTrainingProfiles();
+    }
+    const current =
+      state.voiceTrainingProfiles[assistantId] ??
+      createDefaultVoiceTrainingProfile(assistantId);
+    current.lastValidation = validation;
+    current.fidelityScore = validation.fidelityPercent;
+    state.voiceTrainingProfiles[assistantId] = current;
+  });
+}
+
+export async function resolveVoiceSampleAudioFile(
+  sampleId: string
+): Promise<{ filePath: string; mimeType: string; fileName: string } | null> {
+  const workspace = await readWorkspace();
+  const sample = (workspace.voiceSamples ?? []).find((s) => s.id === sampleId);
+  if (!sample) return null;
+
+  if (sample.isBuiltInDefault) {
+    const publicRel = sample.audioUrl.replace(/^\//, '');
+    return {
+      filePath: path.resolve(process.cwd(), 'public', publicRel),
+      mimeType: sample.mimeType || 'audio/mp4',
+      fileName: sample.fileName,
+    };
+  }
+
+  return {
+    filePath: path.join(VOICE_SAMPLES_DIR, `${sample.id}.${sample.format}`),
+    mimeType: sample.mimeType || (sample.format === 'wav' ? 'audio/wav' : 'audio/mp4'),
+    fileName: sample.fileName,
+  };
+}
+
 export async function getDatabaseSummary() {
   const workspace = await readWorkspace();
   let storageBytes = 0;
@@ -1195,6 +1559,7 @@ export async function getDatabaseSummary() {
       dossierQuestions: (workspace.creatorDossier?.openQuestions ?? []).length,
       socialProfiles: (workspace.creatorDossier?.socialProfiles ?? []).length,
       dailySources: (workspace.dailyIntelFeed ?? []).length,
+      voiceSamples: (workspace.voiceSamples ?? []).length,
     },
     creatorAccount: {
       username: CREATOR_HARDCODED_ACCOUNT.username,
