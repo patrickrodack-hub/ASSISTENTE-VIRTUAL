@@ -40,10 +40,26 @@ import {
 import { resolveAssistantRouting } from '../src/utils/assistantRouter.ts';
 import { extractPartialStreamSnapshot } from './incrementalJsonParser.ts';
 
+function resolveGeminiApiKey(): string | null {
+  const key =
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.VITE_GEMINI_API_KEY ||
+    '';
+  const trimmed = key.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function isGeminiApiConfigured(): boolean {
+  return resolveGeminiApiKey() !== null;
+}
+
 function getClient(apiVersion?: string): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = resolveGeminiApiKey();
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY não configurada no ambiente do servidor.');
+    throw new Error(
+      'GEMINI_API_KEY não configurada no ambiente do servidor. Configure GEMINI_API_KEY nas Environment Variables da Vercel.'
+    );
   }
   return new GoogleGenAI({
     apiKey,

@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import type {
@@ -25,10 +26,31 @@ import type {
   WorkspaceState,
 } from '../src/types/assistant.ts';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+export const IS_SERVERLESS_RUNTIME = Boolean(
+  process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME
+);
+
+const DATA_DIR = IS_SERVERLESS_RUNTIME
+  ? path.join(os.tmpdir(), 'rodack_stark_data')
+  : path.resolve(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'stark_memory.json');
 const USERS_PASSWORDS_FILE = path.join(DATA_DIR, 'stark_user_passwords.json');
 const VOICE_SAMPLES_DIR = path.join(DATA_DIR, 'voice_samples');
+
+const inMemoryVoiceSampleBuffers = new Map<string, Buffer>();
+let inMemoryPasswordStore: Record<string, string> = {};
+
+async function safeWriteJsonFile(filePath: string, payload: unknown): Promise<void> {
+  try {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf-8');
+  } catch (err) {
+    if (!IS_SERVERLESS_RUNTIME) {
+      throw err;
+    }
+    // On read-only serverless sandboxes, keep running cleanly via in-memory cache
+  }
+}
 
 export const CREATOR_HARDCODED_ACCOUNT = {
   id: 'creator-patrick-pessoa',
@@ -46,15 +68,17 @@ function hashPassword(raw: string): string {
 async function readPasswordStore(): Promise<Record<string, string>> {
   try {
     const raw = await fs.readFile(USERS_PASSWORDS_FILE, 'utf-8');
-    return JSON.parse(raw) as Record<string, string>;
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    inMemoryPasswordStore = { ...inMemoryPasswordStore, ...parsed };
+    return inMemoryPasswordStore;
   } catch {
-    return {};
+    return { ...inMemoryPasswordStore };
   }
 }
 
 async function writePasswordStore(store: Record<string, string>): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(USERS_PASSWORDS_FILE, JSON.stringify(store, null, 2), 'utf-8');
+  inMemoryPasswordStore = { ...store };
+  await safeWriteJsonFile(USERS_PASSWORDS_FILE, inMemoryPasswordStore);
 }
 
 function getTodayDateString(): string {
@@ -620,7 +644,11 @@ async function ensureFile(): Promise<WorkspaceState> {
   if (cachedWorkspace) {
     return cachedWorkspace;
   }
-  await fs.mkdir(DATA_DIR, { recursive: true });
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+  } catch {
+    // ignore in read-only environments
+  }
   try {
     const raw = await fs.readFile(DATA_FILE, 'utf-8');
     const state = JSON.parse(raw) as WorkspaceState;
@@ -713,14 +741,14 @@ async function ensureFile(): Promise<WorkspaceState> {
 
     cachedWorkspace = state;
     if (changed) {
-      await fs.writeFile(DATA_FILE, JSON.stringify(state, null, 2), 'utf-8');
+      await safeWriteJsonFile(DATA_FILE, state);
     }
     return state;
   } catch {
     const seed = createSeedWorkspace();
     seed.telemetryLog = seed.conversations.map(conversationToTelemetry);
     cachedWorkspace = seed;
-    await fs.writeFile(DATA_FILE, JSON.stringify(seed, null, 2), 'utf-8');
+    await safeWriteJsonFile(DATA_FILE, seed);
     return seed;
   }
 }
@@ -737,7 +765,7 @@ export async function updateWorkspace(
     const result = mutator(state);
     const nextState = result ?? state;
     cachedWorkspace = nextState;
-    await fs.writeFile(DATA_FILE, JSON.stringify(nextState, null, 2), 'utf-8');
+    await safeWriteJsonFile(DATA_FILE, nextState);
     return nextState;
   });
   writeQueue = run.then(
@@ -1399,11 +1427,19 @@ export async function saveUploadedVoiceSample(params: {
   acoustics: VoiceAcousticProfile;
   notes?: string;
 }): Promise<{ created: VoiceSampleRecord; workspace: WorkspaceState }> {
-  await fs.mkdir(VOICE_SAMPLES_DIR, { recursive: true });
   const id = `vs-${params.assistantId}-${crypto.randomUUID().slice(0, 8)}`;
   const diskFileName = `${id}.${params.format}`;
   const diskPath = path.join(VOICE_SAMPLES_DIR, diskFileName);
-  await fs.writeFile(diskPath, params.audioBuffer);
+
+  inMemoryVoiceSampleBuffers.set(id, params.audioBuffer);
+  try {
+    await fs.mkdir(VOICE_SAMPLES_DIR, { recursive: true });
+    await fs.writeFile(diskPath, params.audioBuffer);
+  } catch (err) {
+    if (!IS_SERVERLESS_RUNTIME) {
+      throw err;
+    }
+  }
 
   const created: VoiceSampleRecord = {
     id,
@@ -1460,6 +1496,7 @@ export async function deleteVoiceSample(sampleId: string): Promise<WorkspaceStat
     throw new Error('As matrizes oficiais exclusivas de 104.3 Hz e 90.2 Hz são protegidas contra exclusão.');
   }
 
+  inMemoryVoiceSampleBuffers.delete(target.id);
   const diskPath = path.join(VOICE_SAMPLES_DIR, `${target.id}.${target.format}`);
   try {
     await fs.unlink(diskPath);
@@ -1508,23 +1545,50 @@ export async function recordVoiceValidationResult(
 
 export async function resolveVoiceSampleAudioFile(
   sampleId: string
-): Promise<{ filePath: string; mimeType: string; fileName: string } | null> {
+): Promise<{
+  filePath?: string;
+  buffer?: Buffer;
+  redirectUrl?: string;
+  mimeType: string;
+  fileName: string;
+} | null> {
   const workspace = await readWorkspace();
   const sample = (workspace.voiceSamples ?? []).find((s) => s.id === sampleId);
   if (!sample) return null;
 
+  const mimeType = sample.mimeType || (sample.format === 'wav' ? 'audio/wav' : 'audio/mp4');
+
   if (sample.isBuiltInDefault) {
     const publicRel = sample.audioUrl.replace(/^\//, '');
+    const candidatePath = path.resolve(process.cwd(), 'public', publicRel);
+    try {
+      await fs.access(candidatePath);
+      return {
+        filePath: candidatePath,
+        mimeType,
+        fileName: sample.fileName,
+      };
+    } catch {
+      return {
+        redirectUrl: sample.audioUrl,
+        mimeType,
+        fileName: sample.fileName,
+      };
+    }
+  }
+
+  const memBuf = inMemoryVoiceSampleBuffers.get(sample.id);
+  if (memBuf) {
     return {
-      filePath: path.resolve(process.cwd(), 'public', publicRel),
-      mimeType: sample.mimeType || 'audio/mp4',
+      buffer: memBuf,
+      mimeType,
       fileName: sample.fileName,
     };
   }
 
   return {
     filePath: path.join(VOICE_SAMPLES_DIR, `${sample.id}.${sample.format}`),
-    mimeType: sample.mimeType || (sample.format === 'wav' ? 'audio/wav' : 'audio/mp4'),
+    mimeType,
     fileName: sample.fileName,
   };
 }
@@ -1538,11 +1602,13 @@ export async function getDatabaseSummary() {
     storageBytes = stat.size;
     lastModifiedIso = stat.mtime.toISOString();
   } catch {
-    // ignore
+    storageBytes = Buffer.byteLength(JSON.stringify(workspace), 'utf-8');
   }
 
   return {
-    engine: 'Hybrid Cloud Firestore + Local JSON Persistent Engine',
+    engine: IS_SERVERLESS_RUNTIME
+      ? 'Vercel Serverless + Cloud Firestore + Ephemeral Runtime Cache'
+      : 'Hybrid Cloud Firestore + Local JSON Persistent Engine',
     firestoreDatabaseId:
       'ai-studio-jarvissextafeira-a1e5b3ec-d96a-4eb6-b275-13d0b6498e23',
     firebaseProjectId: 'gen-lang-client-0571301083',
