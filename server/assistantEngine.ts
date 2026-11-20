@@ -302,6 +302,47 @@ function parseStructuredResult(rawOutput: string): StructuredAIResult {
   }
 }
 
+function enforceRequestedSpeakers(
+  parsed: StructuredAIResult,
+  resolvedTarget: AssistantId | 'ambos' | 'todos'
+): {
+  finalMode: AssistantId | 'ambos' | 'todos';
+  responses: AssistantTurn[];
+} {
+  const isSingleAssistant =
+    resolvedTarget === 'jarvis' ||
+    resolvedTarget === 'sexta-feira' ||
+    resolvedTarget === 'ultron';
+
+  const rawResponses = Array.isArray(parsed.responses) ? parsed.responses : [];
+
+  if (isSingleAssistant) {
+    const matching = rawResponses.filter((r) => r.speaker === resolvedTarget && r.text?.trim());
+    if (matching.length > 0) {
+      return {
+        finalMode: resolvedTarget,
+        responses: [matching[0]],
+      };
+    }
+    if (rawResponses.length > 0 && rawResponses[0]?.text?.trim()) {
+      return {
+        finalMode: resolvedTarget,
+        responses: [
+          {
+            ...rawResponses[0],
+            speaker: resolvedTarget,
+          },
+        ],
+      };
+    }
+  }
+
+  return {
+    finalMode: parsed.resolvedMode ?? resolvedTarget,
+    responses: rawResponses,
+  };
+}
+
 async function prepareInteractionPrompt(params: {
   message: string;
   targetMode: InteractionMode;
@@ -559,7 +600,16 @@ ${
     : ''
 }`;
 
-  const promptPayload = `Modo solicitado: ${resolvedTarget}
+  const strictSpeakerDirective =
+    resolvedTarget === 'ultron'
+      ? '\nREGRA ABSOLUTA DESTA RESPOSTA: O usuário chamou ULTRON diretamente. Retorne EXATAMENTE 1 item em `responses` com `speaker: "ultron"` e `resolvedMode: "ultron"`. NÃO retorne Jarvis nem Sexta-feira.'
+      : resolvedTarget === 'jarvis'
+      ? '\nREGRA ABSOLUTA DESTA RESPOSTA: O usuário chamou J.A.R.V.I.S. diretamente. Retorne EXATAMENTE 1 item em `responses` com `speaker: "jarvis"` e `resolvedMode: "jarvis"`.'
+      : resolvedTarget === 'sexta-feira'
+      ? '\nREGRA ABSOLUTA DESTA RESPOSTA: O usuário chamou SEXTA-FEIRA diretamente. Retorne EXATAMENTE 1 item em `responses` com `speaker: "sexta-feira"` e `resolvedMode: "sexta-feira"`.'
+      : '';
+
+  const promptPayload = `Modo solicitado: ${resolvedTarget}${strictSpeakerDirective}
 Data da consulta (America/Sao_Paulo): ${queryDate}
 Usuário autenticado na sessão: ${activeUserName} (${activeUserIsCreator ? 'CRIADOR, DESENVOLVEDOR E DONO DO SISTEMA' : activeUserRole})
 Tipo de acionamento: ${params.triggerType}${
@@ -780,7 +830,8 @@ export async function processAssistantInteraction(params: {
     );
 
     const parsed = parseStructuredResult(response.text ?? '{}');
-    const finalMode = parsed.resolvedMode ?? prepared.resolvedTarget;
+    const enforced = enforceRequestedSpeakers(parsed, prepared.resolvedTarget);
+    const finalMode = enforced.finalMode;
 
     const entry: ConversationEntry = {
       id: crypto.randomUUID(),
@@ -792,7 +843,7 @@ export async function processAssistantInteraction(params: {
       requestedMode: params.targetMode,
       resolvedMode: finalMode,
       detectedEmotion: parsed.detectedEmotion,
-      responses: parsed.responses,
+      responses: enforced.responses,
       debateSummary:
         finalMode === 'ambos' || finalMode === 'todos' ? parsed.debateSummary ?? null : null,
       sources: prepared.sources.length > 0 ? prepared.sources : undefined,
@@ -1175,6 +1226,11 @@ export async function processAssistantInteractionStream(
     const completedTurnIndexes = new Set<number>();
     let lastSnapshotHash = '';
 
+    const isForcedSingle =
+      prepared.resolvedTarget === 'jarvis' ||
+      prepared.resolvedTarget === 'sexta-feira' ||
+      prepared.resolvedTarget === 'ultron';
+
     for await (const chunk of stream) {
       const delta = chunk.text ?? '';
       if (!delta) continue;
@@ -1182,7 +1238,14 @@ export async function processAssistantInteractionStream(
 
       const snapshot = extractPartialStreamSnapshot(fullBuffer);
       if (snapshot.turns.length > 0) {
-        const hash = snapshot.turns
+        const normalizedTurns = isForcedSingle
+          ? snapshot.turns.slice(0, 1).map((t) => ({
+              ...t,
+              speaker: prepared.resolvedTarget as AssistantId,
+            }))
+          : snapshot.turns;
+
+        const hash = normalizedTurns
           .map((t) => `${t.speaker}:${t.text.length}:${t.isComplete ? 1 : 0}`)
           .join('|');
 
@@ -1190,9 +1253,11 @@ export async function processAssistantInteractionStream(
           lastSnapshotHash = hash;
           onEvent({
             type: 'snapshot',
-            resolvedMode: snapshot.resolvedMode ?? prepared.resolvedTarget,
+            resolvedMode: isForcedSingle
+              ? prepared.resolvedTarget
+              : snapshot.resolvedMode ?? prepared.resolvedTarget,
             detectedEmotion: snapshot.detectedEmotion,
-            turns: snapshot.turns.map((t) => ({
+            turns: normalizedTurns.map((t) => ({
               speaker: t.speaker,
               stance: t.stance,
               text: t.text,
@@ -1202,7 +1267,7 @@ export async function processAssistantInteractionStream(
           });
         }
 
-        snapshot.turns.forEach((turn, idx) => {
+        normalizedTurns.forEach((turn, idx) => {
           if (turn.isComplete && turn.text.trim().length > 0 && !completedTurnIndexes.has(idx)) {
             completedTurnIndexes.add(idx);
             onEvent({
@@ -1221,10 +1286,11 @@ export async function processAssistantInteractionStream(
     }
 
     const parsed = parseStructuredResult(fullBuffer);
-    const finalMode = parsed.resolvedMode ?? prepared.resolvedTarget;
+    const enforced = enforceRequestedSpeakers(parsed, prepared.resolvedTarget);
+    const finalMode = enforced.finalMode;
 
     // Ensure any turns not yet flagged as ready are emitted before complete
-    (parsed.responses ?? []).forEach((turn, idx) => {
+    enforced.responses.forEach((turn, idx) => {
       if (!completedTurnIndexes.has(idx) && turn.text?.trim()) {
         completedTurnIndexes.add(idx);
         onEvent({
@@ -1245,7 +1311,7 @@ export async function processAssistantInteractionStream(
       requestedMode: params.targetMode,
       resolvedMode: finalMode,
       detectedEmotion: parsed.detectedEmotion,
-      responses: parsed.responses,
+      responses: enforced.responses,
       debateSummary:
         finalMode === 'ambos' || finalMode === 'todos' ? parsed.debateSummary ?? null : null,
       sources: prepared.sources.length > 0 ? prepared.sources : undefined,
@@ -1871,7 +1937,7 @@ export async function transcribeUserAudio(params: {
                 },
               },
               {
-                text: 'Transcreva exatamente o que foi falado em Português do Brasil. Retorne apenas a transcrição limpa, sem comentários.',
+                text: 'Transcreva exatamente o que foi falado em Português do Brasil. Atenção especial aos nomes próprios dos assistentes deste sistema: "J.A.R.V.I.S." (Jarvis), "Sexta-Feira", "Ultron" e "Patrick Pessoa" — nunca confunda "Ultron" com "Ultra" ou "Outro". Retorne apenas a transcrição limpa, sem comentários.',
               },
             ],
           },

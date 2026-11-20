@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import {
   Activity,
   Bot,
+  Box,
   Cpu,
   Crosshair,
   Radar,
@@ -26,6 +27,7 @@ interface AssistantPresenceCardProps {
   isAwake: boolean;
   audioBands?: number[];
   onSelect: (mode: InteractionMode) => void;
+  onOpenHologram3D?: (id: AssistantId) => void;
 }
 
 const PROCESSING_STAGES: Record<AssistantId, [string, string, string]> = {
@@ -54,6 +56,7 @@ export function AssistantPresenceCard({
   isAwake,
   audioBands,
   onSelect,
+  onOpenHologram3D,
 }: AssistantPresenceCardProps) {
   const [imgFailed, setImgFailed] = useState(false);
   const [elapsedTenths, setElapsedTenths] = useState(0);
@@ -123,11 +126,18 @@ export function AssistantPresenceCard({
   const elapsedFormatted = `${(elapsedTenths / 10).toFixed(1)}s`;
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(id)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect(id);
+        }
+      }}
       aria-busy={isThinking}
-      className={`group relative w-full overflow-hidden text-left rounded-xl border p-4 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 ${focusRing} ${cardSurface} ${standbyDim}`}
+      className={`group relative w-full cursor-pointer overflow-hidden text-left rounded-xl border p-4 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 ${focusRing} ${cardSurface} ${standbyDim}`}
     >
       {/* Top Optical Sweep Bar when this specific assistant is processing */}
       {isThinking && (
@@ -306,6 +316,29 @@ export function AssistantPresenceCard({
               })}
             </div>
           )}
+
+          {onOpenHologram3D && (
+            <div className="mt-2.5 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenHologram3D(id);
+                }}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                  isJarvis
+                    ? 'border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-200'
+                    : isUltron
+                    ? 'border-red-500/45 bg-red-500/10 hover:bg-red-500/20 text-red-700 dark:text-red-300'
+                    : 'border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-800 dark:text-sky-200'
+                }`}
+                title={`Projetar ${name} em Holograma 3D sobre a tela`}
+              >
+                <Box className="h-3 w-3 shrink-0" />
+                <span>Holograma 3D</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -397,6 +430,6 @@ export function AssistantPresenceCard({
           </motion.div>
         )}
       </AnimatePresence>
-    </button>
+    </div>
   );
 }

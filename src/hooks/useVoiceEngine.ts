@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistantId, AssistantTurn, InteractionMode } from '../types/assistant';
 import { safeFetchJson } from '../utils/apiClient';
+import { detectAssistantMentions } from '../utils/assistantRouter';
 import { triggerHaptic } from '../utils/haptics';
 
 export type JarvisVoiceOption = 'JarvisOriginal';
@@ -76,29 +77,21 @@ export interface WakeParseResult {
 
 export function parseWakePhrase(rawTranscript: string): WakeParseResult {
   const normalized = rawTranscript.trim();
-  const lower = normalized.toLowerCase();
+  const mentions = detectAssistantMentions(normalized);
 
-  const hasJarvis = /\b(jarvis|j\.a\.r\.v\.i\.s|já vis|jarves|jarvis,)\b/i.test(lower);
-  const hasFriday = /\b(sexta[\s-]?feira|sexta|friday|f\.r\.i\.d\.a\.y)\b/i.test(lower);
-  const hasUltron = /\b(ultron|[uú]ltron)\b/i.test(lower);
-  const hasAll = /\b(todos|os tr[eê]s|tr[eê]s|conselho|equipe)\b/i.test(lower);
-  const hasBoth =
-    (hasJarvis && hasFriday && !hasUltron) || /\b(vocês dois|os dois|ambos)\b/i.test(lower);
-
-  if (!hasJarvis && !hasFriday && !hasUltron && !hasBoth && !hasAll) {
+  if (!mentions.anyMention || !mentions.directTargetMode) {
     return { matched: false, targetMode: 'auto', commandText: normalized, wakeOnly: false };
   }
 
-  let targetMode: InteractionMode = 'auto';
-  if (hasAll || (hasUltron && (hasJarvis || hasFriday))) targetMode = 'todos';
-  else if (hasUltron) targetMode = 'ultron';
-  else if (hasBoth) targetMode = 'ambos';
-  else if (hasJarvis) targetMode = 'jarvis';
-  else if (hasFriday) targetMode = 'sexta-feira';
+  const targetMode: InteractionMode = mentions.directTargetMode;
 
   const stripped = normalized
     .replace(
-      /^(ei|oi|olá|ola|hey|ok|fala|escuta|por favor|atenção)?\s*,?\s*(jarvis e sexta[\s-]?feira|sexta[\s-]?feira e jarvis|jarvis|j\.a\.r\.v\.i\.s|já vis|jarves|sexta[\s-]?feira|sexta|friday|ultron|[uú]ltron|todos|os tr[eê]s|vocês dois|os dois|equipe|conselho)\b[:,.\s-]*/i,
+      /^(ei|oi|ol[áa]|hey|ok|fala|fala\s+a[íi]|fala\s+comigo|escuta|por\s+favor|aten[çc][ãa]o|e\s+a[íi]|chama|chamar|ativa|ativar|acorda|desperta|cad[êe]|vem\s+c[áa]|quero\s+falar\s+com|falar\s+com|conectar\s+com)?\s*,?\s*(o|a|os|as)?\s*(jarvis\s+e\s+sexta[\s-]?feira|sexta[\s-]?feira\s+e\s+jarvis|jarvis|j\.?\s*a\.?\s*r\.?\s*v\.?\s*i\.?\s*s|j[áa]\s*vis|jarves|jarvez|jarbis|sexta[\s-]?feira|sexta|friday|f\.?\s*r\.?\s*i\.?\s*d\.?\s*a\.?\s*y|ultron|ultrons|ultrom|ultran|ultram|ultr[ãa]o|utron|utrom|utr[ãa]o|altron|oltron|autron|outron|outr[ãa]o|hultron|eltron|voltron|ul[\s-]?tron|ul[\s-]?trom|u[\s-]?tron|ultra|outro|neutro|neutron|todos|os\s+tr[êe]s|voc[êe]s\s+dois|os\s+dois|equipe|conselho)\b[:,.\s!?-]*/i,
+      ''
+    )
+    .replace(
+      /^(voc[êe]\s+)?(t[áa]\s+a[íi]|est[áa]\s+a[íi]|me\s+ouve|est[áa]\s+me\s+ouvindo|pode\s+vir|aparece|apare[çc]a|responde|responda|por\s+favor)[,.\s!?-]*$/i,
       ''
     )
     .trim();
@@ -405,7 +398,7 @@ export function useVoiceEngine({
   }, []);
 
   const setAwakeWindow = useCallback(
-    (mode: InteractionMode | null) => {
+    (mode: InteractionMode | null, silent = false) => {
       awakeTargetRef.current = mode;
       setAwakeTarget(mode);
       if (awakeTimerRef.current) {
@@ -413,12 +406,22 @@ export function useVoiceEngine({
         awakeTimerRef.current = null;
       }
       if (mode) {
-        triggerHaptic('wake');
-        playSubtleChime(mode === 'jarvis' ? 520 : 660, mode === 'jarvis' ? 780 : 880);
+        if (!silent) {
+          triggerHaptic('wake');
+          if (mode === 'ultron') {
+            playSubtleChime(210, 145);
+          } else if (mode === 'jarvis') {
+            playSubtleChime(520, 780);
+          } else {
+            playSubtleChime(660, 880);
+          }
+        }
         awakeTimerRef.current = window.setTimeout(() => {
+          // Do not expire the awake window while the assistant is still speaking its wake greeting
+          if (isSpeakingRef.current) return;
           awakeTargetRef.current = null;
           setAwakeTarget(null);
-        }, 9000);
+        }, 15000);
       }
     },
     [playSubtleChime]
@@ -1022,6 +1025,9 @@ export function useVoiceEngine({
           setSpeakingText('');
           stopPlaybackAnalyser();
           if (standbyRef.current) {
+            if (awakeTargetRef.current) {
+              setAwakeWindow(awakeTargetRef.current, true);
+            }
             startRecognitionInstance();
           }
         }
@@ -1034,7 +1040,7 @@ export function useVoiceEngine({
 
       streamChainRef.current = streamChainRef.current.finally(cleanup);
     },
-    [startRecognitionInstance, stopPlaybackAnalyser]
+    [setAwakeWindow, startRecognitionInstance, stopPlaybackAnalyser]
   );
 
   const playTurnsAudio = useCallback(
@@ -1106,6 +1112,9 @@ export function useVoiceEngine({
           setSpeakingText('');
           stopPlaybackAnalyser();
           if (standbyRef.current) {
+            if (awakeTargetRef.current) {
+              setAwakeWindow(awakeTargetRef.current, true);
+            }
             startRecognitionInstance();
           }
         }
@@ -1113,6 +1122,7 @@ export function useVoiceEngine({
     },
     [
       playSynthesizedItem,
+      setAwakeWindow,
       speakSingleTurnWithBrowserFallback,
       startRecognitionInstance,
       stopAudio,

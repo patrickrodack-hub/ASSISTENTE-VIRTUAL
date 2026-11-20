@@ -25,9 +25,11 @@ import { triggerHaptic } from '../utils/haptics';
 
 import { StarkCentralCoreLoader } from './StarkCentralCoreLoader';
 
-import jarvisAvatarUrl from '../assets/images/jarvis_avatar_1794791050216.jpg';
-import fridayAvatarUrl from '../assets/images/friday_avatar_1794791051362.jpg';
-import ultronAvatarUrl from '../assets/images/ultron_avatar_1794797018006.jpg';
+import {
+  FRIDAY_AVATAR_URL as fridayAvatarUrl,
+  JARVIS_AVATAR_URL as jarvisAvatarUrl,
+  ULTRON_AVATAR_URL as ultronAvatarUrl,
+} from '../utils/assistantAssets';
 
 export interface StreamingTurnItem extends AssistantTurn {
   isComplete: boolean;

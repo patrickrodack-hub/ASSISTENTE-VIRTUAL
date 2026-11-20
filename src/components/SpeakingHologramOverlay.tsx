@@ -1,11 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronDown, ChevronUp, Square, Volume2 } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronUp,
+  Maximize2,
+  Minimize2,
+  Play,
+  Square,
+  Volume2,
+  X,
+} from 'lucide-react';
 import type { AssistantId, InteractionMode } from '../types/assistant';
-
-import jarvisAvatarUrl from '../assets/images/jarvis_avatar_1794791050216.jpg';
-import fridayAvatarUrl from '../assets/images/friday_avatar_1794791051362.jpg';
-import ultronAvatarUrl from '../assets/images/ultron_avatar_1794797018006.jpg';
+import {
+  ASSISTANT_AVATAR_URLS,
+  ASSISTANT_VISUAL_PROFILES,
+} from '../utils/assistantAssets';
+import { Hologram3DStage } from './Hologram3DStage';
 
 interface SpeakingHologramOverlayProps {
   isProcessing: boolean;
@@ -13,10 +23,60 @@ interface SpeakingHologramOverlayProps {
   isSpeaking: boolean;
   speakingSpeaker: AssistantId | 'ambos' | 'todos' | null;
   targetMode: InteractionMode;
-  speakingText: string;
+  processingAssistants?: AssistantId[];
+  processingTasks?: Record<AssistantId, string>;
+  speakingText: string | null;
+  liveStreamingText?: string | null;
+  liveStreamingSpeaker?: AssistantId | null;
   audioAmplitude: number;
-  audioBands: number[];
+  audioBands?: number[];
+  manualSpeaker?: AssistantId | null;
+  onSelectManualSpeaker?: (speaker: AssistantId | null) => void;
+  onTestSpeak?: (speaker: AssistantId) => void;
   onStopAudio: () => void;
+}
+
+const ALL_ASSISTANTS: AssistantId[] = ['jarvis', 'sexta-feira', 'ultron'];
+
+function resolveActiveSpeaker(
+  speakingSpeaker: AssistantId | 'ambos' | 'todos' | null,
+  liveStreamingSpeaker: AssistantId | null | undefined,
+  processingAssistants: AssistantId[] | undefined,
+  targetMode: InteractionMode,
+  manualSpeaker: AssistantId | null | undefined
+): AssistantId {
+  if (
+    speakingSpeaker === 'jarvis' ||
+    speakingSpeaker === 'sexta-feira' ||
+    speakingSpeaker === 'ultron'
+  ) {
+    return speakingSpeaker;
+  }
+  if (liveStreamingSpeaker) {
+    return liveStreamingSpeaker;
+  }
+  if (manualSpeaker) {
+    return manualSpeaker;
+  }
+  if (processingAssistants && processingAssistants.length > 0) {
+    return processingAssistants[0];
+  }
+  if (
+    targetMode === 'jarvis' ||
+    targetMode === 'sexta-feira' ||
+    targetMode === 'ultron'
+  ) {
+    return targetMode;
+  }
+  return 'jarvis';
+}
+
+function cleanNarrativeForDisplay(text: string): string {
+  return text
+    .replace(/\*\*/g, '')
+    .replace(/[#_`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export function SpeakingHologramOverlay({
@@ -25,313 +85,573 @@ export function SpeakingHologramOverlay({
   isSpeaking,
   speakingSpeaker,
   targetMode,
+  processingAssistants,
+  processingTasks,
   speakingText,
+  liveStreamingText,
+  liveStreamingSpeaker,
   audioAmplitude,
   audioBands,
+  manualSpeaker,
+  onSelectManualSpeaker,
+  onTestSpeak,
   onStopAudio,
 }: SpeakingHologramOverlayProps) {
+  const isAutoActive = isProcessing || isSynthesizingAudio || isSpeaking;
+  const isVisible = isAutoActive || Boolean(manualSpeaker);
+
   const [isMinimized, setIsMinimized] = useState(false);
+  const [dockCollapsed, setDockCollapsed] = useState(false);
+  const [manualOverride, setManualOverride] = useState<AssistantId | null>(null);
+  const wasAutoActiveRef = useRef(false);
 
-  const isVisible = isProcessing || isSynthesizingAudio || isSpeaking;
-  const activeSpeaker: AssistantId | 'ambos' | 'todos' =
-    speakingSpeaker ??
-    (targetMode === 'jarvis' || targetMode === 'sexta-feira' || targetMode === 'ultron'
-      ? targetMode
-      : targetMode === 'ambos'
-      ? 'ambos'
-      : 'todos');
+  // Auto-expand whenever a new AI communication cycle begins
+  useEffect(() => {
+    if (isAutoActive && !wasAutoActiveRef.current) {
+      setIsMinimized(false);
+      setManualOverride(null);
+    }
+    wasAutoActiveRef.current = isAutoActive;
+  }, [isAutoActive]);
 
-  const isJarvis = activeSpeaker === 'jarvis';
-  const isFriday = activeSpeaker === 'sexta-feira';
-  const isUltron = activeSpeaker === 'ultron';
-  const isMulti = activeSpeaker === 'ambos' || activeSpeaker === 'todos';
+  // Auto-expand when user explicitly clicks to project a hologram in 3D
+  useEffect(() => {
+    if (manualSpeaker) {
+      setIsMinimized(false);
+      setManualOverride(null);
+    }
+  }, [manualSpeaker]);
 
-  const statusLabel = isSpeaking
-    ? 'Respondendo por voz'
+  // Clear temporary switcher override when an actual speaker begins speaking
+  useEffect(() => {
+    if (
+      speakingSpeaker === 'jarvis' ||
+      speakingSpeaker === 'sexta-feira' ||
+      speakingSpeaker === 'ultron'
+    ) {
+      setManualOverride(null);
+    }
+  }, [speakingSpeaker]);
+
+  const autoSpeaker = resolveActiveSpeaker(
+    speakingSpeaker,
+    liveStreamingSpeaker,
+    processingAssistants,
+    targetMode,
+    manualSpeaker
+  );
+
+  const activeSpeaker: AssistantId =
+    isSpeaking &&
+    (speakingSpeaker === 'jarvis' ||
+      speakingSpeaker === 'sexta-feira' ||
+      speakingSpeaker === 'ultron')
+      ? speakingSpeaker
+      : manualOverride ?? autoSpeaker;
+
+  const profile = ASSISTANT_VISUAL_PROFILES[activeSpeaker];
+  const isThinkingState =
+    (isProcessing || isSynthesizingAudio) && !isSpeaking;
+
+  // Choose the active narrative text to animate and synchronize with the 3D hologram
+  const narrativeText = useMemo(() => {
+    if (isSpeaking && speakingText) {
+      return cleanNarrativeForDisplay(speakingText);
+    }
+    if (liveStreamingText) {
+      return cleanNarrativeForDisplay(liveStreamingText);
+    }
+    if (isProcessing || isSynthesizingAudio) {
+      return (
+        processingTasks?.[activeSpeaker] ||
+        `Processando análise neural em tempo real com ${profile.name}...`
+      );
+    }
+    return profile.sampleGreeting;
+  }, [
+    isSpeaking,
+    speakingText,
+    liveStreamingText,
+    isProcessing,
+    isSynthesizingAudio,
+    processingTasks,
+    activeSpeaker,
+    profile.name,
+    profile.sampleGreeting,
+  ]);
+
+  const words = useMemo(
+    () => narrativeText.split(/\s+/).filter(Boolean),
+    [narrativeText]
+  );
+
+  // Real-time word cursor synced to speech duration & audio amplitude
+  const [activeWordIndex, setActiveWordIndex] = useState(0);
+  const [narrativeEmphasis, setNarrativeEmphasis] = useState(0);
+  const ampRef = useRef(audioAmplitude);
+  ampRef.current = audioAmplitude;
+
+  useEffect(() => {
+    setActiveWordIndex(0);
+  }, [narrativeText, activeSpeaker, isSpeaking]);
+
+  useEffect(() => {
+    if (!isVisible || words.length === 0) {
+      setNarrativeEmphasis(0);
+      return;
+    }
+
+    if (!isSpeaking) {
+      // While streaming or processing, track the tail of incoming text and subtle thinking cadence
+      if (liveStreamingText) {
+        setActiveWordIndex(Math.max(0, words.length - 1));
+      }
+      let raf = 0;
+      const pulseThinking = (t: number) => {
+        setNarrativeEmphasis(
+          isThinkingState ? 0.25 + Math.sin(t * 0.0055) * 0.16 : 0.06
+        );
+        raf = window.requestAnimationFrame(pulseThinking);
+      };
+      raf = window.requestAnimationFrame(pulseThinking);
+      return () => window.cancelAnimationFrame(raf);
+    }
+
+    // Speaking mode: advance word index smoothly (~2.65 words/sec modulated by voice activity)
+    let cursorFloat = 0;
+    let lastTs = performance.now();
+    let rafId = 0;
+
+    const step = (now: number) => {
+      const dt = Math.min((now - lastTs) / 1000, 0.08);
+      lastTs = now;
+
+      const currentAmp = ampRef.current;
+      const speechSpeed = currentAmp > 0.04 ? 2.55 + currentAmp * 1.45 : 1.75;
+      cursorFloat = Math.min(words.length - 1, cursorFloat + dt * speechSpeed);
+      const idx = Math.floor(cursorFloat);
+      setActiveWordIndex(idx);
+
+      const currentWord = words[idx] || '';
+      const hasPunctuationPeak = /[!?]/.test(currentWord);
+      const isEmphaticWord =
+        currentWord.length >= 7 || /^[A-ZÁÉÍÓÚÂÊÔÃÕ]{2,}/.test(currentWord);
+      const textBoost = hasPunctuationPeak
+        ? 0.55
+        : isEmphaticWord
+        ? 0.28
+        : 0.1;
+
+      setNarrativeEmphasis(
+        Math.min(1, currentAmp * 0.95 + textBoost * (0.45 + currentAmp))
+      );
+
+      rafId = window.requestAnimationFrame(step);
+    };
+
+    rafId = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [isVisible, isSpeaking, isThinkingState, liveStreamingText, words]);
+
+  // Escape key cleanly minimizes during speech or closes manual 3D projection
+  useEffect(() => {
+    if (!isVisible) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isAutoActive) {
+          setIsMinimized(true);
+        } else {
+          onSelectManualSpeaker?.(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isVisible, isAutoActive, onSelectManualSpeaker]);
+
+  // Window of ~26 words around the currently spoken word for crisp cinematic legibility
+  const subtitleSlice = useMemo(() => {
+    if (words.length <= 28) {
+      return { start: 0, items: words };
+    }
+    const windowSize = 26;
+    const start = Math.max(
+      0,
+      Math.min(words.length - windowSize, activeWordIndex - 8)
+    );
+    return {
+      start,
+      items: words.slice(start, start + windowSize),
+    };
+  }, [words, activeWordIndex]);
+
+  const narrativeProgress =
+    words.length > 1 ? activeWordIndex / (words.length - 1) : 0;
+
+  const phaseLabel = isSpeaking
+    ? 'Em Comunicação Direta'
     : isSynthesizingAudio
-    ? 'Calibrando síntese vocal'
-    : 'Processando resposta';
+    ? 'Sincronizando Voz Exclusiva'
+    : isProcessing
+    ? 'Processando Resposta Neural'
+    : 'Projeção Holográfica 3D';
 
-  const speakerTitle = isJarvis
-    ? 'J.A.R.V.I.S.'
-    : isFriday
-    ? 'SEXTA-FEIRA'
-    : isUltron
-    ? 'ULTRON'
-    : activeSpeaker === 'ambos'
-    ? 'J.A.R.V.I.S. & SEXTA-FEIRA'
-    : 'J.A.R.V.I.S. · SEXTA-FEIRA · ULTRON';
+  const handleClose = () => {
+    if (isSpeaking || isSynthesizingAudio) {
+      onStopAudio();
+    }
+    if (isProcessing) {
+      setIsMinimized(true);
+    } else {
+      onSelectManualSpeaker?.(null);
+    }
+  };
 
-  const primaryAccent = isFriday ? '#38BDF8' : isUltron ? '#EF4444' : '#F59E0B';
-  const borderClass = isFriday
-    ? 'border-sky-500/45 bg-sky-50/90 dark:bg-[#07111E]/95'
-    : isUltron
-    ? 'border-red-500/50 bg-red-50/90 dark:bg-[#150709]/95'
-    : isJarvis
-    ? 'border-amber-500/45 bg-amber-50/90 dark:bg-[#110D06]/95'
-    : 'border-slate-300 dark:border-slate-700/80 bg-white/95 dark:bg-[#0A101C]/95';
+  const handleSwitchEntity = (nextId: AssistantId) => {
+    setManualOverride(nextId);
+    if (manualSpeaker) {
+      onSelectManualSpeaker?.(nextId);
+    }
+  };
 
-  const radialBars = Array.from({ length: 32 }, (_, idx) => {
-    const bandValue = audioBands[idx % Math.max(1, audioBands.length)] ?? 0;
-    const height = isSpeaking
-      ? 6 + Math.round(bandValue * 22)
-      : isProcessing || isSynthesizingAudio
-      ? 5 + Math.round(((idx % 3) + 1) * 2.5)
-      : 4;
-    return { angle: (idx * 360) / 32, height };
-  });
+  const renderBars = useMemo(() => {
+    const count = 24;
+    return Array.from({ length: count }, (_, idx) => {
+      const band =
+        audioBands && audioBands.length > idx
+          ? audioBands[idx]
+          : isSpeaking
+          ? Math.max(0.14, audioAmplitude * (0.65 + ((idx * 17) % 10) / 20))
+          : isThinkingState
+          ? 0.22 + ((idx * 13) % 10) / 35
+          : 0.08;
+      return Math.max(0.08, Math.min(1, band));
+    });
+  }, [audioBands, isSpeaking, isThinkingState, audioAmplitude]);
 
   return (
     <AnimatePresence>
       {isVisible && (
-        <motion.div
-          initial={{ opacity: 0, y: -12, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: -10, scale: 0.98 }}
-          transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          className={`mx-4 mt-4 rounded-2xl border backdrop-blur-xl shadow-lg dark:shadow-2xl overflow-hidden ${borderClass}`}
-        >
-          <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-200/80 dark:border-white/10">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <Volume2
-                className={`h-4 w-4 shrink-0 ${
-                  isFriday
-                    ? 'text-sky-600 dark:text-sky-300'
-                    : isUltron
-                    ? 'text-red-600 dark:text-red-400'
-                    : 'text-amber-600 dark:text-amber-300'
-                }`}
-              />
-              <span className="font-display text-xs font-semibold tracking-wide text-slate-900 dark:text-slate-100 truncate">
-                {speakerTitle}
-              </span>
-              <span aria-hidden="true" className="text-slate-400 dark:text-slate-500 text-xs">
-                ·
-              </span>
-              <span className="text-xs text-slate-600 dark:text-slate-300 truncate">
-                {statusLabel}
-              </span>
+        isMinimized ? (
+          /* Compact Floating Corner Mini-Hologram when minimized */
+          <motion.div
+            key="hologram-mini"
+            initial={{ opacity: 0, y: 20, scale: 0.94 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 18, scale: 0.94 }}
+            transition={{ duration: 0.2 }}
+            className={`fixed bottom-20 md:bottom-5 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border ${profile.borderClass} bg-[#040915]/95 shadow-2xl p-3 text-slate-100`}
+            style={{
+              boxShadow: `0 12px 40px rgba(0,0,0,0.6), 0 0 28px ${profile.primaryHex}28`,
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className={`relative h-12 w-12 shrink-0 rounded-full overflow-hidden border ${profile.borderClass}`}
+                style={{
+                  transform: `scale(${(1 + audioAmplitude * 0.1).toFixed(3)})`,
+                  boxShadow: `0 0 18px ${profile.primaryHex}66`,
+                }}
+              >
+                <img
+                  src={ASSISTANT_AVATAR_URLS[activeSpeaker]}
+                  alt={profile.name}
+                  className="h-full w-full object-cover"
+                />
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`text-xs font-bold tracking-wide ${profile.textAccentClass}`}>
+                    {profile.name}
+                  </span>
+                  <span className="text-[10px] text-slate-400 truncate">
+                    {phaseLabel}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300 line-clamp-1 mt-0.5">
+                  {narrativeText}
+                </p>
+                <div className="mt-1.5 flex items-end gap-0.5 h-3" aria-hidden="true">
+                  {renderBars.slice(0, 16).map((v, i) => (
+                    <span
+                      key={i}
+                      className={`flex-1 rounded-full ${profile.barClass} transition-all duration-75`}
+                      style={{ height: `${Math.round(20 + v * 80)}%` }}
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="mt-2.5 pt-2 border-t border-slate-800/90 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsMinimized(false)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-100 transition-colors"
+              >
+                <Maximize2 className="h-3 w-3" />
+                <span>Expandir 3D</span>
+              </button>
               {(isSpeaking || isSynthesizingAudio) && (
                 <button
                   type="button"
                   onClick={onStopAudio}
-                  className="inline-flex items-center gap-1 rounded-lg border border-slate-300 dark:border-white/15 bg-white/80 dark:bg-white/5 px-2.5 py-1 text-xs font-medium text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+                  className="inline-flex items-center gap-1 rounded-lg border border-red-500/40 bg-red-950/50 hover:bg-red-900/60 px-2.5 py-1 text-[11px] font-medium text-red-200 transition-colors"
                 >
                   <Square className="h-3 w-3" />
-                  <span>Silenciar</span>
+                  <span>Parar</span>
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => setIsMinimized((v) => !v)}
-                aria-label={isMinimized ? 'Expandir visor holográfico' : 'Minimizar visor holográfico'}
-                className="rounded-lg border border-slate-300 dark:border-white/10 bg-white/80 dark:bg-white/5 p-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
-              >
-                {isMinimized ? (
-                  <ChevronDown className="h-4 w-4" />
-                ) : (
-                  <ChevronUp className="h-4 w-4" />
-                )}
-              </button>
+              {!isAutoActive && (
+                <button
+                  type="button"
+                  onClick={() => onSelectManualSpeaker?.(null)}
+                  className="inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 p-1 text-slate-300"
+                  aria-label="Fechar projeção 3D"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
-          </div>
+          </motion.div>
+        ) : (
+          /* Full-Screen Floating 3D Holographic Communication Projection */
+          <motion.div
+            key="hologram-fullscreen"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.26 }}
+            role="dialog"
+            aria-modal="false"
+            aria-label={`Comunicação holográfica 3D com ${profile.name}`}
+            className="fixed inset-0 z-50 flex flex-col justify-between overflow-hidden bg-[#020612]/84 text-slate-100"
+          >
+            {/* Radial atmospheric aura behind the 3D WebGL stage (NO backdrop-blur over WebGL) */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background: `radial-gradient(circle at 50% 45%, ${profile.primaryHex}22 0%, ${profile.primaryHex}08 32%, rgba(2,6,18,0.68) 74%)`,
+              }}
+            />
 
-          {!isMinimized && (
-            <div className="p-4 sm:p-5 flex flex-col sm:flex-row items-center gap-5">
-              <div className="relative flex items-center justify-center shrink-0">
-                {isMulti ? (
-                  <div className="flex items-center gap-2.5">
-                    <HologramCoreOrb
-                      imageSrc={jarvisAvatarUrl}
-                      name="J.A.R.V.I.S."
-                      accent="#F59E0B"
-                      isSpeaking={isSpeaking}
-                      isThinking={isProcessing || isSynthesizingAudio}
-                      audioAmplitude={audioAmplitude}
-                      radialBars={radialBars}
-                      size="sm"
-                    />
-                    <HologramCoreOrb
-                      imageSrc={fridayAvatarUrl}
-                      name="SEXTA-FEIRA"
-                      accent="#38BDF8"
-                      isSpeaking={isSpeaking}
-                      isThinking={isProcessing || isSynthesizingAudio}
-                      audioAmplitude={audioAmplitude}
-                      radialBars={radialBars}
-                      size="sm"
-                    />
-                    {activeSpeaker === 'todos' && (
-                      <HologramCoreOrb
-                        imageSrc={ultronAvatarUrl}
-                        name="ULTRON"
-                        accent="#EF4444"
-                        isSpeaking={isSpeaking}
-                        isThinking={isProcessing || isSynthesizingAudio}
-                        audioAmplitude={audioAmplitude}
-                        radialBars={radialBars}
-                        size="sm"
-                      />
-                    )}
-                  </div>
-                ) : (
-                  <HologramCoreOrb
-                    imageSrc={
-                      isFriday ? fridayAvatarUrl : isUltron ? ultronAvatarUrl : jarvisAvatarUrl
-                    }
-                    name={isFriday ? 'SEXTA-FEIRA' : isUltron ? 'ULTRON' : 'J.A.R.V.I.S.'}
-                    accent={primaryAccent}
-                    isSpeaking={isSpeaking}
-                    isThinking={isProcessing || isSynthesizingAudio}
-                    audioAmplitude={audioAmplitude}
-                    radialBars={radialBars}
-                    size="lg"
+            {/* Full-Viewport Unobstructed Three.js 3D Hologram Canvas */}
+            <div className="absolute inset-0">
+              <Hologram3DStage
+                speaker={activeSpeaker}
+                isSpeaking={isSpeaking}
+                isThinking={isThinkingState}
+                audioAmplitude={audioAmplitude}
+                audioBands={audioBands}
+                narrativeEmphasis={narrativeEmphasis}
+                narrativeProgress={narrativeProgress}
+              />
+            </div>
+
+            {/* Minimal Top Identity Bar */}
+            <header className="relative z-10 flex items-center justify-between gap-3 px-4 sm:px-6 pt-4 sm:pt-5 pointer-events-none">
+              <div className="pointer-events-auto flex items-center gap-3 rounded-xl border border-slate-700/70 bg-[#050C1B]/85 px-3.5 py-2 shadow-lg">
+                <div
+                  className={`h-9 w-9 rounded-full overflow-hidden border ${profile.borderClass} shrink-0`}
+                >
+                  <img
+                    src={ASSISTANT_AVATAR_URLS[activeSpeaker]}
+                    alt={profile.name}
+                    className="h-full w-full object-cover"
                   />
-                )}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-display text-sm sm:text-base font-bold tracking-wide text-white">
+                      {profile.name}
+                    </h2>
+                    <span className={`text-[11px] font-mono ${profile.textAccentClass} hidden sm:inline`}>
+                      {profile.frequencyLabel}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 truncate">
+                    {phaseLabel} · {profile.role}
+                  </p>
+                </div>
               </div>
 
-              <div className="flex-1 min-w-0 w-full space-y-3">
-                <div
-                  className="flex items-center justify-center sm:justify-start gap-1 h-9"
-                  aria-hidden="true"
+              <div className="pointer-events-auto flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsMinimized(true)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700/80 bg-[#050C1B]/88 hover:bg-slate-800/90 px-3 py-2 text-xs font-medium text-slate-200 transition-colors"
+                  title="Minimizar para o canto e ver o console"
                 >
-                  {Array.from({ length: 24 }).map((_, i) => {
-                    const level = audioBands[i] ?? 0;
-                    const barHeight = isSpeaking
-                      ? Math.max(5, Math.round(level * 36))
-                      : isProcessing || isSynthesizingAudio
-                      ? 6 + ((i * 7) % 10)
-                      : 4;
-                    return (
-                      <span
-                        key={i}
-                        className={`w-1.5 rounded-full transition-all duration-75 ${
-                          isFriday ? 'bg-sky-400' : isUltron ? 'bg-red-500' : 'bg-amber-400'
-                        }`}
-                        style={{
-                          height: `${barHeight}px`,
-                          opacity: isSpeaking ? 0.45 + level * 0.55 : 0.45,
-                        }}
-                      />
-                    );
-                  })}
+                  <Minimize2 className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Minimizar</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700/80 bg-[#050C1B]/88 hover:bg-red-950/80 hover:border-red-500/50 px-3 py-2 text-xs font-medium text-slate-200 hover:text-red-100 transition-colors"
+                  title={isSpeaking ? 'Silenciar voz e fechar' : 'Fechar projeção 3D'}
+                >
+                  {isSpeaking || isSynthesizingAudio ? (
+                    <>
+                      <Square className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Silenciar</span>
+                    </>
+                  ) : (
+                    <>
+                      <X className="h-4 w-4" />
+                      <span className="hidden sm:inline">Fechar</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </header>
+
+            {/* Unified Bottom Communication & Narrative Dock (Unobstructed Center) */}
+            <footer className="relative z-10 px-4 pb-5 sm:pb-6 flex justify-center pointer-events-none">
+              <div
+                className={`pointer-events-auto w-full max-w-2xl rounded-2xl border ${profile.borderClass} bg-[#050C1B]/90 shadow-2xl transition-all duration-200`}
+                style={{
+                  boxShadow: `0 16px 48px rgba(0,0,0,0.65), 0 0 36px ${profile.primaryHex}22`,
+                }}
+              >
+                {/* Dock Header Strip: Entity Switcher & Collapse Toggle */}
+                <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-slate-800/80">
+                  <div className="flex items-center gap-1.5">
+                    {ALL_ASSISTANTS.map((id) => {
+                      const item = ASSISTANT_VISUAL_PROFILES[id];
+                      const selected = activeSpeaker === id;
+                      const disabled =
+                        isSpeaking &&
+                        speakingSpeaker !== null &&
+                        speakingSpeaker !== 'ambos' &&
+                        speakingSpeaker !== 'todos' &&
+                        speakingSpeaker !== id;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => handleSwitchEntity(id)}
+                          className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                            selected
+                              ? `border ${item.borderClass} bg-slate-900 text-white`
+                              : 'border border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/70'
+                          } disabled:opacity-40 disabled:cursor-not-allowed`}
+                        >
+                          <img
+                            src={ASSISTANT_AVATAR_URLS[id]}
+                            alt=""
+                            className="h-4 w-4 rounded-full object-cover"
+                          />
+                          <span>{item.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {!isAutoActive && onTestSpeak && (
+                      <button
+                        type="button"
+                        onClick={() => onTestSpeak(activeSpeaker)}
+                        className={`inline-flex items-center gap-1.5 rounded-lg border ${profile.borderClass} bg-slate-900 hover:bg-slate-800 px-2.5 py-1 text-[11px] font-semibold ${profile.textAccentClass} transition-colors`}
+                      >
+                        <Play className="h-3 w-3" />
+                        <span>Falar Agora</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setDockCollapsed((v) => !v)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-slate-900/90 hover:bg-slate-800 px-2 py-1 text-[11px] text-slate-300 transition-colors"
+                      aria-label={dockCollapsed ? 'Mostrar narrativa' : 'Recolher legenda'}
+                    >
+                      {dockCollapsed ? (
+                        <>
+                          <ChevronUp className="h-3.5 w-3.5" />
+                          <span>Legenda</span>
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="h-3.5 w-3.5" />
+                          <span>Recolher</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
-                <p className="text-sm text-slate-800 dark:text-slate-100 leading-relaxed line-clamp-3">
-                  {speakingText
-                    ? `“${speakingText}”`
-                    : isSynthesizingAudio
-                    ? 'Gerando resposta vocal personalizada...'
-                    : 'Analisando sua solicitação e consultando a memória de trabalho...'}
-                </p>
+                {/* Live Synchronized Narrative Caption + 24-Band Voice Equalizer */}
+                {!dockCollapsed && (
+                  <div className="px-4 py-3.5 space-y-3">
+                    <div className="min-h-[3.25rem] flex items-center justify-center text-center">
+                      <p className="text-sm sm:text-base leading-relaxed font-medium text-slate-200">
+                        {subtitleSlice.start > 0 && (
+                          <span className="text-slate-500 mr-1">…</span>
+                        )}
+                        {subtitleSlice.items.map((word, idx) => {
+                          const globalIdx = subtitleSlice.start + idx;
+                          const isCurrent = isSpeaking && globalIdx === activeWordIndex;
+                          const isSpoken = isSpeaking && globalIdx < activeWordIndex;
+                          return (
+                            <span
+                              key={`${globalIdx}-${word}`}
+                              className={`inline-block mr-1.5 transition-colors duration-150 ${
+                                isCurrent
+                                  ? `${profile.textAccentClass} font-bold`
+                                  : isSpoken
+                                  ? 'text-slate-100'
+                                  : isSpeaking
+                                  ? 'text-slate-400'
+                                  : 'text-slate-200'
+                              }`}
+                            >
+                              {word}
+                            </span>
+                          );
+                        })}
+                        {subtitleSlice.start + subtitleSlice.items.length < words.length && (
+                          <span className="text-slate-500">…</span>
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <Volume2 className={`h-4 w-4 shrink-0 ${profile.textAccentClass}`} />
+                      <div
+                        className="flex-1 flex items-end gap-1 h-6"
+                        aria-hidden="true"
+                      >
+                        {renderBars.map((val, idx) => (
+                          <span
+                            key={idx}
+                            className={`flex-1 rounded-full ${profile.barClass} transition-all duration-75`}
+                            style={{
+                              height: `${Math.round(14 + val * 86)}%`,
+                              opacity: 0.45 + val * 0.55,
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <span className="text-[11px] font-mono tabular-nums text-slate-400 shrink-0">
+                        {isSpeaking
+                          ? `${Math.round(narrativeProgress * 100)}%`
+                          : isThinkingState
+                          ? '3D ATIVO'
+                          : 'STANDBY'}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
-        </motion.div>
+            </footer>
+          </motion.div>
+        )
       )}
     </AnimatePresence>
-  );
-}
-
-interface HologramCoreOrbProps {
-  imageSrc: string;
-  name: string;
-  accent: string;
-  isSpeaking: boolean;
-  isThinking: boolean;
-  audioAmplitude: number;
-  radialBars: Array<{ angle: number; height: number }>;
-  size: 'sm' | 'lg';
-}
-
-function HologramCoreOrb({
-  imageSrc,
-  name,
-  accent,
-  isSpeaking,
-  isThinking,
-  audioAmplitude,
-  radialBars,
-  size,
-}: HologramCoreOrbProps) {
-  const dim = size === 'lg' ? 128 : 88;
-  const imgSize = size === 'lg' ? 'h-20 w-20' : 'h-12 w-12';
-  const radius = size === 'lg' ? 46 : 31;
-  const pulseScale = isSpeaking ? 1 + audioAmplitude * 0.09 : 1;
-
-  return (
-    <div
-      className="relative flex items-center justify-center"
-      style={{ width: dim, height: dim }}
-    >
-      <div
-        className="absolute inset-2 rounded-full blur-xl transition-transform duration-100"
-        style={{
-          backgroundColor: accent,
-          opacity: isSpeaking ? 0.22 + audioAmplitude * 0.34 : isThinking ? 0.16 : 0.08,
-          transform: `scale(${pulseScale})`,
-        }}
-      />
-
-      <svg
-        viewBox={`0 0 ${dim} ${dim}`}
-        className="absolute inset-0 h-full w-full overflow-visible"
-        aria-hidden="true"
-      >
-        <g transform={`translate(${dim / 2}, ${dim / 2})`}>
-          <circle
-            r={radius + 11}
-            fill="none"
-            stroke={accent}
-            strokeOpacity={isSpeaking ? 0.78 : 0.35}
-            strokeWidth="1.5"
-            strokeDasharray="18 10 6 10"
-            className="animate-optical-slow origin-center"
-          />
-          <circle
-            r={radius + 4}
-            fill="none"
-            stroke={accent}
-            strokeOpacity={isSpeaking ? 0.88 : 0.4}
-            strokeWidth="1"
-            strokeDasharray="8 6"
-            className="animate-optical-reverse origin-center"
-          />
-
-          {radialBars.map((bar, idx) => (
-            <line
-              key={idx}
-              x1={0}
-              y1={-(radius + 5)}
-              x2={0}
-              y2={-(radius + 5 + bar.height * (size === 'lg' ? 0.75 : 0.5))}
-              stroke={accent}
-              strokeWidth={size === 'lg' ? 2 : 1.5}
-              strokeLinecap="round"
-              strokeOpacity={isSpeaking ? 0.9 : 0.4}
-              transform={`rotate(${bar.angle})`}
-            />
-          ))}
-        </g>
-      </svg>
-
-      <div
-        className={`relative ${imgSize} overflow-hidden rounded-full border-2 bg-slate-950 transition-transform duration-100`}
-        style={{
-          borderColor: accent,
-          transform: `scale(${pulseScale})`,
-        }}
-      >
-        <img
-          src={imageSrc}
-          alt={`Holograma de ${name}`}
-          referrerPolicy="no-referrer"
-          className="h-full w-full object-cover"
-        />
-      </div>
-    </div>
   );
 }

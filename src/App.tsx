@@ -57,6 +57,7 @@ import {
   TasksAndAlertsPanel,
 } from './components/WorkspacePanels';
 import {
+  parseWakePhrase,
   useVoiceEngine,
   type FridayVoiceOption,
 } from './hooks/useVoiceEngine';
@@ -87,9 +88,12 @@ import {
 import { resolveAssistantRouting } from './utils/assistantRouter';
 import { triggerHaptic } from './utils/haptics';
 
-import jarvisAvatarUrl from './assets/images/jarvis_avatar_1794791050216.jpg';
-import fridayAvatarUrl from './assets/images/friday_avatar_1794791051362.jpg';
-import ultronAvatarUrl from './assets/images/ultron_avatar_1794797018006.jpg';
+import {
+  ASSISTANT_VISUAL_PROFILES,
+  FRIDAY_AVATAR_URL as fridayAvatarUrl,
+  JARVIS_AVATAR_URL as jarvisAvatarUrl,
+  ULTRON_AVATAR_URL as ultronAvatarUrl,
+} from './utils/assistantAssets';
 import starkBackdropUrl from './assets/images/stark_lab_backdrop_1794791051469.jpg';
 
 const HOLOLAB_BACKDROP_URL = '/assets/aistudio/image_e386c665.png';
@@ -208,6 +212,8 @@ export default function App() {
   const [isLoadingIntel, setIsLoadingIntel] = useState(false);
   const [isScanningSocials, setIsScanningSocials] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState<boolean>(getInitialFocusMode);
+  const [manualHologramSpeaker, setManualHologramSpeaker] =
+    useState<AssistantId | null>(null);
 
   // Background Daemon, Status Bar & Proactive Autonomy state
   const [isDaemonActive, setIsDaemonActive] = useState<boolean>(getInitialDaemonActive);
@@ -483,6 +489,11 @@ export default function App() {
       const effectiveMode = options?.mode ?? targetModeRef.current;
       const triggerType = options?.triggerType ?? 'texto';
       const routing = resolveAssistantRouting(clean, effectiveMode);
+
+      // Sync targetMode whenever the user explicitly calls an assistant by name (e.g. "Ultron, ...")
+      if (routing.directMentionDetected) {
+        setTargetMode(routing.resolvedMode);
+      }
 
       voiceControlRef.current.unlockAudio();
 
@@ -1089,9 +1100,16 @@ export default function App() {
   const handleTranscribedClip = useCallback(
     (text: string) => {
       setActiveView('console');
-      void submitMessage(text, { mode: targetModeRef.current, triggerType: 'voz' });
+      const parsed = parseWakePhrase(text);
+      if (parsed.matched && parsed.wakeOnly) {
+        handleActivateAssistant(parsed.targetMode, 'wake_word');
+        return;
+      }
+      const nextMode = parsed.matched ? parsed.targetMode : targetModeRef.current;
+      const cleanCommand = parsed.matched && parsed.commandText ? parsed.commandText : text;
+      void submitMessage(cleanCommand, { mode: nextMode, triggerType: 'voz' });
     },
-    [submitMessage]
+    [handleActivateAssistant, submitMessage]
   );
 
   const voice = useVoiceEngine({
@@ -2368,6 +2386,10 @@ export default function App() {
                           }
                           audioBands={voice.audioBands}
                           onSelect={(m) => handleActivateAssistant(m, 'card')}
+                          onOpenHologram3D={(id) => {
+                            triggerHaptic('tap');
+                            setManualHologramSpeaker(id);
+                          }}
                         />
 
                         <AssistantPresenceCard
@@ -2396,6 +2418,10 @@ export default function App() {
                           }
                           audioBands={voice.audioBands}
                           onSelect={(m) => handleActivateAssistant(m, 'card')}
+                          onOpenHologram3D={(id) => {
+                            triggerHaptic('tap');
+                            setManualHologramSpeaker(id);
+                          }}
                         />
 
                         <AssistantPresenceCard
@@ -2421,6 +2447,10 @@ export default function App() {
                           }
                           audioBands={voice.audioBands}
                           onSelect={(m) => handleActivateAssistant(m, 'card')}
+                          onOpenHologram3D={(id) => {
+                            triggerHaptic('tap');
+                            setManualHologramSpeaker(id);
+                          }}
                         />
 
                         {/* Mode Selector */}
@@ -2787,20 +2817,27 @@ export default function App() {
                                 <span className="hidden sm:inline">Briefing Proativo</span>
                               </button>
                             )}
-                          </div>
-                        </div>
 
-                        <SpeakingHologramOverlay
-                          isProcessing={isProcessing}
-                          isSynthesizingAudio={voice.isSynthesizingAudio}
-                          isSpeaking={voice.isSpeaking}
-                          speakingSpeaker={voice.speakingSpeaker}
-                          targetMode={isProcessing ? processingMode : targetMode}
-                          speakingText={voice.speakingText}
-                          audioAmplitude={voice.audioAmplitude}
-                          audioBands={voice.audioBands}
-                          onStopAudio={voice.stopAudio}
-                        />
+                            <button
+                              type="button"
+                                onClick={() => {
+                                  triggerHaptic('tap');
+                                  const preferred: AssistantId =
+                                    targetMode === 'sexta-feira' ||
+                                    targetMode === 'ultron' ||
+                                    targetMode === 'jarvis'
+                                      ? targetMode
+                                      : 'jarvis';
+                                  setManualHologramSpeaker(preferred);
+                                }}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1.5 text-xs font-medium text-amber-800 dark:text-amber-200 transition-colors whitespace-nowrap shrink-0"
+                                title="Abrir projeção holográfica 3D dos assistentes"
+                              >
+                                <Sparkles className="h-3.5 w-3.5" />
+                                <span className="hidden sm:inline">Holograma 3D</span>
+                              </button>
+                            </div>
+                          </div>
 
                         <DialogueStream
                           conversations={workspace?.conversations ?? []}
@@ -3546,6 +3583,44 @@ export default function App() {
             })}
           </div>
         </nav>
+
+        <SpeakingHologramOverlay
+          isProcessing={isProcessing}
+          isSynthesizingAudio={voice.isSynthesizingAudio}
+          isSpeaking={voice.isSpeaking}
+          speakingSpeaker={voice.speakingSpeaker}
+          targetMode={isProcessing ? processingMode : targetMode}
+          processingAssistants={processingAssistants}
+          processingTasks={processingTasks}
+          speakingText={voice.speakingText}
+          liveStreamingText={
+            streamingEntry?.turns?.length
+              ? streamingEntry.turns[streamingEntry.turns.length - 1]?.text ?? null
+              : null
+          }
+          liveStreamingSpeaker={
+            streamingEntry?.turns?.length
+              ? streamingEntry.turns[streamingEntry.turns.length - 1]?.speaker ?? null
+              : null
+          }
+          audioAmplitude={voice.audioAmplitude}
+          audioBands={voice.audioBands}
+          manualSpeaker={manualHologramSpeaker}
+          onSelectManualSpeaker={setManualHologramSpeaker}
+          onTestSpeak={(speakerId) => {
+            voice.unlockAudio();
+            const profile = ASSISTANT_VISUAL_PROFILES[speakerId];
+            void voice.playTurnsAudio([
+              {
+                speaker: speakerId,
+                stance: 'Projeção Holográfica 3D',
+                text: profile.sampleGreeting,
+                ttsScript: profile.sampleGreeting,
+              },
+            ]);
+          }}
+          onStopAudio={voice.stopAudio}
+        />
       </div>
     </MotionConfig>
   );
