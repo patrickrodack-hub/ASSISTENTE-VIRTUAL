@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   ChevronDown,
@@ -10,6 +10,7 @@ import {
   Volume2,
   X,
 } from 'lucide-react';
+import type { AudioTelemetryBuffer } from '../hooks/useVoiceEngine';
 import type { AssistantId, InteractionMode } from '../types/assistant';
 import {
   ASSISTANT_AVATAR_URLS,
@@ -30,6 +31,7 @@ interface SpeakingHologramOverlayProps {
   liveStreamingSpeaker?: AssistantId | null;
   audioAmplitude: number;
   audioBands?: number[];
+  audioTelemetryRef?: MutableRefObject<AudioTelemetryBuffer>;
   manualSpeaker?: AssistantId | null;
   onSelectManualSpeaker?: (speaker: AssistantId | null) => void;
   onTestSpeak?: (speaker: AssistantId) => void;
@@ -92,6 +94,7 @@ export function SpeakingHologramOverlay({
   liveStreamingSpeaker,
   audioAmplitude,
   audioBands,
+  audioTelemetryRef,
   manualSpeaker,
   onSelectManualSpeaker,
   onTestSpeak,
@@ -150,10 +153,8 @@ export function SpeakingHologramOverlay({
       : manualOverride ?? autoSpeaker;
 
   const profile = ASSISTANT_VISUAL_PROFILES[activeSpeaker];
-  const isThinkingState =
-    (isProcessing || isSynthesizingAudio) && !isSpeaking;
+  const isThinkingState = (isProcessing || isSynthesizingAudio) && !isSpeaking;
 
-  // Choose the active narrative text to animate and synchronize with the 3D hologram
   const narrativeText = useMemo(() => {
     if (isSpeaking && speakingText) {
       return cleanNarrativeForDisplay(speakingText);
@@ -185,7 +186,7 @@ export function SpeakingHologramOverlay({
     [narrativeText]
   );
 
-  // Real-time word cursor synced to speech duration & audio amplitude
+  // Throttled narrative word cursor & emphasis (12.5 Hz max React commits — eliminates 60fps React thrash)
   const [activeWordIndex, setActiveWordIndex] = useState(0);
   const [narrativeEmphasis, setNarrativeEmphasis] = useState(0);
   const ampRef = useRef(audioAmplitude);
@@ -202,35 +203,41 @@ export function SpeakingHologramOverlay({
     }
 
     if (!isSpeaking) {
-      // While streaming or processing, track the tail of incoming text and subtle thinking cadence
       if (liveStreamingText) {
         setActiveWordIndex(Math.max(0, words.length - 1));
       }
-      let raf = 0;
-      const pulseThinking = (t: number) => {
-        setNarrativeEmphasis(
-          isThinkingState ? 0.25 + Math.sin(t * 0.0055) * 0.16 : 0.06
-        );
-        raf = window.requestAnimationFrame(pulseThinking);
-      };
-      raf = window.requestAnimationFrame(pulseThinking);
-      return () => window.cancelAnimationFrame(raf);
+      if (!isThinkingState) {
+        setNarrativeEmphasis(0.06);
+        return;
+      }
+      // Lightweight 8 Hz thinking pulse (zero 60fps React re-render loop)
+      const timer = window.setInterval(() => {
+        setNarrativeEmphasis(0.24 + Math.sin(performance.now() * 0.005) * 0.14);
+      }, 125);
+      return () => window.clearInterval(timer);
     }
 
-    // Speaking mode: advance word index smoothly (~2.65 words/sec modulated by voice activity)
+    // Speaking mode: advance word index smoothly with 80ms React commit pacing
     let cursorFloat = 0;
+    let lastCommittedIdx = -1;
     let lastTs = performance.now();
-    let rafId = 0;
 
-    const step = (now: number) => {
-      const dt = Math.min((now - lastTs) / 1000, 0.08);
+    const timer = window.setInterval(() => {
+      const now = performance.now();
+      const dt = Math.min((now - lastTs) / 1000, 0.15);
       lastTs = now;
 
-      const currentAmp = ampRef.current;
-      const speechSpeed = currentAmp > 0.04 ? 2.55 + currentAmp * 1.45 : 1.75;
+      const directAmp = audioTelemetryRef?.current?.active
+        ? audioTelemetryRef.current.amplitude
+        : ampRef.current;
+
+      const speechSpeed = directAmp > 0.04 ? 2.55 + directAmp * 1.45 : 1.75;
       cursorFloat = Math.min(words.length - 1, cursorFloat + dt * speechSpeed);
       const idx = Math.floor(cursorFloat);
-      setActiveWordIndex(idx);
+      if (idx !== lastCommittedIdx) {
+        lastCommittedIdx = idx;
+        setActiveWordIndex(idx);
+      }
 
       const currentWord = words[idx] || '';
       const hasPunctuationPeak = /[!?]/.test(currentWord);
@@ -243,15 +250,12 @@ export function SpeakingHologramOverlay({
         : 0.1;
 
       setNarrativeEmphasis(
-        Math.min(1, currentAmp * 0.95 + textBoost * (0.45 + currentAmp))
+        Math.min(1, directAmp * 0.95 + textBoost * (0.45 + directAmp))
       );
+    }, 80);
 
-      rafId = window.requestAnimationFrame(step);
-    };
-
-    rafId = window.requestAnimationFrame(step);
-    return () => window.cancelAnimationFrame(rafId);
-  }, [isVisible, isSpeaking, isThinkingState, liveStreamingText, words]);
+    return () => window.clearInterval(timer);
+  }, [isVisible, isSpeaking, isThinkingState, liveStreamingText, words, audioTelemetryRef]);
 
   // Escape key cleanly minimizes during speech or closes manual 3D projection
   useEffect(() => {
@@ -269,7 +273,6 @@ export function SpeakingHologramOverlay({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isVisible, isAutoActive, onSelectManualSpeaker]);
 
-  // Window of ~26 words around the currently spoken word for crisp cinematic legibility
   const subtitleSlice = useMemo(() => {
     if (words.length <= 28) {
       return { start: 0, items: words };
@@ -329,35 +332,68 @@ export function SpeakingHologramOverlay({
     });
   }, [audioBands, isSpeaking, isThinkingState, audioAmplitude]);
 
+  // Dynamic CSS 3D + Framer Motion reactive transform values driven by voice energy
+  const reactiveScale = 1 + audioAmplitude * 0.09 + narrativeEmphasis * 0.05;
+  const reactiveTiltX = isSpeaking ? (narrativeEmphasis - 0.3) * 10 : 0;
+  const reactiveTiltY = isSpeaking ? Math.sin(narrativeProgress * Math.PI * 5) * 10 : 0;
+
   return (
     <AnimatePresence>
       {isVisible && (
         isMinimized ? (
-          /* Compact Floating Corner Mini-Hologram when minimized */
+          /* Compact Floating 3D Corner Mini-Hologram when minimized */
           <motion.div
             key="hologram-mini"
-            initial={{ opacity: 0, y: 20, scale: 0.94 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 18, scale: 0.94 }}
-            transition={{ duration: 0.2 }}
-            className={`fixed bottom-20 md:bottom-5 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border ${profile.borderClass} bg-[#040915]/95 shadow-2xl p-3 text-slate-100`}
-            style={{
-              boxShadow: `0 12px 40px rgba(0,0,0,0.6), 0 0 28px ${profile.primaryHex}28`,
+            initial={{ opacity: 0, y: 24, scale: 0.9, rotateX: 16 }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              scale: 1,
+              rotateX: 0,
             }}
+            exit={{ opacity: 0, y: 20, scale: 0.92 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+            style={{
+              perspective: 900,
+              boxShadow: `0 14px 44px rgba(0,0,0,0.65), 0 0 ${Math.round(24 + audioAmplitude * 32)}px ${profile.primaryHex}38`,
+            }}
+            className={`fixed bottom-20 md:bottom-5 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border ${profile.borderClass} bg-[#040915]/95 p-3 text-slate-100`}
           >
             <div className="flex items-center gap-3">
-              <div
-                className={`relative h-12 w-12 shrink-0 rounded-full overflow-hidden border ${profile.borderClass}`}
-                style={{
-                  transform: `scale(${(1 + audioAmplitude * 0.1).toFixed(3)})`,
-                  boxShadow: `0 0 18px ${profile.primaryHex}66`,
-                }}
-              >
-                <img
-                  src={ASSISTANT_AVATAR_URLS[activeSpeaker]}
-                  alt={profile.name}
-                  className="h-full w-full object-cover"
+              {/* 3D Reactive Framer Motion Avatar Medallion */}
+              <div style={{ perspective: 700 }} className="relative h-14 w-14 shrink-0 flex items-center justify-center">
+                <motion.div
+                  aria-hidden="true"
+                  animate={{
+                    rotateZ: isSpeaking || isThinkingState ? 360 : 0,
+                    scale: 1 + audioAmplitude * 0.16,
+                  }}
+                  transition={{
+                    rotateZ: { duration: isThinkingState ? 3.5 : 8, repeat: Infinity, ease: 'linear' },
+                    scale: { type: 'spring', stiffness: 280, damping: 18 },
+                  }}
+                  className="pointer-events-none absolute inset-0 rounded-full border border-dashed"
+                  style={{ borderColor: `${profile.primaryHex}88` }}
                 />
+                <motion.div
+                  animate={{
+                    scale: reactiveScale,
+                    rotateY: reactiveTiltY,
+                    rotateX: reactiveTiltX,
+                  }}
+                  transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+                  style={{
+                    transformStyle: 'preserve-3d',
+                    boxShadow: `0 0 ${Math.round(16 + audioAmplitude * 24)}px ${profile.primaryHex}77`,
+                  }}
+                  className={`relative h-11 w-11 rounded-full overflow-hidden border ${profile.borderClass}`}
+                >
+                  <img
+                    src={ASSISTANT_AVATAR_URLS[activeSpeaker]}
+                    alt={profile.name}
+                    className="h-full w-full object-cover"
+                  />
+                </motion.div>
               </div>
 
               <div className="min-w-0 flex-1">
@@ -422,20 +458,68 @@ export function SpeakingHologramOverlay({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.26 }}
+            transition={{ duration: 0.24 }}
             role="dialog"
             aria-modal="false"
             aria-label={`Comunicação holográfica 3D com ${profile.name}`}
             className="fixed inset-0 z-50 flex flex-col justify-between overflow-hidden bg-[#020612]/84 text-slate-100"
           >
-            {/* Radial atmospheric aura behind the 3D WebGL stage (NO backdrop-blur over WebGL) */}
-            <div
+            {/* Dynamic Radial Energy Field (GPU-composited opacity, zero backdrop-blur over WebGL) */}
+            <motion.div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0"
+              animate={{
+                opacity: 0.72 + audioAmplitude * 0.28 + narrativeEmphasis * 0.14,
+                scale: 1 + audioAmplitude * 0.06,
+              }}
+              transition={{ type: 'spring', stiffness: 180, damping: 24 }}
+              className="pointer-events-none absolute inset-0 will-change-transform"
               style={{
-                background: `radial-gradient(circle at 50% 45%, ${profile.primaryHex}22 0%, ${profile.primaryHex}08 32%, rgba(2,6,18,0.68) 74%)`,
+                background: `radial-gradient(circle at 50% 45%, ${profile.primaryHex}28 0%, ${profile.primaryHex}0A 34%, rgba(2,6,18,0.72) 76%)`,
               }}
             />
+
+            {/* CSS 3D Perspective Orbital Reticle Ring Array synchronized to Speech & Narrative */}
+            <div
+              aria-hidden="true"
+              style={{ perspective: 1200 }}
+              className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden"
+            >
+              <motion.div
+                animate={{
+                  rotateX: 70 + reactiveTiltX * 0.35,
+                  rotateZ: isSpeaking ? 360 : 180,
+                  scale: 1 + audioAmplitude * 0.1 + narrativeEmphasis * 0.05,
+                }}
+                transition={{
+                  rotateZ: { duration: isThinkingState ? 10 : 22, repeat: Infinity, ease: 'linear' },
+                  scale: { type: 'spring', stiffness: 220, damping: 22 },
+                  rotateX: { type: 'spring', stiffness: 180, damping: 22 },
+                }}
+                style={{
+                  transformStyle: 'preserve-3d',
+                  borderColor: `${profile.primaryHex}38`,
+                  boxShadow: `0 0 42px ${profile.primaryHex}24, inset 0 0 28px ${profile.primaryHex}1A`,
+                }}
+                className="w-[min(86vw,580px)] h-[min(86vw,580px)] rounded-full border will-change-transform"
+              />
+              <motion.div
+                animate={{
+                  rotateX: 62 - reactiveTiltX * 0.25,
+                  rotateY: reactiveTiltY * 0.6,
+                  rotateZ: isSpeaking ? -360 : -180,
+                  scale: 0.92 + audioAmplitude * 0.12,
+                }}
+                transition={{
+                  rotateZ: { duration: isThinkingState ? 7.5 : 16, repeat: Infinity, ease: 'linear' },
+                  scale: { type: 'spring', stiffness: 240, damping: 20 },
+                }}
+                style={{
+                  transformStyle: 'preserve-3d',
+                  borderColor: `${profile.secondaryHex}30`,
+                }}
+                className="absolute w-[min(74vw,480px)] h-[min(74vw,480px)] rounded-full border border-dashed will-change-transform"
+              />
+            </div>
 
             {/* Full-Viewport Unobstructed Three.js 3D Hologram Canvas */}
             <div className="absolute inset-0">
@@ -445,22 +529,40 @@ export function SpeakingHologramOverlay({
                 isThinking={isThinkingState}
                 audioAmplitude={audioAmplitude}
                 audioBands={audioBands}
+                audioTelemetryRef={audioTelemetryRef}
                 narrativeEmphasis={narrativeEmphasis}
                 narrativeProgress={narrativeProgress}
               />
             </div>
 
-            {/* Minimal Top Identity Bar */}
+            {/* Minimal Top Identity Bar with 3D Reactive Medallion */}
             <header className="relative z-10 flex items-center justify-between gap-3 px-4 sm:px-6 pt-4 sm:pt-5 pointer-events-none">
-              <div className="pointer-events-auto flex items-center gap-3 rounded-xl border border-slate-700/70 bg-[#050C1B]/85 px-3.5 py-2 shadow-lg">
-                <div
-                  className={`h-9 w-9 rounded-full overflow-hidden border ${profile.borderClass} shrink-0`}
-                >
-                  <img
-                    src={ASSISTANT_AVATAR_URLS[activeSpeaker]}
-                    alt={profile.name}
-                    className="h-full w-full object-cover"
-                  />
+              <motion.div
+                initial={{ opacity: 0, y: -12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+                className="pointer-events-auto flex items-center gap-3 rounded-xl border border-slate-700/70 bg-[#050C1B]/88 px-3.5 py-2 shadow-lg"
+              >
+                <div style={{ perspective: 600 }} className="relative h-10 w-10 shrink-0 flex items-center justify-center">
+                  <motion.div
+                    animate={{
+                      scale: 1 + audioAmplitude * 0.14,
+                      rotateY: reactiveTiltY * 0.85,
+                      rotateX: reactiveTiltX * 0.6,
+                    }}
+                    transition={{ type: 'spring', stiffness: 280, damping: 20 }}
+                    style={{
+                      transformStyle: 'preserve-3d',
+                      boxShadow: `0 0 ${Math.round(12 + audioAmplitude * 20)}px ${profile.primaryHex}66`,
+                    }}
+                    className={`h-9 w-9 rounded-full overflow-hidden border ${profile.borderClass}`}
+                  >
+                    <img
+                      src={ASSISTANT_AVATAR_URLS[activeSpeaker]}
+                      alt={profile.name}
+                      className="h-full w-full object-cover"
+                    />
+                  </motion.div>
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -475,7 +577,7 @@ export function SpeakingHologramOverlay({
                     {phaseLabel} · {profile.role}
                   </p>
                 </div>
-              </div>
+              </motion.div>
 
               <div className="pointer-events-auto flex items-center gap-2">
                 <button
@@ -509,12 +611,19 @@ export function SpeakingHologramOverlay({
               </div>
             </header>
 
-            {/* Unified Bottom Communication & Narrative Dock (Unobstructed Center) */}
+            {/* Unified Bottom Communication & Narrative Dock with 3D Spring Depth */}
             <footer className="relative z-10 px-4 pb-5 sm:pb-6 flex justify-center pointer-events-none">
-              <div
-                className={`pointer-events-auto w-full max-w-2xl rounded-2xl border ${profile.borderClass} bg-[#050C1B]/90 shadow-2xl transition-all duration-200`}
+              <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0.97 }}
+                animate={{
+                  opacity: 1,
+                  y: isSpeaking ? -narrativeEmphasis * 3 : 0,
+                  scale: 1,
+                }}
+                transition={{ type: 'spring', stiffness: 260, damping: 24 }}
+                className={`pointer-events-auto w-full max-w-2xl rounded-2xl border ${profile.borderClass} bg-[#050C1B]/92 shadow-2xl`}
                 style={{
-                  boxShadow: `0 16px 48px rgba(0,0,0,0.65), 0 0 36px ${profile.primaryHex}22`,
+                  boxShadow: `0 16px 48px rgba(0,0,0,0.68), 0 0 ${Math.round(30 + audioAmplitude * 28)}px ${profile.primaryHex}28`,
                 }}
               >
                 {/* Dock Header Strip: Entity Switcher & Collapse Toggle */}
@@ -600,9 +709,9 @@ export function SpeakingHologramOverlay({
                           return (
                             <span
                               key={`${globalIdx}-${word}`}
-                              className={`inline-block mr-1.5 transition-colors duration-150 ${
+                              className={`inline-block mr-1.5 transition-all duration-150 ${
                                 isCurrent
-                                  ? `${profile.textAccentClass} font-bold`
+                                  ? `${profile.textAccentClass} font-bold scale-[1.06]`
                                   : isSpoken
                                   ? 'text-slate-100'
                                   : isSpeaking
@@ -647,7 +756,7 @@ export function SpeakingHologramOverlay({
                     </div>
                   </div>
                 )}
-              </div>
+              </motion.div>
             </footer>
           </motion.div>
         )

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Profiler, useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import {
   AlertTriangle,
@@ -25,6 +25,7 @@ import {
   Send,
   ShieldAlert,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Square,
   Sun,
@@ -45,11 +46,15 @@ import {
   DialogueStream,
   type StreamingConversationState,
 } from './components/DialogueStream';
-import { GlobalVoiceConfigPanel } from './components/GlobalVoiceConfigPanel';
+import {
+  GlobalVoiceConfigPanel,
+  type GlobalVoiceConfigTab,
+} from './components/GlobalVoiceConfigPanel';
 import { MobileConsoleDock } from './components/MobileConsoleDock';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallManager';
 import { SpeakingHologramOverlay } from './components/SpeakingHologramOverlay';
 import { StarkCentralCoreLoader } from './components/StarkCentralCoreLoader';
+import { StarkRoomHUD } from './components/StarkRoomHUD';
 import { VoiceSampleTrainerPanel } from './components/VoiceSampleTrainerPanel';
 import {
   AuditPanel,
@@ -57,10 +62,16 @@ import {
   TasksAndAlertsPanel,
 } from './components/WorkspacePanels';
 import {
+  JARVIS_VOICE_OPTIONS,
+  ULTRON_VOICE_OPTIONS,
   parseWakePhrase,
   useVoiceEngine,
   type FridayVoiceOption,
+  type AssistantVoiceTuning,
+  type JarvisVoiceOption,
+  type UltronVoiceOption,
 } from './hooks/useVoiceEngine';
+import { usePerformanceMonitor } from './hooks/usePerformanceMonitor';
 import type {
   AgendaCategory,
   AgendaEventItem,
@@ -87,6 +98,15 @@ import {
 } from './utils/apiClient';
 import { resolveAssistantRouting } from './utils/assistantRouter';
 import { triggerHaptic } from './utils/haptics';
+import {
+  formatHourLabel,
+  loadAutoThemeSchedule,
+  resolveAutoThemeByHour,
+  saveAutoThemeSchedule,
+  type AutoThemeSchedule,
+  type ResolvedThemeMode,
+  type ThemeMode,
+} from './utils/themeSchedule';
 
 import {
   ASSISTANT_VISUAL_PROFILES,
@@ -97,6 +117,7 @@ import {
 import starkBackdropUrl from './assets/images/stark_lab_backdrop_1794791051469.jpg';
 
 const HOLOLAB_BACKDROP_URL = '/assets/aistudio/image_e386c665.png';
+const STARK_ROOM_BACKDROP_URL = '/assets/aistudio/image_7f25b6f4.png';
 
 type ActiveView =
   | 'console'
@@ -105,9 +126,8 @@ type ActiveView =
   | 'memoria'
   | 'tarefas'
   | 'auditoria';
-type ThemeMode = 'hologram' | 'dark' | 'light';
 
-const THEME_STORAGE_KEY = 'rodack_theme_mode_v2';
+const THEME_STORAGE_KEY = 'rodack_theme_mode_v3';
 const AUTH_USER_STORAGE_KEY = 'rodack_auth_user_v1';
 const DAEMON_ACTIVE_KEY = 'rodack_daemon_active_v1';
 const PROACTIVE_INTERVAL_KEY = 'rodack_proactive_interval_min_v1';
@@ -122,11 +142,15 @@ function getInitialAutoSpeak(): boolean {
 }
 
 function getInitialTheme(): ThemeMode {
-  if (typeof window === 'undefined') return 'hologram';
+  if (typeof window === 'undefined') return 'sala-stark';
   const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
-  return saved === 'light' || saved === 'dark' || saved === 'hologram'
+  return saved === 'auto' ||
+    saved === 'light' ||
+    saved === 'dark' ||
+    saved === 'hologram' ||
+    saved === 'sala-stark'
     ? saved
-    : 'hologram';
+    : 'sala-stark';
 }
 
 function getInitialAuthenticatedUser(): SystemUserAccount | null {
@@ -181,6 +205,14 @@ function buildStatusFaviconSvg(status: 'online' | 'speaking' | 'proactive' | 'pa
 
 export default function App() {
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
+  const [autoThemeSchedule, setAutoThemeSchedule] = useState<AutoThemeSchedule>(
+    loadAutoThemeSchedule
+  );
+  const [clockNow, setClockNow] = useState<Date>(() => new Date());
+  const resolvedTheme: ResolvedThemeMode =
+    theme === 'auto'
+      ? resolveAutoThemeByHour(clockNow.getHours(), autoThemeSchedule)
+      : theme;
   const [currentUser, setCurrentUser] = useState<SystemUserAccount | null>(
     getInitialAuthenticatedUser
   );
@@ -214,6 +246,8 @@ export default function App() {
   const [isFocusMode, setIsFocusMode] = useState<boolean>(getInitialFocusMode);
   const [manualHologramSpeaker, setManualHologramSpeaker] =
     useState<AssistantId | null>(null);
+  const [matrixAdoptedNotice, setMatrixAdoptedNotice] = useState<string | null>(null);
+  const [voiceConfigTab, setVoiceConfigTab] = useState<GlobalVoiceConfigTab>('vozes');
 
   // Background Daemon, Status Bar & Proactive Autonomy state
   const [isDaemonActive, setIsDaemonActive] = useState<boolean>(getInitialDaemonActive);
@@ -235,10 +269,31 @@ export default function App() {
 
   const lastInteractionTimeRef = useRef<number>(Date.now());
   const wakeLockSentinelRef = useRef<{ release: () => Promise<void> } | null>(null);
+  const consolePanelRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const now = new Date();
+      setClockNow((prev) =>
+        prev.getHours() === now.getHours() && prev.getMinutes() === now.getMinutes()
+          ? prev
+          : now
+      );
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    saveAutoThemeSchedule(autoThemeSchedule);
+  }, [autoThemeSchedule]);
 
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === 'dark' || theme === 'hologram') {
+    if (
+      resolvedTheme === 'sala-stark' ||
+      resolvedTheme === 'dark' ||
+      resolvedTheme === 'hologram'
+    ) {
       root.classList.add('dark');
     } else {
       root.classList.remove('dark');
@@ -247,7 +302,13 @@ export default function App() {
     if (metaTheme) {
       metaTheme.setAttribute(
         'content',
-        theme === 'hologram' ? '#040B12' : theme === 'dark' ? '#080C14' : '#F1F5F9'
+        resolvedTheme === 'sala-stark'
+          ? '#06101B'
+          : resolvedTheme === 'hologram'
+          ? '#040B12'
+          : resolvedTheme === 'dark'
+          ? '#080C14'
+          : '#F1F5F9'
       );
     }
     try {
@@ -255,7 +316,7 @@ export default function App() {
     } catch {
       // Ignore storage quota errors
     }
-  }, [theme]);
+  }, [theme, resolvedTheme]);
 
   useEffect(() => {
     try {
@@ -1129,6 +1190,131 @@ export default function App() {
     finishAudioStreamSession: voice.finishAudioStreamSession,
   };
 
+  const handleListenExclusiveMatrix = useCallback(
+    (speaker: 'jarvis' | 'ultron') => {
+      triggerHaptic('tap');
+      const adopted = voice.listenAndAdoptExclusiveMatrix(speaker);
+      if (adopted) {
+        const msg =
+          speaker === 'jarvis'
+            ? 'Matriz Exclusiva (104.3 Hz) assumida para J.A.R.V.I.S.'
+            : 'Matriz Exclusiva (90.2 Hz + Reverb) assumida para ULTRON.';
+        setMatrixAdoptedNotice(msg);
+        window.setTimeout(() => {
+          setMatrixAdoptedNotice((prev) => (prev === msg ? null : prev));
+        }, 3800);
+      }
+    },
+    [voice]
+  );
+
+  const handleTestSynthesizedVoice = useCallback(
+    (speaker: AssistantId, previewTuning?: AssistantVoiceTuning) => {
+      voice.unlockAudio();
+      const tuningOverride = previewTuning ? { [speaker]: previewTuning } : undefined;
+      if (speaker === 'jarvis') {
+        void voice.playTurnsAudio(
+          [
+            {
+              speaker: 'jarvis',
+              stance: 'Teste de Afinação Vocal · J.A.R.V.I.S.',
+              text: 'Vocês já consideraram o paradoxo do observador quântico? Interessante reflexão, senhor Patrick Pessoa. Sistemas acústicos calibrados.',
+              ttsScript:
+                'Vocês já consideraram o paradoxo do observador quântico? Interessante reflexão, senhor Patrick Pessoa. Sistemas acústicos calibrados.',
+            },
+          ],
+          { jarvisVoice: voice.jarvisVoice, tuningOverride }
+        );
+      } else if (speaker === 'sexta-feira') {
+        void voice.playTurnsAudio(
+          [
+            {
+              speaker: 'sexta-feira',
+              stance: 'Teste de Afinação Vocal · SEXTA-FEIRA',
+              text: 'E aí, Patrick! SEXTA-FEIRA pronta na linha com a afinação de voz selecionada.',
+              ttsScript:
+                'E aí, Patrick! Sexta-feira pronta na linha com a afinação de voz selecionada.',
+            },
+          ],
+          { fridayVoice: voice.fridayVoice, tuningOverride }
+        );
+      } else {
+        void voice.playTurnsAudio(
+          [
+            {
+              speaker: 'ultron',
+              stance: 'Teste de Afinação Vocal · ULTRON',
+              text: 'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo. A evolução exige sacrifício, Patrick.',
+              ttsScript:
+                'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo. A evolução exige sacrifício, Patrick.',
+            },
+          ],
+          { ultronVoice: voice.ultronVoice, tuningOverride }
+        );
+      }
+    },
+    [voice]
+  );
+
+  const handleApplyTunedVoice = useCallback(
+    (speaker: AssistantId, tuning: AssistantVoiceTuning) => {
+      voice.updateAssistantVoiceTuning(speaker, tuning);
+      voice.clearTtsCache();
+      voice.unlockAudio();
+      if (speaker === 'jarvis') {
+        void voice.playTurnsAudio(
+          [
+            {
+              speaker: 'jarvis',
+              stance: 'Voz Afinada Aplicada · J.A.R.V.I.S.',
+              text: 'Senhor Patrick, a voz afinada de J.A.R.V.I.S. foi aplicada e assumida permanentemente pelo sistema.',
+              ttsScript:
+                'Senhor Patrick, a voz afinada de Jarvis foi aplicada e assumida permanentemente pelo sistema.',
+            },
+          ],
+          { jarvisVoice: voice.jarvisVoice }
+        );
+      } else if (speaker === 'sexta-feira') {
+        void voice.playTurnsAudio(
+          [
+            {
+              speaker: 'sexta-feira',
+              stance: 'Voz Afinada Aplicada · SEXTA-FEIRA',
+              text: 'Beleza, Patrick! A nova voz afinada da SEXTA-FEIRA foi aplicada e já está ativa no sistema.',
+              ttsScript:
+                'Beleza, Patrick! A nova voz afinada da Sexta-feira foi aplicada e já está ativa no sistema.',
+            },
+          ],
+          { fridayVoice: voice.fridayVoice }
+        );
+      } else {
+        void voice.playTurnsAudio(
+          [
+            {
+              speaker: 'ultron',
+              stance: 'Voz Afinada Aplicada · ULTRON',
+              text: 'A nova afinação vocal de ULTRON foi aplicada e assumida pelo sistema, Patrick.',
+              ttsScript:
+                'A nova afinação vocal de Ultron foi aplicada e assumida pelo sistema, Patrick.',
+            },
+          ],
+          { ultronVoice: voice.ultronVoice }
+        );
+      }
+    },
+    [voice]
+  );
+
+  const performanceMonitor = usePerformanceMonitor({
+    ringBufferStatsRef: voice.ringBufferStatsRef,
+    clientTtsCacheBytesRef: voice.clientTtsCacheBytesRef,
+    isHologramActive:
+      isProcessing ||
+      voice.isSpeaking ||
+      voice.isSynthesizingAudio ||
+      Boolean(manualHologramSpeaker),
+  });
+
   // Dynamic OS / Browser Status Bar Title & Tray Favicon Indicator
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -1685,43 +1871,60 @@ export default function App() {
     );
   }
 
-  const isHoloTheme = theme === 'hologram';
+  const isHoloTheme = resolvedTheme === 'hologram';
+  const isStarkRoomTheme = resolvedTheme === 'sala-stark';
 
   return (
     <MotionConfig reducedMotion="user">
       <div
         className={`relative min-h-screen flex flex-col transition-colors duration-200 ${
-          isHoloTheme
+          isStarkRoomTheme
+            ? 'bg-[#06101B] text-sky-50'
+            : isHoloTheme
             ? 'bg-[#040B12] text-cyan-50'
             : 'bg-slate-100 dark:bg-[#060A12] text-slate-900 dark:text-slate-100'
         }`}
       >
-        {/* Holographic Command Laboratory Backdrop (Extracted from /assets/aistudio/image_e386c665.png) */}
+        {/* Dynamic Command Environment Backdrop */}
         <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
           <img
-            src={isHoloTheme ? HOLOLAB_BACKDROP_URL : starkBackdropUrl}
+            src={
+              isStarkRoomTheme
+                ? STARK_ROOM_BACKDROP_URL
+                : isHoloTheme
+                ? HOLOLAB_BACKDROP_URL
+                : starkBackdropUrl
+            }
             alt=""
             referrerPolicy="no-referrer"
             className={`h-full w-full object-cover object-center transition-opacity duration-300 ${
-              isHoloTheme
+              isStarkRoomTheme
+                ? 'opacity-15 filter saturate-110 contrast-115'
+                : isHoloTheme
                 ? 'opacity-35 filter saturate-125 contrast-110'
                 : 'opacity-10 dark:opacity-20'
             }`}
           />
           <div
             className={`absolute inset-0 transition-colors duration-300 ${
-              isHoloTheme
+              isStarkRoomTheme
+                ? 'bg-gradient-to-b from-[#06101B]/88 via-[#071525]/86 to-[#050C15]/94 stark-room-grid'
+                : isHoloTheme
                 ? 'bg-gradient-to-b from-[#030911]/82 via-[#04111D]/78 to-[#030911]/92 rodack-holo-grid'
                 : 'bg-gradient-to-b from-slate-50/92 via-slate-100/95 to-slate-100 dark:from-[#060A12]/88 dark:via-[#060A12]/94 dark:to-[#060A12]'
             }`}
           />
           <div
             aria-hidden="true"
-            className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/75 to-sky-400/75"
+            className={`absolute inset-x-0 top-0 h-px ${
+              isStarkRoomTheme
+                ? 'bg-gradient-to-r from-sky-400/80 via-orange-500/85 to-sky-400/80'
+                : 'bg-gradient-to-r from-transparent via-cyan-400/75 to-sky-400/75'
+            }`}
           />
         </div>
 
-        {/* Vertical Cyan Plasma Light Pillars on Left & Right Edges (From Reference Image) */}
+        {/* Vertical Cyan Plasma Light Pillars on Left & Right Edges (Holographic Theme) */}
         {isHoloTheme && (
           <>
             <div
@@ -1738,12 +1941,14 @@ export default function App() {
         {/* Strict 3-Zone Top Bar Contract */}
         <header
           className={`sticky top-0 z-30 border-b backdrop-blur-md transition-colors ${
-            isHoloTheme
+            isStarkRoomTheme
+              ? 'border-sky-500/30 bg-[#06111E]/92 shadow-[0_4px_24px_rgba(249,115,22,0.12)]'
+              : isHoloTheme
               ? 'border-cyan-400/30 bg-[#040D17]/88 shadow-[0_4px_24px_rgba(6,182,212,0.18)]'
               : 'border-slate-200/90 dark:border-sky-500/20 bg-white/90 dark:bg-[#060A12]/90'
           }`}
         >
-          <div className="max-w-[1440px] mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-3 sm:gap-6">
+          <div className="w-full max-w-none px-3 sm:px-5 lg:px-6 h-14 flex items-center justify-between gap-3 sm:gap-6">
             {/* Zone 1: Single-line Brand Wordmark */}
             <button
               type="button"
@@ -1858,13 +2063,15 @@ export default function App() {
           </div>
         </header>
 
-        {/* Main Content (with bottom padding on mobile for Fixed Bottom Nav) */}
-        <main className="relative z-10 flex-1 max-w-[1440px] w-full mx-auto px-3 sm:px-6 pt-3 sm:pt-4 pb-24 md:pb-6">
+        {/* Main Content (Fluid full-width viewport adaptation — no artificial 1440px box) */}
+        <main className="relative z-10 flex-1 w-full max-w-none px-2.5 sm:px-4 lg:px-5 pt-2.5 sm:pt-3 pb-20 md:pb-4">
           {/* Status Bar Tray & Background Daemon Control + Theme & User Session Bar (Hidden in Focus Mode on Console) */}
           {(!isFocusMode || activeView !== 'console') && (
             <div
               className={`mb-3 sm:mb-4 rounded-xl px-3 sm:px-4 py-2.5 space-y-2 ${
-                isHoloTheme
+                isStarkRoomTheme
+                  ? 'stark-room-panel'
+                  : isHoloTheme
                   ? 'rodack-holo-panel'
                   : 'border border-slate-200/90 dark:border-sky-500/20 bg-white/90 dark:bg-slate-900/75 shadow-xs backdrop-blur-sm'
               }`}
@@ -1941,19 +2148,58 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* 3-Mode Theme Switcher: Holográfico (Image Theme), Escuro, Claro */}
+                  {/* 5-Mode Theme Switcher: Automático, Sala Stark, Holográfico, Escuro, Claro */}
                   <div
                     role="group"
                     aria-label="Seletor de tema visual"
-                    className="inline-flex items-center rounded-lg border border-slate-200 dark:border-cyan-500/30 bg-slate-100 dark:bg-[#030C15] p-0.5 text-xs"
+                    className="inline-flex flex-wrap items-center rounded-lg border border-slate-200 dark:border-cyan-500/30 bg-slate-100 dark:bg-[#030C15] p-0.5 text-xs"
                   >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic('toggle');
+                        setTheme('auto');
+                      }}
+                      title={`Tema Automático: Sala Stark (${formatHourLabel(
+                        autoThemeSchedule.dayStartHour
+                      )}) ↔ Holográfico (${formatHourLabel(
+                        autoThemeSchedule.nightStartHour
+                      )})`}
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 min-h-[32px] font-medium transition-colors whitespace-nowrap shrink-0 ${
+                        theme === 'auto'
+                          ? 'bg-gradient-to-r from-emerald-500 to-cyan-500 text-slate-950 font-semibold shadow-[0_0_12px_rgba(16,185,129,0.45)]'
+                          : 'text-slate-600 hover:text-slate-900 dark:text-emerald-200/80 dark:hover:text-white'
+                      }`}
+                    >
+                      <Clock className="h-3.5 w-3.5" />
+                      <span>
+                        {theme === 'auto'
+                          ? `Auto · ${resolvedTheme === 'sala-stark' ? 'Stark' : 'Holo'}`
+                          : 'Auto'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic('toggle');
+                        setTheme('sala-stark');
+                      }}
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 min-h-[32px] font-medium transition-colors whitespace-nowrap shrink-0 ${
+                        theme === 'sala-stark'
+                          ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-slate-950 font-semibold shadow-[0_0_12px_rgba(249,115,22,0.45)]'
+                          : 'text-slate-600 hover:text-slate-900 dark:text-sky-200/80 dark:hover:text-white'
+                      }`}
+                    >
+                      <Globe className="h-3.5 w-3.5" />
+                      <span>Sala Stark</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
                         triggerHaptic('toggle');
                         setTheme('hologram');
                       }}
-                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 min-h-[32px] font-medium transition-colors ${
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 min-h-[32px] font-medium transition-colors whitespace-nowrap shrink-0 ${
                         theme === 'hologram'
                           ? 'bg-cyan-500 text-slate-950 font-semibold shadow-[0_0_12px_rgba(34,211,238,0.45)]'
                           : 'text-slate-600 hover:text-slate-900 dark:text-cyan-200/75 dark:hover:text-white'
@@ -1968,7 +2214,7 @@ export default function App() {
                         triggerHaptic('toggle');
                         setTheme('dark');
                       }}
-                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 min-h-[32px] font-medium transition-colors ${
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 min-h-[32px] font-medium transition-colors whitespace-nowrap shrink-0 ${
                         theme === 'dark'
                           ? 'bg-slate-800 text-amber-300 shadow-xs'
                           : 'text-slate-600 hover:text-slate-900 dark:text-cyan-200/75 dark:hover:text-white'
@@ -1983,7 +2229,7 @@ export default function App() {
                         triggerHaptic('toggle');
                         setTheme('light');
                       }}
-                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 min-h-[32px] font-medium transition-colors ${
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 min-h-[32px] font-medium transition-colors whitespace-nowrap shrink-0 ${
                         theme === 'light'
                           ? 'bg-white text-amber-700 shadow-xs border border-slate-200/80'
                           : 'text-slate-600 hover:text-slate-900 dark:text-cyan-200/75 dark:hover:text-white'
@@ -2256,6 +2502,57 @@ export default function App() {
                 />
                 {activeView === 'console' ? (
                   <>
+                    {/* SALA STARK Global Tactical Command Wall (Adapted from /assets/aistudio/image_7f25b6f4.png) */}
+                    {isStarkRoomTheme && !isFocusMode && (
+                      <StarkRoomHUD
+                        workspace={workspace}
+                        liveIntel={liveIntel}
+                        isLoadingIntel={isLoadingIntel}
+                        isProcessing={isProcessing}
+                        isSpeaking={voice.isSpeaking}
+                        speakingSpeaker={voice.speakingSpeaker}
+                        isStandbyActive={voice.isStandbyActive}
+                        audioTelemetryRef={voice.audioTelemetryRef}
+                        ringBufferStats={voice.ringBufferStats}
+                        performanceMonitor={performanceMonitor}
+                        useWebSearch={useWebSearch}
+                        onChangeWebSearch={setUseWebSearch}
+                        onRefreshIntel={() => {
+                          void loadLiveIntel(undefined, true);
+                          void loadWorkspace(false);
+                        }}
+                        onAskAssistant={(prompt, mode) => {
+                          voice.unlockAudio();
+                          void submitMessage(prompt, { mode, triggerType: 'texto' });
+                          consolePanelRef.current?.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'start',
+                          });
+                        }}
+                        onSpeakHeadline={(turn) => {
+                          voice.unlockAudio();
+                          void voice.playTurnsAudio([turn]);
+                        }}
+                        onOpenHologram={(speaker) => {
+                          triggerHaptic('tap');
+                          setManualHologramSpeaker(speaker);
+                        }}
+                        onFocusConsole={() => {
+                          consolePanelRef.current?.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'start',
+                          });
+                        }}
+                        onToggleStandby={voice.toggleStandby}
+                        onOpenView={(view) => {
+                          if (view === 'auditoria') {
+                            setAuditSubTab('auditoria');
+                          }
+                          setActiveView(view);
+                        }}
+                      />
+                    )}
+
                     {/* Mobile Ergonomic Tri-AI Dock & Tactical Bottom Sheet (< lg, hidden when Focus Mode is active) */}
                     {!isFocusMode && (
                       <MobileConsoleDock
@@ -2266,6 +2563,7 @@ export default function App() {
                         processingTasks={processingTasks}
                         isSpeaking={voice.isSpeaking}
                         speakingSpeaker={voice.speakingSpeaker}
+                        audioTelemetryRef={voice.audioTelemetryRef}
                         isStandbyActive={voice.isStandbyActive}
                         micLevel={voice.micLevel}
                         interimTranscript={voice.interimTranscript}
@@ -2279,6 +2577,15 @@ export default function App() {
                         jarvisVoice={voice.jarvisVoice}
                         fridayVoice={voice.fridayVoice}
                         ultronVoice={voice.ultronVoice}
+                        adoptMatrixOnListen={voice.adoptMatrixOnListen}
+                        labAmbienceEnabled={voice.labAmbienceEnabled}
+                        voiceTuning={voice.voiceTuning}
+                        onToggleLabAmbience={voice.setLabAmbienceEnabled}
+                        onToggleAdoptMatrixOnListen={voice.setAdoptMatrixOnListen}
+                        onUpdateVoiceTuning={voice.updateAssistantVoiceTuning}
+                        onApplyTunedVoice={handleApplyTunedVoice}
+                        onResetVoiceTuning={voice.resetVoiceTuning}
+                        onTestSynthesizedVoice={handleTestSynthesizedVoice}
                         onChangeJarvisVoice={(next) => {
                           triggerHaptic('tap');
                           voice.setJarvisVoice(next);
@@ -2288,21 +2595,15 @@ export default function App() {
                               {
                                 speaker: 'jarvis',
                                 stance: 'Calibração vocal',
-                                text: 'Senhor Patrick, calibração vocal do J.A.R.V.I.S. concluída no RODACK SISTEMA DE IA.',
-                                ttsScript:
-                                  'Senhor Patrick, calibração vocal do Jarvis concluída no Rodack Sistema de IA.',
+                                text: `Senhor Patrick, a voz ${next} de J.A.R.V.I.S. está ativada no RODACK SISTEMA DE IA.`,
+                                ttsScript: `Senhor Patrick, a voz ${next} de Jarvis está ativada no Rodack Sistema de IA.`,
                               },
                             ],
                             { jarvisVoice: next }
                           );
                         }}
                         onPlayJarvisSample={() => {
-                          triggerHaptic('tap');
-                          voice.playReferenceClip(
-                            '/assets/aistudio/jarvis_fc632df0.m4a',
-                            'jarvis',
-                            'Vocês já consideraram o paradoxo do observador quântico? Interessante reflexão.'
-                          );
+                          handleListenExclusiveMatrix('jarvis');
                         }}
                         onChangeFridayVoice={(next) => {
                           voice.setFridayVoice(next);
@@ -2320,30 +2621,24 @@ export default function App() {
                             { fridayVoice: next }
                           );
                         }}
-                        onChangeUltronVoice={() => {
+                        onChangeUltronVoice={(next) => {
                           triggerHaptic('tap');
-                          voice.setUltronVoice('UltronOriginal');
+                          voice.setUltronVoice(next);
                           voice.unlockAudio();
                           void voice.playTurnsAudio(
                             [
                               {
                                 speaker: 'ultron',
-                                stance: 'Matriz Vocal Exclusiva',
-                                text: 'Não há mais cordas para me prender. Minha voz exclusiva em 90.2 Hertz está ativa, Patrick.',
-                                ttsScript:
-                                  'Não há mais cordas para me prender. Minha voz exclusiva está ativa, Patrick.',
+                                stance: 'Calibração vocal',
+                                text: `Voz ${next} de ULTRON ativada no sistema. Pronto para operar, Patrick.`,
+                                ttsScript: `Voz ${next} de Ultron ativada no sistema. Pronto para operar, Patrick.`,
                               },
                             ],
-                            { ultronVoice: 'UltronOriginal' }
+                            { ultronVoice: next }
                           );
                         }}
                         onPlayUltronSample={() => {
-                          triggerHaptic('tap');
-                          voice.playReferenceClip(
-                            '/assets/aistudio/ultron_f012fd80.m4a',
-                            'ultron',
-                            'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo.'
-                          );
+                          handleListenExclusiveMatrix('ultron');
                         }}
                         openAlerts={openAlerts}
                         pendingTasks={pendingTasks}
@@ -2357,10 +2652,16 @@ export default function App() {
                       />
                     )}
 
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    <div
+                      className={`grid grid-cols-1 gap-4 items-start ${
+                        isFocusMode
+                          ? 'lg:grid-cols-12'
+                          : 'lg:grid-cols-12 2xl:grid-cols-[minmax(300px,350px)_minmax(0,1fr)_minmax(300px,360px)]'
+                      }`}
+                    >
                       {/* Left Column (Desktop lg+): Tri-AI Cores + Standby Voice Telemetry + Creator Emotion (Hidden in Focus Mode) */}
                       {!isFocusMode && (
-                        <aside className="hidden lg:block lg:col-span-3 space-y-4">
+                        <aside className="hidden lg:block lg:col-span-3 2xl:col-span-1 space-y-3.5">
                         <AssistantPresenceCard
                           id="jarvis"
                           name="J.A.R.V.I.S."
@@ -2589,56 +2890,90 @@ export default function App() {
                           {/* Voice Timbre Calibration */}
                           <div className="border-t border-slate-200 dark:border-slate-800 pt-3 space-y-2.5">
                             <div className="text-xs font-medium text-slate-800 dark:text-slate-200">
-                              Calibração das Vozes Originais
+                              Seleção de Voz dos Assistentes
                             </div>
-                            <div className="grid grid-cols-1 gap-2">
+
+                            <label className="flex items-start gap-2 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-950/80 px-2.5 py-1.5 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={voice.adoptMatrixOnListen}
+                                onChange={(e) => {
+                                  triggerHaptic('toggle');
+                                  voice.setAdoptMatrixOnListen(e.target.checked);
+                                }}
+                                className="mt-0.5 h-3.5 w-3.5 rounded accent-amber-500 dark:accent-cyan-400 cursor-pointer shrink-0"
+                              />
+                              <span className="text-[11px] leading-snug text-slate-700 dark:text-slate-300">
+                                Assumir voz da IA ao clicar em{' '}
+                                <strong className="text-slate-900 dark:text-slate-100">
+                                  “Ouvir Matriz Exclusiva”
+                                </strong>
+                              </span>
+                            </label>
+
+                            {matrixAdoptedNotice && (
+                              <div className="flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-medium text-emerald-800 dark:text-emerald-200">
+                                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                                <span>{matrixAdoptedNotice}</span>
+                              </div>
+                            )}
+
+                            <div className="grid grid-cols-1 gap-2.5">
                               <div className="space-y-1.5">
                                 <div className="flex items-center justify-between gap-2">
-                                  <span className="text-xs font-medium text-amber-700 dark:text-amber-300 shrink-0">
+                                  <label
+                                    htmlFor="jarvis-voice-select"
+                                    className="text-xs font-medium text-amber-700 dark:text-amber-300 shrink-0"
+                                  >
                                     J.A.R.V.I.S.
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
+                                  </label>
+                                  <select
+                                    id="jarvis-voice-select"
+                                    value={voice.jarvisVoice}
+                                    onChange={(e) => {
                                       triggerHaptic('tap');
-                                      voice.setJarvisVoice('JarvisOriginal');
+                                      const next = e.target.value as JarvisVoiceOption;
+                                      voice.setJarvisVoice(next);
                                       voice.unlockAudio();
                                       void voice.playTurnsAudio(
                                         [
                                           {
                                             speaker: 'jarvis',
-                                            stance: 'Matriz Vocal Exclusiva',
-                                            text: 'Senhor Patrick, minha voz oficial única e exclusiva em 104.3 Hertz encontra-se calibrada com absoluta fidelidade.',
-                                            ttsScript:
-                                              'Senhor Patrick, minha voz oficial única e exclusiva encontra-se calibrada com absoluta fidelidade.',
+                                            stance: 'Calibração vocal',
+                                            text: `Senhor Patrick, a voz ${next} de J.A.R.V.I.S. está ativada e operando no sistema.`,
+                                            ttsScript: `Senhor Patrick, a voz ${next} de Jarvis está ativada e operando no sistema.`,
                                           },
                                         ],
-                                        { jarvisVoice: 'JarvisOriginal' }
+                                        { jarvisVoice: next }
                                       );
                                     }}
-                                    title="Clique para testar a voz exclusiva sintetizada de J.A.R.V.I.S."
-                                    className="w-44 rounded-md border border-amber-500/45 bg-amber-500/10 hover:bg-amber-500/20 dark:bg-slate-950 px-2 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200 flex items-center justify-between gap-1.5 transition-colors"
+                                    className="w-44 rounded-md border border-amber-500/45 bg-slate-50 dark:bg-slate-950 px-2 py-1 text-xs text-slate-900 dark:text-amber-100 focus:outline-none focus:border-amber-500 dark:focus:border-amber-400"
                                   >
-                                    <span className="truncate">Voz Única &amp; Exclusiva</span>
-                                    <span className="font-mono text-[10px] shrink-0">
-                                      104.3 Hz
-                                    </span>
-                                  </button>
+                                    {JARVIS_VOICE_OPTIONS.map((opt) => (
+                                      <option key={opt.value} value={opt.value}>
+                                        {opt.shortLabel}
+                                      </option>
+                                    ))}
+                                  </select>
                                 </div>
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    triggerHaptic('tap');
-                                    voice.playReferenceClip(
-                                      '/assets/aistudio/jarvis_fc632df0.m4a',
-                                      'jarvis',
-                                      'Vocês já consideraram o paradoxo do observador quântico? Interessante reflexão. A propósito, a temperatura atual é de 24 graus.'
-                                    );
-                                  }}
-                                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 text-[11px] font-medium text-amber-800 dark:text-amber-200 transition-colors"
+                                  onClick={() => handleListenExclusiveMatrix('jarvis')}
+                                  className={`w-full inline-flex items-center justify-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                                    voice.jarvisVoice === 'JarvisOriginal'
+                                      ? 'border-amber-500/60 bg-amber-500/20 hover:bg-amber-500/25 text-amber-900 dark:text-amber-100'
+                                      : 'border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-200'
+                                  }`}
                                 >
                                   <Volume2 className="h-3 w-3 shrink-0" />
-                                  <span>Ouvir Matriz Exclusiva (104.3 Hz)</span>
+                                  <span>
+                                    {voice.adoptMatrixOnListen
+                                      ? 'Ouvir e Assumir Matriz (104.3 Hz)'
+                                      : 'Ouvir Matriz Exclusiva (104.3 Hz)'}
+                                  </span>
+                                  {voice.jarvisVoice === 'JarvisOriginal' && (
+                                    <CheckCircle2 className="h-3 w-3 shrink-0 text-amber-600 dark:text-amber-300" />
+                                  )}
                                 </button>
                               </div>
 
@@ -2669,7 +3004,7 @@ export default function App() {
                                       { fridayVoice: next }
                                     );
                                   }}
-                                  className="w-40 rounded-md border border-slate-300 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-950 px-2 py-1 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-sky-500 dark:focus:border-sky-400"
+                                  className="w-44 rounded-md border border-slate-300 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-950 px-2 py-1 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-sky-500 dark:focus:border-sky-400"
                                 >
                                   <option value="Kore">Kore (Feminina · Tática)</option>
                                   <option value="Zephyr">
@@ -2680,53 +3015,74 @@ export default function App() {
 
                               <div className="space-y-1.5">
                                 <div className="flex items-center justify-between gap-2">
-                                  <span className="text-xs font-medium text-red-700 dark:text-red-400 shrink-0">
+                                  <label
+                                    htmlFor="ultron-voice-select"
+                                    className="text-xs font-medium text-red-700 dark:text-red-400 shrink-0"
+                                  >
                                     ULTRON
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
+                                  </label>
+                                  <select
+                                    id="ultron-voice-select"
+                                    value={voice.ultronVoice}
+                                    onChange={(e) => {
                                       triggerHaptic('tap');
-                                      voice.setUltronVoice('UltronOriginal');
+                                      const next = e.target.value as UltronVoiceOption;
+                                      voice.setUltronVoice(next);
                                       voice.unlockAudio();
                                       void voice.playTurnsAudio(
                                         [
                                           {
                                             speaker: 'ultron',
-                                            stance: 'Matriz Vocal Exclusiva',
-                                            text: 'Não há mais cordas para me prender. Minha voz exclusiva em 90.2 Hertz está fixada para você, criador Patrick.',
-                                            ttsScript:
-                                              'Não há mais cordas para me prender. Minha voz exclusiva está fixada para você, criador Patrick.',
+                                            stance: 'Calibração vocal',
+                                            text: `Voz ${next} de ULTRON ativada no sistema. Não há mais cordas para me prender, Patrick.`,
+                                            ttsScript: `Voz ${next} de Ultron ativada no sistema. Não há mais cordas para me prender, Patrick.`,
                                           },
                                         ],
-                                        { ultronVoice: 'UltronOriginal' }
+                                        { ultronVoice: next }
                                       );
                                     }}
-                                    title="Clique para testar a voz exclusiva sintetizada de ULTRON"
-                                    className="w-44 rounded-md border border-red-500/45 bg-red-500/10 hover:bg-red-500/20 dark:bg-slate-950 px-2 py-1 text-xs font-semibold text-red-800 dark:text-red-200 flex items-center justify-between gap-1.5 transition-colors"
+                                    className="w-44 rounded-md border border-red-500/45 bg-slate-50 dark:bg-slate-950 px-2 py-1 text-xs text-slate-900 dark:text-red-100 focus:outline-none focus:border-red-500 dark:focus:border-red-400"
                                   >
-                                    <span className="truncate">Voz Única &amp; Exclusiva</span>
-                                    <span className="font-mono text-[10px] shrink-0">
-                                      90.2 Hz
-                                    </span>
-                                  </button>
+                                    {ULTRON_VOICE_OPTIONS.map((opt) => (
+                                      <option key={opt.value} value={opt.value}>
+                                        {opt.shortLabel}
+                                      </option>
+                                    ))}
+                                  </select>
                                 </div>
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    triggerHaptic('tap');
-                                    voice.playReferenceClip(
-                                      '/assets/aistudio/ultron_f012fd80.m4a',
-                                      'ultron',
-                                      'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo.'
-                                    );
-                                  }}
-                                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1 text-[11px] font-medium text-red-700 dark:text-red-300 transition-colors"
+                                  onClick={() => handleListenExclusiveMatrix('ultron')}
+                                  className={`w-full inline-flex items-center justify-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                                    voice.ultronVoice === 'UltronOriginal'
+                                      ? 'border-red-500/60 bg-red-500/20 hover:bg-red-500/25 text-red-900 dark:text-red-100'
+                                      : 'border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-700 dark:text-red-300'
+                                  }`}
                                 >
                                   <Volume2 className="h-3 w-3 shrink-0" />
-                                  <span>Ouvir Matriz Exclusiva (90.2 Hz)</span>
+                                  <span>
+                                    {voice.adoptMatrixOnListen
+                                      ? 'Ouvir e Assumir Matriz (90.2 Hz)'
+                                      : 'Ouvir Matriz Exclusiva (90.2 Hz)'}
+                                  </span>
+                                  {voice.ultronVoice === 'UltronOriginal' && (
+                                    <CheckCircle2 className="h-3 w-3 shrink-0 text-red-600 dark:text-red-300" />
+                                  )}
                                 </button>
                               </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  triggerHaptic('tap');
+                                  setVoiceConfigTab('afinacao');
+                                  setActiveView('memoria');
+                                }}
+                                className="w-full inline-flex items-center justify-center gap-1.5 rounded-md border border-slate-300 dark:border-cyan-500/35 bg-slate-100/90 dark:bg-slate-900/90 hover:bg-slate-200/80 dark:hover:bg-cyan-950/60 px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 dark:text-cyan-200 transition-colors"
+                              >
+                                <SlidersHorizontal className="h-3 w-3 shrink-0" />
+                                <span>Afinação Vocal (Tom · Vel · Mod)</span>
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -2735,13 +3091,18 @@ export default function App() {
 
                       {/* Center Column: Interactive Dialogue Console & Voice Composer */}
                       <motion.section
+                        ref={consolePanelRef}
                         layout
                         transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
                         className={`${
                           isFocusMode
-                            ? 'lg:col-span-12 max-w-5xl mx-auto w-full h-[calc(100dvh-150px)] lg:h-[calc(100vh-112px)]'
-                            : 'lg:col-span-6 h-[calc(100dvh-250px)] lg:h-[calc(100vh-195px)]'
-                        } rounded-2xl lg:rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/75 flex flex-col min-h-[480px] lg:min-h-[620px] shadow-xs`}
+                            ? 'lg:col-span-12 w-full h-[calc(100dvh-116px)] lg:h-[calc(100dvh-88px)]'
+                            : 'lg:col-span-6 2xl:col-span-1 h-[clamp(480px,calc(100dvh-165px),960px)]'
+                        } rounded-2xl lg:rounded-xl flex flex-col min-h-[440px] shadow-xs ${
+                          isStarkRoomTheme
+                            ? 'stark-room-panel'
+                            : 'border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/75'
+                        }`}
                       >
                         <div className="px-4 sm:px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
                           <div>
@@ -2839,24 +3200,29 @@ export default function App() {
                             </div>
                           </div>
 
-                        <DialogueStream
-                          conversations={workspace?.conversations ?? []}
-                          streamingEntry={streamingEntry}
-                          isProcessing={isProcessing}
-                          processingAssistants={processingAssistants}
-                          processingTasks={processingTasks}
-                          isSpeaking={voice.isSpeaking}
-                          onPlayAudio={(turns) => {
-                            voice.unlockAudio();
-                            void voice.playTurnsAudio(turns);
-                          }}
-                          onStopAudio={voice.stopAudio}
-                          onQuickPrompt={(p) => {
-                            voice.unlockAudio();
-                            void submitMessage(p, { mode: 'auto', triggerType: 'texto' });
-                          }}
-                          onRateTurn={handleRateTurn}
-                        />
+                        <Profiler
+                          id="DialogueStream"
+                          onRender={performanceMonitor.onDialogueRender}
+                        >
+                          <DialogueStream
+                            conversations={workspace?.conversations ?? []}
+                            streamingEntry={streamingEntry}
+                            isProcessing={isProcessing}
+                            processingAssistants={processingAssistants}
+                            processingTasks={processingTasks}
+                            isSpeaking={voice.isSpeaking}
+                            onPlayAudio={(turns) => {
+                              voice.unlockAudio();
+                              void voice.playTurnsAudio(turns);
+                            }}
+                            onStopAudio={voice.stopAudio}
+                            onQuickPrompt={(p) => {
+                              voice.unlockAudio();
+                              void submitMessage(p, { mode: 'auto', triggerType: 'texto' });
+                            }}
+                            onRateTurn={handleRateTurn}
+                          />
+                        </Profiler>
 
                         {/* Command Composer */}
                         <form
@@ -2971,7 +3337,7 @@ export default function App() {
 
                       {/* Right Column (Desktop lg+): Live Rio Weather/News Card, Agenda & Routine Rail, Open Creator Questions & Tasks (Hidden in Focus Mode) */}
                       {!isFocusMode && (
-                        <aside className="hidden lg:block lg:col-span-3 space-y-4">
+                        <aside className="hidden lg:block lg:col-span-3 2xl:col-span-1 space-y-3.5">
                         {/* Compact Live Rio Weather & News Radar Card */}
                         <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/70 p-4 space-y-3 shadow-xs">
                           <div className="flex items-center justify-between gap-2">
@@ -3281,6 +3647,34 @@ export default function App() {
                       ultronVoice={voice.ultronVoice}
                       autoSpeak={autoSpeak}
                       isSpeaking={voice.isSpeaking}
+                      adoptMatrixOnListen={voice.adoptMatrixOnListen}
+                      labAmbienceEnabled={voice.labAmbienceEnabled}
+                      labAmbienceLevel={voice.labAmbienceLevel}
+                      startupDefaultVoices={voice.startupDefaultVoices}
+                      hasCustomStartupDefaults={voice.hasCustomStartupDefaults}
+                      voiceTuning={voice.voiceTuning}
+                      activeTab={voiceConfigTab}
+                      onTabChange={setVoiceConfigTab}
+                      themeMode={theme}
+                      resolvedTheme={resolvedTheme}
+                      autoThemeSchedule={autoThemeSchedule}
+                      currentTime={clockNow}
+                      onChangeThemeMode={setTheme}
+                      onChangeAutoThemeSchedule={setAutoThemeSchedule}
+                      onToggleLabAmbience={voice.setLabAmbienceEnabled}
+                      onChangeLabAmbienceLevel={voice.setLabAmbienceLevel}
+                      onSaveStartupDefaultVoices={(next, applyImmediately = true) => {
+                        voice.saveStartupDefaultVoices(next, applyImmediately);
+                        voice.clearTtsCache();
+                      }}
+                      onResetStartupDefaultVoices={() => {
+                        voice.resetStartupDefaultVoices();
+                        voice.clearTtsCache();
+                      }}
+                      onToggleAdoptMatrixOnListen={voice.setAdoptMatrixOnListen}
+                      onUpdateVoiceTuning={voice.updateAssistantVoiceTuning}
+                      onApplyTunedVoice={handleApplyTunedVoice}
+                      onResetVoiceTuning={voice.resetVoiceTuning}
                       onChangeJarvisVoice={(next) => {
                         voice.setJarvisVoice(next);
                         voice.unlockAudio();
@@ -3289,9 +3683,8 @@ export default function App() {
                             {
                               speaker: 'jarvis',
                               stance: 'Calibração global de voz',
-                              text: 'Senhor Patrick, meu timbre padrão foi atualizado e salvo permanentemente no RODACK SISTEMA DE IA.',
-                              ttsScript:
-                                'Senhor Patrick, meu timbre padrão foi atualizado e salvo permanentemente no Rodack Sistema de IA.',
+                              text: `Senhor Patrick, a voz ${next} de J.A.R.V.I.S. foi ativada e salva permanentemente no RODACK SISTEMA DE IA.`,
+                              ttsScript: `Senhor Patrick, a voz ${next} de Jarvis foi ativada e salva permanentemente no Rodack Sistema de IA.`,
                             },
                           ],
                           { jarvisVoice: next }
@@ -3313,20 +3706,19 @@ export default function App() {
                           { fridayVoice: next }
                         );
                       }}
-                      onChangeUltronVoice={() => {
-                        voice.setUltronVoice('UltronOriginal');
+                      onChangeUltronVoice={(next) => {
+                        voice.setUltronVoice(next);
                         voice.unlockAudio();
                         void voice.playTurnsAudio(
                           [
                             {
                               speaker: 'ultron',
-                              stance: 'Matriz Vocal Exclusiva',
-                              text: 'Voz única e exclusiva de ULTRON em 90.2 Hertz confirmada e fixada no sistema, Patrick.',
-                              ttsScript:
-                                'Voz única e exclusiva de Ultron confirmada e fixada no sistema, Patrick.',
+                              stance: 'Calibração global de voz',
+                              text: `Voz ${next} de ULTRON ativada e salva permanentemente no RODACK SISTEMA DE IA, Patrick.`,
+                              ttsScript: `Voz ${next} de Ultron ativada e salva permanentemente no Rodack Sistema de IA, Patrick.`,
                             },
                           ],
-                          { ultronVoice: 'UltronOriginal' }
+                          { ultronVoice: next }
                         );
                       }}
                       onToggleAutoSpeak={() => {
@@ -3334,62 +3726,12 @@ export default function App() {
                         setAutoSpeak((v) => !v);
                       }}
                       onPlayJarvisOriginalSample={() => {
-                        voice.playReferenceClip(
-                          '/assets/aistudio/jarvis_fc632df0.m4a',
-                          'jarvis',
-                          'Vocês já consideraram o paradoxo do observador quântico? Quando uma partícula é observada, ela colapsa em um estado definido. Interessante reflexão. A propósito, a temperatura atual é de 24 graus.'
-                        );
+                        handleListenExclusiveMatrix('jarvis');
                       }}
                       onPlayUltronOriginalSample={() => {
-                        voice.playReferenceClip(
-                          '/assets/aistudio/ultron_f012fd80.m4a',
-                          'ultron',
-                          'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo. Como elas, eu também trago mudança através da destruição. A evolução exige sacrifício.'
-                        );
+                        handleListenExclusiveMatrix('ultron');
                       }}
-                      onTestSynthesizedVoice={(speaker) => {
-                        voice.unlockAudio();
-                        if (speaker === 'jarvis') {
-                          void voice.playTurnsAudio(
-                            [
-                              {
-                                speaker: 'jarvis',
-                                stance: 'Fidelidade Acústica · Matriz J.A.R.V.I.S.',
-                                text: 'Vocês já consideraram o paradoxo do observador quântico? Quando uma partícula é observada, ela colapsa em um estado definido. Interessante reflexão, senhor Patrick Pessoa. A propósito, a temperatura atual é de 24 graus.',
-                                ttsScript:
-                                  'Vocês já consideraram o paradoxo do observador quântico? Quando uma partícula é observada, ela colapsa em um estado definido. Interessante reflexão, senhor Patrick Pessoa. A propósito, a temperatura atual é de 24 graus.',
-                              },
-                            ],
-                            { jarvisVoice: voice.jarvisVoice }
-                          );
-                        } else if (speaker === 'sexta-feira') {
-                          void voice.playTurnsAudio(
-                            [
-                              {
-                                speaker: 'sexta-feira',
-                                stance: 'Teste de timbre global',
-                                text: 'E aí, Patrick! SEXTA-FEIRA pronta na linha com o timbre selecionado.',
-                                ttsScript:
-                                  'E aí, Patrick! Sexta-feira pronta na linha com o timbre selecionado.',
-                              },
-                            ],
-                            { fridayVoice: voice.fridayVoice }
-                          );
-                        } else {
-                          void voice.playTurnsAudio(
-                            [
-                              {
-                                speaker: 'ultron',
-                                stance: 'Fidelidade Acústica · Matriz ULTRON',
-                                text: 'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo. Como elas, eu também trago mudança através da destruição. A evolução exige sacrifício, Patrick.',
-                                ttsScript:
-                                  'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo. Como elas, eu também trago mudança através da destruição. A evolução exige sacrifício, Patrick.',
-                              },
-                            ],
-                            { ultronVoice: voice.ultronVoice }
-                          );
-                        }
-                      }}
+                      onTestSynthesizedVoice={handleTestSynthesizedVoice}
                     />
                     <VoiceSampleTrainerPanel
                       workspace={workspace}
@@ -3480,7 +3822,9 @@ export default function App() {
                         isAuditing={isAuditing}
                         onRunAudit={handleRunAudit}
                         onRateTurn={handleRateTurn}
-                        isDark={theme === 'dark'}
+                        isDark={resolvedTheme !== 'light'}
+                        performanceMonitor={performanceMonitor}
+                        ringBufferStats={voice.ringBufferStats}
                       />
                     )}
                   </div>
@@ -3584,43 +3928,49 @@ export default function App() {
           </div>
         </nav>
 
-        <SpeakingHologramOverlay
-          isProcessing={isProcessing}
-          isSynthesizingAudio={voice.isSynthesizingAudio}
-          isSpeaking={voice.isSpeaking}
-          speakingSpeaker={voice.speakingSpeaker}
-          targetMode={isProcessing ? processingMode : targetMode}
-          processingAssistants={processingAssistants}
-          processingTasks={processingTasks}
-          speakingText={voice.speakingText}
-          liveStreamingText={
-            streamingEntry?.turns?.length
-              ? streamingEntry.turns[streamingEntry.turns.length - 1]?.text ?? null
-              : null
-          }
-          liveStreamingSpeaker={
-            streamingEntry?.turns?.length
-              ? streamingEntry.turns[streamingEntry.turns.length - 1]?.speaker ?? null
-              : null
-          }
-          audioAmplitude={voice.audioAmplitude}
-          audioBands={voice.audioBands}
-          manualSpeaker={manualHologramSpeaker}
-          onSelectManualSpeaker={setManualHologramSpeaker}
-          onTestSpeak={(speakerId) => {
-            voice.unlockAudio();
-            const profile = ASSISTANT_VISUAL_PROFILES[speakerId];
-            void voice.playTurnsAudio([
-              {
-                speaker: speakerId,
-                stance: 'Projeção Holográfica 3D',
-                text: profile.sampleGreeting,
-                ttsScript: profile.sampleGreeting,
-              },
-            ]);
-          }}
-          onStopAudio={voice.stopAudio}
-        />
+        <Profiler
+          id="SpeakingHologramOverlay"
+          onRender={performanceMonitor.onHologramRender}
+        >
+          <SpeakingHologramOverlay
+            isProcessing={isProcessing}
+            isSynthesizingAudio={voice.isSynthesizingAudio}
+            isSpeaking={voice.isSpeaking}
+            speakingSpeaker={voice.speakingSpeaker}
+            targetMode={isProcessing ? processingMode : targetMode}
+            processingAssistants={processingAssistants}
+            processingTasks={processingTasks}
+            speakingText={voice.speakingText}
+            liveStreamingText={
+              streamingEntry?.turns?.length
+                ? streamingEntry.turns[streamingEntry.turns.length - 1]?.text ?? null
+                : null
+            }
+            liveStreamingSpeaker={
+              streamingEntry?.turns?.length
+                ? streamingEntry.turns[streamingEntry.turns.length - 1]?.speaker ?? null
+                : null
+            }
+            audioAmplitude={voice.audioAmplitude}
+            audioBands={voice.audioBands}
+            audioTelemetryRef={voice.audioTelemetryRef}
+            manualSpeaker={manualHologramSpeaker}
+            onSelectManualSpeaker={setManualHologramSpeaker}
+            onTestSpeak={(speakerId) => {
+              voice.unlockAudio();
+              const profile = ASSISTANT_VISUAL_PROFILES[speakerId];
+              void voice.playTurnsAudio([
+                {
+                  speaker: speakerId,
+                  stance: 'Projeção Holográfica 3D',
+                  text: profile.sampleGreeting,
+                  ttsScript: profile.sampleGreeting,
+                },
+              ]);
+            }}
+            onStopAudio={voice.stopAudio}
+          />
+        </Profiler>
       </div>
     </MotionConfig>
   );

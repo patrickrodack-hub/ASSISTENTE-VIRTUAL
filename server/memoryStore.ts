@@ -37,7 +37,42 @@ const DATA_FILE = path.join(DATA_DIR, 'stark_memory.json');
 const USERS_PASSWORDS_FILE = path.join(DATA_DIR, 'stark_user_passwords.json');
 const VOICE_SAMPLES_DIR = path.join(DATA_DIR, 'voice_samples');
 
+const MAX_VOICE_SAMPLE_MEM_ENTRIES = 6;
+const MAX_VOICE_SAMPLE_MEM_BYTES = 12 * 1024 * 1024; // 12 MB ceiling
 const inMemoryVoiceSampleBuffers = new Map<string, Buffer>();
+let inMemoryVoiceSampleBytes = 0;
+
+function setVoiceSampleBufferBounded(id: string, buf: Buffer): void {
+  const prev = inMemoryVoiceSampleBuffers.get(id);
+  if (prev) {
+    inMemoryVoiceSampleBytes -= prev.length;
+    inMemoryVoiceSampleBuffers.delete(id);
+  }
+  while (
+    (inMemoryVoiceSampleBuffers.size >= MAX_VOICE_SAMPLE_MEM_ENTRIES ||
+      inMemoryVoiceSampleBytes + buf.length > MAX_VOICE_SAMPLE_MEM_BYTES) &&
+    inMemoryVoiceSampleBuffers.size > 0
+  ) {
+    const oldestKey = inMemoryVoiceSampleBuffers.keys().next().value;
+    if (!oldestKey) break;
+    const oldestBuf = inMemoryVoiceSampleBuffers.get(oldestKey);
+    if (oldestBuf) inMemoryVoiceSampleBytes -= oldestBuf.length;
+    inMemoryVoiceSampleBuffers.delete(oldestKey);
+  }
+  if (buf.length <= MAX_VOICE_SAMPLE_MEM_BYTES) {
+    inMemoryVoiceSampleBuffers.set(id, buf);
+    inMemoryVoiceSampleBytes += buf.length;
+  }
+}
+
+function deleteVoiceSampleBufferBounded(id: string): void {
+  const prev = inMemoryVoiceSampleBuffers.get(id);
+  if (prev) {
+    inMemoryVoiceSampleBytes = Math.max(0, inMemoryVoiceSampleBytes - prev.length);
+    inMemoryVoiceSampleBuffers.delete(id);
+  }
+}
+
 let inMemoryPasswordStore: Record<string, string> = {};
 
 async function safeWriteJsonFile(filePath: string, payload: unknown): Promise<void> {
@@ -1431,7 +1466,7 @@ export async function saveUploadedVoiceSample(params: {
   const diskFileName = `${id}.${params.format}`;
   const diskPath = path.join(VOICE_SAMPLES_DIR, diskFileName);
 
-  inMemoryVoiceSampleBuffers.set(id, params.audioBuffer);
+  setVoiceSampleBufferBounded(id, params.audioBuffer);
   try {
     await fs.mkdir(VOICE_SAMPLES_DIR, { recursive: true });
     await fs.writeFile(diskPath, params.audioBuffer);
@@ -1496,7 +1531,7 @@ export async function deleteVoiceSample(sampleId: string): Promise<WorkspaceStat
     throw new Error('As matrizes oficiais exclusivas de 104.3 Hz e 90.2 Hz são protegidas contra exclusão.');
   }
 
-  inMemoryVoiceSampleBuffers.delete(target.id);
+  deleteVoiceSampleBufferBounded(target.id);
   const diskPath = path.join(VOICE_SAMPLES_DIR, `${target.id}.${target.format}`);
   try {
     await fs.unlink(diskPath);

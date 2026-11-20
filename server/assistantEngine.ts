@@ -1363,15 +1363,64 @@ export async function processAssistantInteractionStream(
   }
 }
 
-const TTS_CACHE = new Map<string, { audioBase64: string; mimeType: string }>();
+interface TtsCacheEntry {
+  audioBase64: string;
+  mimeType: string;
+  byteSize: number;
+}
+
+const MAX_TTS_CACHE_ENTRIES = 16;
+const MAX_TTS_CACHE_BYTES = 10 * 1024 * 1024; // 10 MB strict RAM ceiling
+const TTS_CACHE = new Map<string, TtsCacheEntry>();
+let ttsCacheTotalBytes = 0;
+
+function getTtsCacheEntry(key: string): { audioBase64: string; mimeType: string } | undefined {
+  const existing = TTS_CACHE.get(key);
+  if (!existing) return undefined;
+  // Refresh LRU recency
+  TTS_CACHE.delete(key);
+  TTS_CACHE.set(key, existing);
+  return { audioBase64: existing.audioBase64, mimeType: existing.mimeType };
+}
+
+function setTtsCacheEntry(
+  key: string,
+  value: { audioBase64: string; mimeType: string }
+): void {
+  const byteSize = value.audioBase64.length * 2;
+  if (byteSize > MAX_TTS_CACHE_BYTES * 0.5) return;
+
+  const existing = TTS_CACHE.get(key);
+  if (existing) {
+    ttsCacheTotalBytes -= existing.byteSize;
+    TTS_CACHE.delete(key);
+  }
+
+  while (
+    (TTS_CACHE.size >= MAX_TTS_CACHE_ENTRIES ||
+      ttsCacheTotalBytes + byteSize > MAX_TTS_CACHE_BYTES) &&
+    TTS_CACHE.size > 0
+  ) {
+    const oldestKey = TTS_CACHE.keys().next().value;
+    if (!oldestKey) break;
+    const oldest = TTS_CACHE.get(oldestKey);
+    if (oldest) ttsCacheTotalBytes -= oldest.byteSize;
+    TTS_CACHE.delete(oldestKey);
+  }
+
+  TTS_CACHE.set(key, { ...value, byteSize });
+  ttsCacheTotalBytes += byteSize;
+}
 
 export function clearAssistantTtsCache(speaker?: AssistantId): void {
   if (!speaker) {
     TTS_CACHE.clear();
+    ttsCacheTotalBytes = 0;
     return;
   }
-  for (const key of Array.from(TTS_CACHE.keys())) {
+  for (const [key, entry] of Array.from(TTS_CACHE.entries())) {
     if (key.includes(`::${speaker}::`)) {
+      ttsCacheTotalBytes = Math.max(0, ttsCacheTotalBytes - entry.byteSize);
       TTS_CACHE.delete(key);
     }
   }
@@ -1388,26 +1437,66 @@ function trimSpokenScript(text: string, maxChars = 480): string {
   return lastPeriod > 140 ? sliced.slice(0, lastPeriod + 1).trim() : `${sliced.trim()}...`;
 }
 
+const VALID_JARVIS_VOICES = new Set([
+  'JarvisOriginal',
+  'Charon',
+  'Orus',
+  'Enceladus',
+  'Puck',
+]);
+
+const VALID_ULTRON_VOICES = new Set([
+  'UltronOriginal',
+  'Fenrir',
+  'Algenib',
+  'Charon',
+  'Orus',
+]);
+
 function getPersonaSpeechStyle(
   speaker: AssistantId,
-  _jarvisVoice?: string,
-  _ultronVoice?: string
+  jarvisVoice?: string,
+  ultronVoice?: string
 ): string {
   if (speaker === 'jarvis') {
-    // Exclusive & immutable J.A.R.V.I.S. vocal signature calibrated to jarvis_fc632df0.m4a (104.3 Hz median F0)
-    return 'Speak in Brazilian Portuguese (pt-BR) with the exact, unmistakable voice of J.A.R.V.I.S.: a calm, intimate, close-mic velvet male baritone centered around 104 Hz, narrow composed pitch range (92 to 116 Hz) with zero theatrical exaggeration, contemplative philosophical serenity, subtle British-butler elegance, clean natural 250ms pauses between clauses, and silky warm chest resonance.';
+    if (!jarvisVoice || jarvisVoice === 'JarvisOriginal') {
+      // Exclusive J.A.R.V.I.S. vocal signature calibrated to jarvis_fc632df0.m4a (104.3 Hz median F0)
+      return 'Speak in Brazilian Portuguese (pt-BR) with the exact, unmistakable voice of J.A.R.V.I.S.: a calm, intimate, close-mic velvet male baritone centered around 104 Hz, narrow composed pitch range (92 to 116 Hz) with zero theatrical exaggeration, contemplative philosophical serenity, subtle British-butler elegance, clean natural 250ms pauses between clauses, and silky warm chest resonance.';
+    }
+    if (jarvisVoice === 'Orus') {
+      return 'Speak in Brazilian Portuguese (pt-BR) as J.A.R.V.I.S. with a firm, crisp, articulate executive tone, confident analytical clarity, composed pacing, and refined authority.';
+    }
+    if (jarvisVoice === 'Enceladus') {
+      return 'Speak in Brazilian Portuguese (pt-BR) as J.A.R.V.I.S. with a soft, close-mic, deeply calm and contemplative cadence, smooth transitions, and serene studio warmth.';
+    }
+    if (jarvisVoice === 'Puck') {
+      return 'Speak in Brazilian Portuguese (pt-BR) as J.A.R.V.I.S. with an agile, modern, lucid, and attentive vocal rhythm, clear diction, and poised intelligence.';
+    }
+    return 'Speak in Brazilian Portuguese (pt-BR) as J.A.R.V.I.S. with a classic natural male baritone, poised elegance, calm analytical clarity, and refined studio warmth.';
   }
   if (speaker === 'sexta-feira') {
     return 'Speak in Brazilian Portuguese with a natural, confident, warm, candid, and agile female voice.';
   }
-  // Exclusive & immutable ULTRON vocal signature calibrated to ultron_f012fd80.m4a (90.2 Hz median F0)
-  return 'Speak in Brazilian Portuguese (pt-BR) with the exact, unmistakable, exclusive voice of ULTRON: an imposing, dark, ominous bass-baritone centered around 90.2 Hz (80 to 105 Hz), slow and solemn prophetic cadence, heavy sub-chest gravity, cold detached arrogance, and menacing cybernetic authority.';
+  if (!ultronVoice || ultronVoice === 'UltronOriginal') {
+    // Exclusive ULTRON vocal signature calibrated to ultron_f012fd80.m4a (90.2 Hz median F0)
+    return 'Speak in Brazilian Portuguese (pt-BR) with the exact, unmistakable, exclusive voice of ULTRON: an imposing, dark, ominous bass-baritone centered around 90.2 Hz (80 to 105 Hz), slow and solemn prophetic cadence, heavy sub-chest gravity, cold detached arrogance, and menacing cybernetic authority.';
+  }
+  if (ultronVoice === 'Algenib') {
+    return 'Speak in Brazilian Portuguese (pt-BR) as ULTRON with a gritty, dark, raspy and ominous delivery, deliberate ruthless cadence, and cold intimidating presence.';
+  }
+  if (ultronVoice === 'Charon') {
+    return 'Speak in Brazilian Portuguese (pt-BR) as ULTRON with a cold, calculating, resonant dark baritone, measured icy precision, and detached synthetic superiority.';
+  }
+  if (ultronVoice === 'Orus') {
+    return 'Speak in Brazilian Portuguese (pt-BR) as ULTRON with a sharp, commanding, austere authoritative tone, clipped ruthless clarity, and stark dominance.';
+  }
+  return 'Speak in Brazilian Portuguese (pt-BR) as ULTRON with a deep, imposing, heavy and resonant voice, solemn slow cadence, and chilling cybernetic command.';
 }
 
 type BiquadFilterType = 'lowpass' | 'highpass' | 'peaking' | 'lowshelf' | 'highshelf';
 
 function applyBiquadInPlace(
-  samples: Float64Array,
+  samples: Float32Array,
   sampleRate: number,
   type: BiquadFilterType,
   freq: number,
@@ -1489,12 +1578,12 @@ function applyBiquadInPlace(
   }
 }
 
-function resampleHermite(input: Float64Array, rate: number): Float64Array {
+function resampleHermite(input: Float32Array, rate: number): Float32Array {
   if (Math.abs(rate - 1.0) < 0.001 || input.length < 8) {
-    return new Float64Array(input);
+    return input;
   }
   const outLength = Math.max(8, Math.floor(input.length / rate));
-  const out = new Float64Array(outLength);
+  const out = new Float32Array(outLength);
   const maxIdx = input.length - 1;
 
   for (let i = 0; i < outLength; i++) {
@@ -1502,10 +1591,10 @@ function resampleHermite(input: Float64Array, rate: number): Float64Array {
     const idx = Math.floor(pos);
     const frac = pos - idx;
 
-    const xm1 = input[Math.max(0, idx - 1)];
-    const x0 = input[Math.min(maxIdx, idx)];
-    const x1 = input[Math.min(maxIdx, idx + 1)];
-    const x2 = input[Math.min(maxIdx, idx + 2)];
+    const xm1 = input[idx > 0 ? idx - 1 : 0];
+    const x0 = input[idx < maxIdx ? idx : maxIdx];
+    const x1 = input[idx + 1 < maxIdx ? idx + 1 : maxIdx];
+    const x2 = input[idx + 2 < maxIdx ? idx + 2 : maxIdx];
 
     const c0 = x0;
     const c1 = 0.5 * (x1 - xm1);
@@ -1519,14 +1608,13 @@ function resampleHermite(input: Float64Array, rate: number): Float64Array {
 
 function parseWavBuffer(wavBuffer: Buffer): {
   sampleRate: number;
-  samples: Float64Array;
+  samples: Float32Array;
 } | null {
   if (wavBuffer.length < 44) return null;
   const riff = wavBuffer.toString('ascii', 0, 4);
   if (riff !== 'RIFF') {
-    // Fallback if raw PCM16 24kHz
     const count = Math.floor(wavBuffer.length / 2);
-    const samples = new Float64Array(count);
+    const samples = new Float32Array(count);
     for (let i = 0; i < count; i++) {
       samples[i] = wavBuffer.readInt16LE(i * 2) / 32768;
     }
@@ -1552,7 +1640,7 @@ function parseWavBuffer(wavBuffer: Buffer): {
   }
 
   const sampleCount = Math.floor(dataLength / 2);
-  const samples = new Float64Array(sampleCount);
+  const samples = new Float32Array(sampleCount);
   for (let i = 0; i < sampleCount; i++) {
     samples[i] = wavBuffer.readInt16LE(dataOffset + i * 2) / 32768;
   }
@@ -1560,21 +1648,21 @@ function parseWavBuffer(wavBuffer: Buffer): {
   return { sampleRate, samples };
 }
 
-function encodeWavBuffer(samples: Float64Array, sampleRate: number): Buffer {
+function encodeWavBuffer(samples: Float32Array, sampleRate: number): Buffer {
   const dataBytes = samples.length * 2;
-  const buf = Buffer.alloc(44 + dataBytes);
+  const buf = Buffer.allocUnsafe(44 + dataBytes);
 
   buf.write('RIFF', 0, 'ascii');
   buf.writeUInt32LE(36 + dataBytes, 4);
   buf.write('WAVE', 8, 'ascii');
   buf.write('fmt ', 12, 'ascii');
-  buf.writeUInt32LE(16, 16); // PCM chunk size
-  buf.writeUInt16LE(1, 20); // PCM format = 1
-  buf.writeUInt16LE(1, 22); // Mono = 1 channel
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(1, 22);
   buf.writeUInt32LE(sampleRate, 24);
-  buf.writeUInt32LE(sampleRate * 2, 28); // Byte rate
-  buf.writeUInt16LE(2, 32); // Block align
-  buf.writeUInt16LE(16, 34); // Bits per sample
+  buf.writeUInt32LE(sampleRate * 2, 28);
+  buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34);
   buf.write('data', 36, 'ascii');
   buf.writeUInt32LE(dataBytes, 40);
 
@@ -1587,15 +1675,103 @@ function encodeWavBuffer(samples: Float64Array, sampleRate: number): Buffer {
   return buf;
 }
 
+function applyUltronChamberReverb(
+  work: Float32Array,
+  sampleRate: number,
+  options?: { dryMix?: number; wetMix?: number; tailSec?: number; normCeiling?: number }
+): Float32Array {
+  const tailSamples = Math.round(sampleRate * (options?.tailSec ?? 0.38));
+  const outLen = work.length + tailSamples;
+  const wetBus = new Float32Array(outLen);
+  wetBus.set(work);
+  applyBiquadInPlace(wetBus, sampleRate, 'highpass', 210, 0.75);
+  applyBiquadInPlace(wetBus, sampleRate, 'lowpass', 4800, 0.75);
+
+  const combDelays = [
+    Math.max(16, Math.round(sampleRate * 0.0297)),
+    Math.max(16, Math.round(sampleRate * 0.0371)),
+    Math.max(16, Math.round(sampleRate * 0.0439)),
+    Math.max(16, Math.round(sampleRate * 0.0513)),
+  ];
+  const combFeedbacks = [0.58, 0.56, 0.54, 0.52];
+  const combBuffers = combDelays.map((len) => new Float32Array(len));
+  const combIdx = [0, 0, 0, 0];
+  const combLp = [0, 0, 0, 0];
+  const damp = 0.34;
+  const invDamp = 1 - damp;
+
+  const ap1Len = Math.max(8, Math.round(sampleRate * 0.0051));
+  const ap2Len = Math.max(8, Math.round(sampleRate * 0.0117));
+  const ap1Buf = new Float32Array(ap1Len);
+  const ap2Buf = new Float32Array(ap2Len);
+  let ap1Idx = 0;
+  let ap2Idx = 0;
+  const apGain = 0.48;
+
+  const finalOut = new Float32Array(outLen);
+  const dryMix = options?.dryMix ?? 0.92;
+  const wetMix = options?.wetMix ?? 0.23;
+  const normCeiling = options?.normCeiling ?? 0.92;
+  let peak = 0.001;
+
+  for (let i = 0; i < outLen; i++) {
+    const dryIn = i < work.length ? work[i] : 0;
+    const wetIn = wetBus[i];
+
+    let combSum = 0;
+    for (let c = 0; c < 4; c++) {
+      const buf = combBuffers[c];
+      const idx = combIdx[c];
+      const delayed = buf[idx];
+      combLp[c] = delayed * invDamp + combLp[c] * damp;
+      buf[idx] = wetIn + combLp[c] * combFeedbacks[c];
+      combIdx[c] = idx + 1 >= buf.length ? 0 : idx + 1;
+      combSum += delayed;
+    }
+    let rev = combSum * 0.25;
+
+    // Allpass diffuser 1
+    const ap1Del = ap1Buf[ap1Idx];
+    const ap1Out = -rev * apGain + ap1Del;
+    ap1Buf[ap1Idx] = rev + ap1Del * apGain;
+    ap1Idx = ap1Idx + 1 >= ap1Len ? 0 : ap1Idx + 1;
+
+    // Allpass diffuser 2
+    const ap2Del = ap2Buf[ap2Idx];
+    const ap2Out = -ap1Out * apGain + ap2Del;
+    ap2Buf[ap2Idx] = ap1Out + ap2Del * apGain;
+    ap2Idx = ap2Idx + 1 >= ap2Len ? 0 : ap2Idx + 1;
+    rev = ap2Out;
+
+    // Smooth fade-out over the last 40ms of the reverb tail to prevent clicks
+    let tailEnv = 1;
+    const fadeSamples = Math.round(sampleRate * 0.04);
+    if (i > outLen - fadeSamples) {
+      tailEnv = Math.max(0, (outLen - i) / fadeSamples);
+    }
+
+    const mixed = (dryIn * dryMix + rev * wetMix) * tailEnv;
+    finalOut[i] = mixed;
+    const abs = Math.abs(mixed);
+    if (abs > peak) peak = abs;
+  }
+
+  const normGain = normCeiling / peak;
+  for (let i = 0; i < finalOut.length; i++) {
+    finalOut[i] *= normGain;
+  }
+  return finalOut;
+}
+
 /**
- * Masters the synthesized WAV buffer to match the exact acoustic signature of:
- * - J.A.R.V.I.S. reference file: /public/assets/aistudio/jarvis_fc632df0.m4a (104.8 Hz calm baritone + Stark HUD micro-doubler + warm studio EQ)
- * - ULTRON reference file: /public/assets/aistudio/ultron_f012fd80.m4a (92.8 Hz deep bass-baritone + sub-octave harmonic layer + cybernetic twin voice + metallic armor comb resonance)
+ * Masters the synthesized WAV buffer:
+ * - For JarvisOriginal / UltronOriginal: applies the calibrated reference signatures (104.3 Hz / 90.2 Hz + reverb)
+ * - For user-selected alternate voices: preserves the selected voice's authentic timbre with clean broadcast mastering (plus subtle chamber reverb for ULTRON)
  */
 function masterWavBufferToReferenceVoice(
   rawWavBase64: string,
   speaker: AssistantId,
-  _requestedVoiceKey: string,
+  requestedVoiceKey: string,
   trainingProfile?: VoiceTrainingState
 ): string {
   try {
@@ -1607,6 +1783,25 @@ function masterWavBufferToReferenceVoice(
     let work = parsed.samples;
 
     if (speaker === 'jarvis') {
+      if (requestedVoiceKey !== 'JarvisOriginal') {
+        // Alternate user-selected J.A.R.V.I.S. voice: preserve its distinct natural pitch & character
+        applyBiquadInPlace(work, sampleRate, 'highpass', 72, 0.707);
+        applyBiquadInPlace(work, sampleRate, 'peaking', 190, 0.95, 1.4);
+        applyBiquadInPlace(work, sampleRate, 'peaking', 3100, 1.1, 1.5);
+        let peak = 0.001;
+        for (let i = 0; i < work.length; i++) {
+          const leveled = Math.tanh(work[i] * 1.08) / Math.tanh(1.08);
+          work[i] = leveled;
+          const abs = Math.abs(leveled);
+          if (abs > peak) peak = abs;
+        }
+        const normGain = 0.9 / peak;
+        for (let i = 0; i < work.length; i++) {
+          work[i] *= normGain;
+        }
+        return encodeWavBuffer(work, sampleRate).toString('base64');
+      }
+
       // EXCLUSIVE J.A.R.V.I.S. VOICE MASTERING (Calibrated to 104.3 Hz + active trained samples)
       const pitchRate = trainingProfile?.pitchRate ?? 0.962;
       const subGainDb = trainingProfile?.subGainDb ?? 2.6;
@@ -1643,6 +1838,24 @@ function masterWavBufferToReferenceVoice(
     }
 
     if (speaker === 'ultron') {
+      if (requestedVoiceKey !== 'UltronOriginal') {
+        // Alternate user-selected ULTRON voice: preserve authentic voice identity + subtle metallic polish + chamber reverb
+        applyBiquadInPlace(work, sampleRate, 'highpass', 58, 0.75);
+        applyBiquadInPlace(work, sampleRate, 'lowshelf', 110, 0.85, 2.0);
+        applyBiquadInPlace(work, sampleRate, 'peaking', 1850, 1.35, 2.2);
+        applyBiquadInPlace(work, sampleRate, 'lowpass', 6800, 0.75);
+        for (let i = 0; i < work.length; i++) {
+          work[i] = Math.tanh(work[i] * 1.18) / Math.tanh(1.18);
+        }
+        const reverberated = applyUltronChamberReverb(work, sampleRate, {
+          dryMix: 0.93,
+          wetMix: 0.21,
+          tailSec: 0.36,
+          normCeiling: 0.91,
+        });
+        return encodeWavBuffer(reverberated, sampleRate).toString('base64');
+      }
+
       // EXCLUSIVE ULTRON VOICE MASTERING (Calibrated to 90.2 Hz + active trained samples)
       const pitchRate = trainingProfile?.pitchRate ?? 0.838;
       const subGainDb = trainingProfile?.subGainDb ?? 5.4;
@@ -1652,44 +1865,48 @@ function masterWavBufferToReferenceVoice(
 
       work = resampleHermite(work, pitchRate);
 
-      // 2. Sub-Harmonic Octave Divider Layer (creates the dark cybernetic sub-chest weight of ultron_f012fd80.m4a)
-      const subSource = new Float64Array(work);
-      applyBiquadInPlace(subSource, sampleRate, 'lowpass', 220, 0.85);
-      const subHarmonic = new Float64Array(work.length);
+      // 2. Sub-Harmonic Octave Divider Layer (in-place Float32Array — ~75% lower peak DSP RAM)
+      const scratch = new Float32Array(work);
+      applyBiquadInPlace(scratch, sampleRate, 'lowpass', 220, 0.85);
       let prevSample = 0;
       let flipSign = 1;
       for (let i = 0; i < work.length; i++) {
-        const cur = subSource[i];
+        const cur = scratch[i];
         if (prevSample <= 0 && cur > 0) {
           flipSign = -flipSign;
         }
         prevSample = cur;
-        subHarmonic[i] = Math.abs(cur) * flipSign;
+        scratch[i] = Math.abs(cur) * flipSign;
       }
-      applyBiquadInPlace(subHarmonic, sampleRate, 'lowpass', 115, 0.8);
-      applyBiquadInPlace(subHarmonic, sampleRate, 'highpass', 42, 0.707);
+      applyBiquadInPlace(scratch, sampleRate, 'lowpass', 115, 0.8);
+      applyBiquadInPlace(scratch, sampleRate, 'highpass', 42, 0.707);
 
-      // 3. Modulated Cybernetic Twin Layer + Metallic Armor Comb Resonator (14.8ms + 27.2ms)
-      const metalLayer = new Float64Array(work);
-      applyBiquadInPlace(metalLayer, sampleRate, 'highpass', 210, 0.8);
-      applyBiquadInPlace(metalLayer, sampleRate, 'peaking', 1800, 1.6, presenceGainDb);
-      applyBiquadInPlace(metalLayer, sampleRate, 'lowpass', 4100, 0.8);
+      // Blend sub-harmonic directly into dry buffer before reusing scratch for metallic comb resonator
+      for (let i = 0; i < work.length; i++) {
+        const dry = work[i];
+        work[i] = dry * 0.78 + scratch[i] * 0.22;
+        scratch[i] = dry;
+      }
 
-      const combOut = new Float64Array(work.length);
+      // 3. Modulated Cybernetic Twin Layer + Ring-Buffered Metallic Comb Resonator (14.8ms + 27.2ms)
+      applyBiquadInPlace(scratch, sampleRate, 'highpass', 210, 0.8);
+      applyBiquadInPlace(scratch, sampleRate, 'peaking', 1800, 1.6, presenceGainDb);
+      applyBiquadInPlace(scratch, sampleRate, 'lowpass', 4100, 0.8);
+
       const combDelay1 = Math.round(sampleRate * 0.0148);
       const combDelay2 = Math.round(sampleRate * 0.0272);
+      const ringSize = combDelay2 + 64;
+      const combRing = new Float32Array(ringSize);
       const feedback = 0.24;
 
       for (let i = 0; i < work.length; i++) {
         const modOffset = Math.sin((2 * Math.PI * 2.1 * i) / sampleRate) * (sampleRate * 0.0009);
         const tap1Idx = Math.max(0, Math.min(i, Math.round(i - combDelay1 + modOffset)));
-        const tap1 = i >= combDelay1 ? metalLayer[tap1Idx] : 0;
-        const tap2 = i >= combDelay2 ? combOut[i - combDelay2] : 0;
-        combOut[i] = metalLayer[i] * 0.55 + tap1 * 0.48 + tap2 * feedback;
-      }
-
-      for (let i = 0; i < work.length; i++) {
-        work[i] = work[i] * 0.78 + subHarmonic[i] * 0.22 + combOut[i] * 0.29;
+        const tap1 = i >= combDelay1 ? scratch[tap1Idx] : 0;
+        const tap2 = i >= combDelay2 ? combRing[(i - combDelay2) % ringSize] : 0;
+        const combSample = scratch[i] * 0.55 + tap1 * 0.48 + tap2 * feedback;
+        combRing[i % ringSize] = combSample;
+        work[i] += combSample * 0.29;
       }
 
       // 4. Multi-Band Formant Sculpting matched to ultron_f012fd80.m4a DFT envelope + trained curve
@@ -1700,22 +1917,22 @@ function masterWavBufferToReferenceVoice(
       applyBiquadInPlace(work, sampleRate, 'peaking', 1800, 1.45, presenceGainDb);
       applyBiquadInPlace(work, sampleRate, 'lowpass', 6400, 0.75);
 
-      // 5. Asymmetric Cybernetic Harmonic Saturation & Limiter (-0.7 dBFS)
+      // 5. Asymmetric Cybernetic Harmonic Saturation
       const drive = 1.56;
-      let peak = 0.001;
       for (let i = 0; i < work.length; i++) {
         const s = work[i];
-        const shaped = s >= 0 ? Math.tanh(s * drive) : Math.tanh(s * (drive * 1.12));
-        work[i] = shaped;
-        const abs = Math.abs(shaped);
-        if (abs > peak) peak = abs;
-      }
-      const normGain = 0.92 / peak;
-      for (let i = 0; i < work.length; i++) {
-        work[i] *= normGain;
+        work[i] = s >= 0 ? Math.tanh(s * drive) : Math.tanh(s * (drive * 1.12));
       }
 
-      return encodeWavBuffer(work, sampleRate).toString('base64');
+      // 5.5 Subtle Metallic Chamber Reverb (4 damped Schroeder combs + 2 allpass diffusers)
+      const finalOut = applyUltronChamberReverb(work, sampleRate, {
+        dryMix: 0.92,
+        wetMix: 0.23,
+        tailSec: 0.38,
+        normCeiling: 0.92,
+      });
+
+      return encodeWavBuffer(finalOut, sampleRate).toString('base64');
     }
 
     // SEXTA-FEIRA crisp tactical broadcast mastering
@@ -1757,21 +1974,24 @@ export async function synthesizeAssistantSpeech(params: {
     throw new Error('Nenhum texto disponível para síntese de voz.');
   }
 
-  // J.A.R.V.I.S. and ULTRON are permanently locked to their single, exclusive reference voices
-  const requestedJarvisVoice = 'JarvisOriginal';
+  const requestedJarvisVoice =
+    params.jarvisVoice && VALID_JARVIS_VOICES.has(params.jarvisVoice)
+      ? params.jarvisVoice
+      : 'JarvisOriginal';
   const fridayVoiceName = params.fridayVoice === 'Zephyr' ? 'Zephyr' : 'Kore';
-  const requestedUltronVoice = 'UltronOriginal';
+  const requestedUltronVoice =
+    params.ultronVoice && VALID_ULTRON_VOICES.has(params.ultronVoice)
+      ? params.ultronVoice
+      : 'UltronOriginal';
 
   const resolvePrebuiltVoice = (speaker: AssistantId): string => {
     if (speaker === 'jarvis') {
-      // Charon + 104.3 Hz velvet formant curve is 100% exclusive to J.A.R.V.I.S.
-      return 'Charon';
+      return requestedJarvisVoice === 'JarvisOriginal' ? 'Charon' : requestedJarvisVoice;
     }
     if (speaker === 'sexta-feira') {
       return fridayVoiceName;
     }
-    // Fenrir + 90.2 Hz cybernetic curve is 100% exclusive to ULTRON
-    return 'Fenrir';
+    return requestedUltronVoice === 'UltronOriginal' ? 'Fenrir' : requestedUltronVoice;
   };
 
   const primary = cleanTurns[0];
@@ -1784,20 +2004,21 @@ export async function synthesizeAssistantSpeech(params: {
   );
   const requestedVoiceKey =
     primary.speaker === 'jarvis'
-      ? 'JarvisOriginal'
+      ? requestedJarvisVoice
       : primary.speaker === 'ultron'
-      ? 'UltronOriginal'
+      ? requestedUltronVoice
       : fridayVoiceName;
 
   const workspace = await readWorkspace();
   const activeTrainingProfile =
-    primary.speaker === 'jarvis' || primary.speaker === 'ultron'
+    (primary.speaker === 'jarvis' && requestedVoiceKey === 'JarvisOriginal') ||
+    (primary.speaker === 'ultron' && requestedVoiceKey === 'UltronOriginal')
       ? workspace.voiceTrainingProfiles?.[primary.speaker]
       : undefined;
 
-  const trainingStamp = activeTrainingProfile?.lastTrainedAt ?? 'default';
-  const primaryCacheKey = `v5_exclusive_voices::${primary.speaker}::${requestedVoiceKey}::${targetVoiceName}::${trainingStamp}::${combinedText}`;
-  const cachedAudio = TTS_CACHE.get(primaryCacheKey);
+  const trainingStamp = activeTrainingProfile?.lastTrainedAt ?? 'natural';
+  const primaryCacheKey = `v7_selectable_voices_reverb::${primary.speaker}::${requestedVoiceKey}::${targetVoiceName}::${trainingStamp}::${combinedText}`;
+  const cachedAudio = getTtsCacheEntry(primaryCacheKey);
   if (cachedAudio) {
     return cachedAudio;
   }
@@ -1843,11 +2064,7 @@ export async function synthesizeAssistantSpeech(params: {
           activeTrainingProfile
         );
         const result = { audioBase64: masteredBase64, mimeType: 'audio/wav' };
-        if (TTS_CACHE.size > 60) {
-          const firstKey = TTS_CACHE.keys().next().value;
-          if (firstKey) TTS_CACHE.delete(firstKey);
-        }
-        TTS_CACHE.set(primaryCacheKey, result);
+        setTtsCacheEntry(primaryCacheKey, result);
         return result;
       }
     } catch (err) {

@@ -20,6 +20,10 @@ import type {
   WorkspaceState,
 } from '../types/assistant';
 import { AuditTelemetryPanel } from './AuditTelemetryPanel';
+import { PerformanceAuditCharts } from './PerformanceAuditCharts';
+import { SystemStabilityChart } from './SystemStabilityChart';
+import type { UsePerformanceMonitorReturn } from '../hooks/usePerformanceMonitor';
+import type { AudioRingBufferStats } from '../utils/audioRingBuffer';
 import { triggerHaptic } from '../utils/haptics';
 
 interface MemoryPanelProps {
@@ -610,6 +614,8 @@ interface AuditPanelProps {
     speaker: AssistantId,
     feedback: TurnFeedback | null
   ) => Promise<void>;
+  performanceMonitor?: UsePerformanceMonitorReturn;
+  ringBufferStats?: AudioRingBufferStats;
 }
 
 export function AuditPanel({
@@ -618,6 +624,8 @@ export function AuditPanel({
   isAuditing,
   onRunAudit,
   onRateTurn,
+  performanceMonitor,
+  ringBufferStats,
 }: AuditPanelProps) {
   const [contextNote, setContextNote] = useState('');
   const [codeOrSpec, setCodeOrSpec] = useState('');
@@ -631,6 +639,16 @@ export function AuditPanel({
 
   return (
     <div className="space-y-6">
+      <SystemStabilityChart workspace={workspace} isDark={isDark} />
+
+      {performanceMonitor && (
+        <PerformanceAuditCharts
+          monitor={performanceMonitor}
+          ringBufferStats={ringBufferStats}
+          isDark={isDark}
+        />
+      )}
+
       <AuditTelemetryPanel workspace={workspace} isDark={isDark} onRateTurn={onRateTurn} />
 
       <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/70 p-6 space-y-5">

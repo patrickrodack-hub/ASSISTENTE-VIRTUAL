@@ -11,6 +11,11 @@
   html {
     font-family: var(--font-sans);
     color-scheme: light;
+    overflow-x: clip;
+  }
+
+  body {
+    overflow-x: clip;
   }
 
   html.dark {
@@ -110,4 +115,65 @@
     0 0 24px 4px rgba(34, 211, 238, 0.55),
     0 0 60px 12px rgba(6, 182, 212, 0.28);
 }
+
+/* SALA STARK Global Tactical Command Room Theme (Adapted from /assets/aistudio/image_7f25b6f4.png) */
+.stark-room-grid {
+  background-image:
+    linear-gradient(to right, rgba(56, 189, 248, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(56, 189, 248, 0.08) 1px, transparent 1px),
+    linear-gradient(to right, rgba(249, 115, 22, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(249, 115, 22, 0.04) 1px, transparent 1px);
+  background-size: 28px 28px, 28px 28px, 140px 140px, 140px 140px;
+}
+
+.stark-room-panel {
+  background: linear-gradient(
+    165deg,
+    rgba(9, 22, 36, 0.92) 0%,
+    rgba(6, 15, 26, 0.95) 60%,
+    rgba(11, 24, 38, 0.92) 100%
+  );
+  border: 1px solid rgba(56, 189, 248, 0.26);
+  box-shadow:
+    inset 0 1px 0 0 rgba(125, 211, 252, 0.16),
+    0 12px 30px -16px rgba(0, 0, 0, 0.85);
+}
+
+.stark-room-monitor {
+  background: linear-gradient(180deg, rgba(11, 24, 38, 0.96) 0%, rgba(5, 13, 22, 0.98) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  box-shadow:
+    0 10px 28px -10px rgba(0, 0, 0, 0.85),
+    inset 0 0 0 1px rgba(56, 189, 248, 0.12);
+}
+
+.stark-scanlines {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.03) 0px,
+    rgba(255, 255, 255, 0.03) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+@keyframes stark-radar-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.stark-radar-sweep {
+  animation: stark-radar-rotate 4.5s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stark-radar-sweep {
+    animation: none;
+  }
+}
+
 

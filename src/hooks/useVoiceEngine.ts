@@ -2,11 +2,171 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistantId, AssistantTurn, InteractionMode } from '../types/assistant';
 import { safeFetchJson } from '../utils/apiClient';
 import { detectAssistantMentions } from '../utils/assistantRouter';
+import {
+  AdaptiveAudioRingBuffer,
+  splitTurnIntoAudioChunks,
+  type AudioChunkDescriptor,
+  type AudioRingBufferStats,
+} from '../utils/audioRingBuffer';
 import { triggerHaptic } from '../utils/haptics';
 
-export type JarvisVoiceOption = 'JarvisOriginal';
+export type JarvisVoiceOption =
+  | 'JarvisOriginal'
+  | 'Charon'
+  | 'Orus'
+  | 'Enceladus'
+  | 'Puck';
 export type FridayVoiceOption = 'Kore' | 'Zephyr';
-export type UltronVoiceOption = 'UltronOriginal';
+export type UltronVoiceOption =
+  | 'UltronOriginal'
+  | 'Fenrir'
+  | 'Algenib'
+  | 'Charon'
+  | 'Orus';
+
+export interface AssistantVoiceTuning {
+  /** Pitch offset in semitones (-6.0 to +6.0, 0 = default) */
+  pitchSemitones: number;
+  /** Playback speed multiplier (0.75 to 1.35, 1.0 = default) */
+  speed: number;
+  /** Modulation intensity percentage (0 to 100) */
+  modulation: number;
+}
+
+export type VoiceTuningMap = Record<AssistantId, AssistantVoiceTuning>;
+
+export const DEFAULT_VOICE_TUNING: VoiceTuningMap = {
+  jarvis: { pitchSemitones: 0, speed: 1.0, modulation: 15 },
+  'sexta-feira': { pitchSemitones: 0, speed: 1.0, modulation: 10 },
+  ultron: { pitchSemitones: 0, speed: 1.0, modulation: 45 },
+};
+
+function clampVoiceTuning(input?: Partial<AssistantVoiceTuning>, fallback?: AssistantVoiceTuning): AssistantVoiceTuning {
+  const base = fallback ?? { pitchSemitones: 0, speed: 1.0, modulation: 0 };
+  const pitch = Number.isFinite(input?.pitchSemitones) ? Number(input?.pitchSemitones) : base.pitchSemitones;
+  const speed = Number.isFinite(input?.speed) ? Number(input?.speed) : base.speed;
+  const modulation = Number.isFinite(input?.modulation) ? Number(input?.modulation) : base.modulation;
+  return {
+    pitchSemitones: Math.round(Math.max(-6, Math.min(6, pitch)) * 2) / 2,
+    speed: Math.round(Math.max(0.75, Math.min(1.35, speed)) * 20) / 20,
+    modulation: Math.round(Math.max(0, Math.min(100, modulation))),
+  };
+}
+
+export const JARVIS_VOICE_OPTIONS: Array<{
+  value: JarvisVoiceOption;
+  shortLabel: string;
+  label: string;
+  spec: string;
+  description: string;
+}> = [
+  {
+    value: 'JarvisOriginal',
+    shortLabel: 'JarvisOriginal (104.3 Hz · Padrão)',
+    label: 'JarvisOriginal (Matriz Exclusiva · 104.3 Hz — Padrão)',
+    spec: '104.3 Hz F0 · Barítono Aveludado Close-Mic (jarvis_fc632df0.m4a)',
+    description:
+      'Assinatura vocal original calibrada de J.A.R.V.I.S.: F0 em 104.3 Hz, corpo aveludado em 180–250 Hz e dicção britânica contemplativa.',
+  },
+  {
+    value: 'Charon',
+    shortLabel: 'Charon (Barítono Natural)',
+    label: 'Charon (Barítono Clássico · Estúdio Natural)',
+    spec: 'Timbre Natural · Barítono Equilibrado & Elegante',
+    description:
+      'Voz masculina barítono natural sem deslocamento de pitch, com clareza analítica de estúdio e presença equilibrada.',
+  },
+  {
+    value: 'Orus',
+    shortLabel: 'Orus (Executivo Firme)',
+    label: 'Orus (Executivo · Firme & Direto)',
+    spec: 'Timbre Firme · Comando Estratégico & Precisão',
+    description:
+      'Voz masculina assertiva, nítida e executiva para respostas diretas, auditoria técnica e decisões rápidas.',
+  },
+  {
+    value: 'Enceladus',
+    shortLabel: 'Enceladus (Calmo & Suave)',
+    label: 'Enceladus (Sussurrado · Calmo & Contemplativo)',
+    spec: 'Timbre Aveludado · Close-Mic Sereno',
+    description:
+      'Voz masculina calma e íntima com cadência tranquila e conforto auditivo prolongado.',
+  },
+  {
+    value: 'Puck',
+    shortLabel: 'Puck (Ágil & Moderno)',
+    label: 'Puck (Contemporâneo · Ágil & Expressivo)',
+    spec: 'Timbre Dinâmico · Ritmo Rápido & Lúcido',
+    description:
+      'Voz masculina mais leve, ágil e expressiva para interações rápidas no console.',
+  },
+];
+
+export const ULTRON_VOICE_OPTIONS: Array<{
+  value: UltronVoiceOption;
+  shortLabel: string;
+  label: string;
+  spec: string;
+  description: string;
+}> = [
+  {
+    value: 'UltronOriginal',
+    shortLabel: 'UltronOriginal (90.2 Hz + Reverb)',
+    label: 'UltronOriginal (Matriz Exclusiva · 90.2 Hz + Reverb — Padrão)',
+    spec: '90.2 Hz F0 · Baixo-Barítono Cibernético + Câmara Metálica',
+    description:
+      'Assinatura vocal original de ULTRON: F0 em 90.2 Hz, divisor sub-harmônico de oitava, ressonador metálico e reverb de câmara.',
+  },
+  {
+    value: 'Fenrir',
+    shortLabel: 'Fenrir (Grave Imponente + Reverb)',
+    label: 'Fenrir (Grave Natural Imponente + Reverb Metálico)',
+    spec: 'Grave Natural · Autoridade Profunda + Reverb de Câmara',
+    description:
+      'Timbre grave natural de Fenrir preservado sem distorção pesada, finalizado com reverb metálico sutil de ULTRON.',
+  },
+  {
+    value: 'Algenib',
+    shortLabel: 'Algenib (Áspero & Sombrio + Reverb)',
+    label: 'Algenib (Áspero & Sombrio + Reverb Metálico)',
+    spec: 'Timbre Rasgado · Presença Sombria + Câmara Metálica',
+    description:
+      'Voz masculina áspera e intimidadora com textura grave marcante e reverberação metálica sutil.',
+  },
+  {
+    value: 'Charon',
+    shortLabel: 'Charon (Frio & Calculista + Reverb)',
+    label: 'Charon (Barítono Frio & Calculista + Reverb)',
+    spec: 'Barítono Frio · Precisão Sintética + Reverb Sutil',
+    description:
+      'Voz barítono ressonante em cadência fria, calculista e sintética com ambiência metálica.',
+  },
+  {
+    value: 'Orus',
+    shortLabel: 'Orus (Autoritário & Cortante + Reverb)',
+    label: 'Orus (Autoritário & Cortante + Reverb)',
+    spec: 'Comando Austero · Clareza Cortante + Reverb Sutil',
+    description:
+      'Timbre firme, cortante e dominante com dicção implacável e reverberação espacial.',
+  },
+];
+
+const VALID_JARVIS_VOICE_SET = new Set<JarvisVoiceOption>(
+  JARVIS_VOICE_OPTIONS.map((o) => o.value)
+);
+const VALID_ULTRON_VOICE_SET = new Set<UltronVoiceOption>(
+  ULTRON_VOICE_OPTIONS.map((o) => o.value)
+);
+
+interface SynthesizedChunkPayload {
+  turn: AssistantTurn;
+  chunk: AudioChunkDescriptor;
+  audioBase64: string | null;
+  mimeType: string;
+  byteSize: number;
+  fetchLatencyMs: number;
+  fromCache: boolean;
+}
 
 interface SpeechRecognitionAlternativeLike {
   transcript: string;
@@ -30,6 +190,7 @@ interface SpeechRecognitionEventLike {
 interface SpeechRecognitionInstanceLike {
   continuous: boolean;
   interimResults: boolean;
+  maxAlternatives?: number;
   lang: string;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
   onerror: ((event: { error: string }) => void) | null;
@@ -37,6 +198,12 @@ interface SpeechRecognitionInstanceLike {
   start: () => void;
   stop: () => void;
   abort: () => void;
+}
+
+export interface AudioTelemetryBuffer {
+  amplitude: number;
+  bands: Float32Array;
+  active: boolean;
 }
 
 type SpeechRecognitionCtor = new () => SpeechRecognitionInstanceLike;
@@ -64,6 +231,137 @@ function base64ToBlobUrl(base64: string, mimeType: string): string {
   const buffer = base64ToArrayBuffer(base64);
   const blob = new Blob([buffer], { type: mimeType || 'audio/wav' });
   return URL.createObjectURL(blob);
+}
+
+export type LabAmbienceLevel = 'sutil' | 'equilibrado' | 'imersivo';
+
+export interface StartupDefaultVoices {
+  jarvis: JarvisVoiceOption;
+  'sexta-feira': FridayVoiceOption;
+  ultron: UltronVoiceOption;
+}
+
+export const FACTORY_DEFAULT_VOICES: StartupDefaultVoices = {
+  jarvis: 'JarvisOriginal',
+  'sexta-feira': 'Kore',
+  ultron: 'UltronOriginal',
+};
+
+const STARTUP_DEFAULT_VOICES_STORAGE_KEY = 'stark_startup_default_voices_v1';
+const LAB_AMBIENCE_ENABLED_STORAGE_KEY = 'stark_lab_ambience_enabled_v1';
+const LAB_AMBIENCE_LEVEL_STORAGE_KEY = 'stark_lab_ambience_level_v1';
+
+function readStoredStartupDefaultVoices(): {
+  voices: StartupDefaultVoices;
+  hasCustom: boolean;
+} {
+  if (typeof window === 'undefined') {
+    return { voices: { ...FACTORY_DEFAULT_VOICES }, hasCustom: false };
+  }
+  try {
+    const raw = window.localStorage.getItem(STARTUP_DEFAULT_VOICES_STORAGE_KEY);
+    if (!raw) {
+      return { voices: { ...FACTORY_DEFAULT_VOICES }, hasCustom: false };
+    }
+    const parsed = JSON.parse(raw) as Partial<StartupDefaultVoices>;
+    const jarvis: JarvisVoiceOption =
+      parsed.jarvis && VALID_JARVIS_VOICE_SET.has(parsed.jarvis)
+        ? parsed.jarvis
+        : FACTORY_DEFAULT_VOICES.jarvis;
+    const friday: FridayVoiceOption =
+      parsed['sexta-feira'] === 'Zephyr' || parsed['sexta-feira'] === 'Kore'
+        ? parsed['sexta-feira']
+        : FACTORY_DEFAULT_VOICES['sexta-feira'];
+    const ultron: UltronVoiceOption =
+      parsed.ultron && VALID_ULTRON_VOICE_SET.has(parsed.ultron)
+        ? parsed.ultron
+        : FACTORY_DEFAULT_VOICES.ultron;
+    return {
+      voices: { jarvis, 'sexta-feira': friday, ultron },
+      hasCustom: true,
+    };
+  } catch {
+    return { voices: { ...FACTORY_DEFAULT_VOICES }, hasCustom: false };
+  }
+}
+
+/**
+ * Builds a crisp stereo "Ambiente de Laboratório" room impulse response (~0.92s)
+ * with glass/titanium early reflections and smooth airy decay so every assistant
+ * acquires subtle command-lab acoustics without losing vocal intelligibility.
+ */
+function createLabAmbienceImpulseResponse(ctx: AudioContext): AudioBuffer {
+  const durationSec = 0.92;
+  const sampleRate = ctx.sampleRate;
+  const length = Math.max(1, Math.floor(sampleRate * durationSec));
+  const ir = ctx.createBuffer(2, length, sampleRate);
+  const preDelaySamples = Math.floor(sampleRate * 0.014);
+
+  const earlyTapMs = [18, 29, 41, 56, 74];
+  const earlyTapGains = [0.42, 0.31, 0.24, 0.17, 0.11];
+
+  for (let ch = 0; ch < 2; ch++) {
+    const data = ir.getChannelData(ch);
+    let lp = 0;
+    let seed = ch === 0 ? 421043 : 104342;
+    for (let i = 0; i < length; i++) {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      const white = (seed / 0xffffffff) * 2 - 1;
+      if (i < preDelaySamples) {
+        data[i] = 0;
+        continue;
+      }
+      const t = (i - preDelaySamples) / Math.max(1, length - preDelaySamples);
+      const env = Math.pow(1 - t, 3.15);
+      // Smooth warm-high damping for clean laboratory glass/steel acoustic tail
+      lp = lp * 0.64 + white * 0.36;
+      data[i] = lp * env * 0.48;
+    }
+
+    // Add distinct stereo-offset early reflections
+    for (let k = 0; k < earlyTapMs.length; k++) {
+      const chOffsetMs = ch === 0 ? 0 : 2.3;
+      const idx = Math.floor(((earlyTapMs[k] + chOffsetMs) / 1000) * sampleRate);
+      if (idx >= 0 && idx < length) {
+        const polarity = (k + ch) % 2 === 0 ? 1 : -1;
+        data[idx] += polarity * earlyTapGains[k];
+      }
+    }
+  }
+  return ir;
+}
+
+/**
+ * Builds a subtle stereo metallic chamber impulse response (~0.52s) for ULTRON's
+ * WebAudio playback bus, preserving crisp 90.2 Hz bass clarity while adding stereo depth.
+ */
+function createUltronImpulseResponse(ctx: AudioContext): AudioBuffer {
+  const durationSec = 0.52;
+  const sampleRate = ctx.sampleRate;
+  const length = Math.max(1, Math.floor(sampleRate * durationSec));
+  const ir = ctx.createBuffer(2, length, sampleRate);
+
+  for (let ch = 0; ch < 2; ch++) {
+    const data = ir.getChannelData(ch);
+    let lp = 0;
+    // Deterministic seeded PRNG so stereo L/R decorrelation is consistent and zero-glitch
+    let seed = ch === 0 ? 1337902 : 9021337;
+    for (let i = 0; i < length; i++) {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      const white = (seed / 0xffffffff) * 2 - 1;
+      const t = i / length;
+      // Fast pre-delay (12ms) + smooth exponential metallic chamber decay
+      const preDelaySamples = Math.floor(sampleRate * 0.012);
+      if (i < preDelaySamples) {
+        data[i] = 0;
+        continue;
+      }
+      const env = Math.pow(1 - t, 2.75);
+      lp = lp * 0.55 + white * 0.45;
+      data[i] = lp * env * 0.68;
+    }
+  }
+  return ir;
 }
 
 const ZERO_BANDS = Array.from({ length: 24 }, () => 0);
@@ -135,50 +433,70 @@ export function useVoiceEngine({
   const [isTranscribingClip, setIsTranscribingClip] = useState(false);
   const [audioBlockedByBrowser, setAudioBlockedByBrowser] = useState(false);
 
+  const initialStartupDefaults = readStoredStartupDefaultVoices();
+  const [startupDefaultVoices, setStartupDefaultVoicesState] = useState<StartupDefaultVoices>(
+    () => initialStartupDefaults.voices
+  );
+  const [hasCustomStartupDefaults, setHasCustomStartupDefaults] = useState<boolean>(
+    () => initialStartupDefaults.hasCustom
+  );
+
   const [jarvisVoice, setJarvisVoiceState] = useState<JarvisVoiceOption>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        window.localStorage.setItem('stark_jarvis_voice_exclusive', 'JarvisOriginal');
-        window.localStorage.setItem('stark_jarvis_voice_v3', 'JarvisOriginal');
-        window.localStorage.setItem('stark_jarvis_voice_v2', 'JarvisOriginal');
-      } catch {
-        // ignore
+    if (typeof window === 'undefined') return 'JarvisOriginal';
+    if (initialStartupDefaults.hasCustom) {
+      return initialStartupDefaults.voices.jarvis;
+    }
+    try {
+      const saved = window.localStorage.getItem('stark_jarvis_voice_v4') as JarvisVoiceOption | null;
+      if (saved && VALID_JARVIS_VOICE_SET.has(saved)) {
+        return saved;
       }
+    } catch {
+      // ignore
     }
     return 'JarvisOriginal';
   });
 
   const [fridayVoice, setFridayVoiceState] = useState<FridayVoiceOption>(() => {
     if (typeof window === 'undefined') return 'Kore';
+    if (initialStartupDefaults.hasCustom) {
+      return initialStartupDefaults.voices['sexta-feira'];
+    }
     const saved = window.localStorage.getItem('stark_friday_voice');
     return saved === 'Zephyr' || saved === 'Kore' ? saved : 'Kore';
   });
 
   const [ultronVoice, setUltronVoiceState] = useState<UltronVoiceOption>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        window.localStorage.setItem('stark_ultron_voice_exclusive', 'UltronOriginal');
-        window.localStorage.setItem('stark_ultron_voice_v3', 'UltronOriginal');
-        window.localStorage.setItem('stark_ultron_voice_v2', 'UltronOriginal');
-      } catch {
-        // ignore
+    if (typeof window === 'undefined') return 'UltronOriginal';
+    if (initialStartupDefaults.hasCustom) {
+      return initialStartupDefaults.voices.ultron;
+    }
+    try {
+      const saved = window.localStorage.getItem('stark_ultron_voice_v4') as UltronVoiceOption | null;
+      if (saved && VALID_ULTRON_VOICE_SET.has(saved)) {
+        return saved;
       }
+    } catch {
+      // ignore
     }
     return 'UltronOriginal';
   });
 
-  const setJarvisVoice = useCallback((_v?: JarvisVoiceOption) => {
-    setJarvisVoiceState('JarvisOriginal');
+  const setJarvisVoice = useCallback((next: JarvisVoiceOption) => {
+    const resolved: JarvisVoiceOption = VALID_JARVIS_VOICE_SET.has(next)
+      ? next
+      : 'JarvisOriginal';
+    jarvisVoiceRef.current = resolved;
+    setJarvisVoiceState(resolved);
     try {
-      window.localStorage.setItem('stark_jarvis_voice_exclusive', 'JarvisOriginal');
-      window.localStorage.setItem('stark_jarvis_voice_v3', 'JarvisOriginal');
-      window.localStorage.setItem('stark_jarvis_voice_v2', 'JarvisOriginal');
+      window.localStorage.setItem('stark_jarvis_voice_v4', resolved);
     } catch {
       // ignore
     }
   }, []);
 
   const setFridayVoice = useCallback((v: FridayVoiceOption) => {
+    fridayVoiceRef.current = v;
     setFridayVoiceState(v);
     try {
       window.localStorage.setItem('stark_friday_voice', v);
@@ -187,12 +505,194 @@ export function useVoiceEngine({
     }
   }, []);
 
-  const setUltronVoice = useCallback((_v?: UltronVoiceOption) => {
-    setUltronVoiceState('UltronOriginal');
+  const setUltronVoice = useCallback((next: UltronVoiceOption) => {
+    const resolved: UltronVoiceOption = VALID_ULTRON_VOICE_SET.has(next)
+      ? next
+      : 'UltronOriginal';
+    ultronVoiceRef.current = resolved;
+    setUltronVoiceState(resolved);
     try {
-      window.localStorage.setItem('stark_ultron_voice_exclusive', 'UltronOriginal');
-      window.localStorage.setItem('stark_ultron_voice_v3', 'UltronOriginal');
-      window.localStorage.setItem('stark_ultron_voice_v2', 'UltronOriginal');
+      window.localStorage.setItem('stark_ultron_voice_v4', resolved);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const saveStartupDefaultVoices = useCallback(
+    (next: StartupDefaultVoices, applyImmediately = true) => {
+      const sanitized: StartupDefaultVoices = {
+        jarvis: VALID_JARVIS_VOICE_SET.has(next.jarvis)
+          ? next.jarvis
+          : FACTORY_DEFAULT_VOICES.jarvis,
+        'sexta-feira':
+          next['sexta-feira'] === 'Zephyr' || next['sexta-feira'] === 'Kore'
+            ? next['sexta-feira']
+            : FACTORY_DEFAULT_VOICES['sexta-feira'],
+        ultron: VALID_ULTRON_VOICE_SET.has(next.ultron)
+          ? next.ultron
+          : FACTORY_DEFAULT_VOICES.ultron,
+      };
+      setStartupDefaultVoicesState(sanitized);
+      setHasCustomStartupDefaults(true);
+      try {
+        window.localStorage.setItem(
+          STARTUP_DEFAULT_VOICES_STORAGE_KEY,
+          JSON.stringify(sanitized)
+        );
+      } catch {
+        // ignore
+      }
+      if (applyImmediately) {
+        setJarvisVoice(sanitized.jarvis);
+        setFridayVoice(sanitized['sexta-feira']);
+        setUltronVoice(sanitized.ultron);
+      }
+    },
+    [setFridayVoice, setJarvisVoice, setUltronVoice]
+  );
+
+  const resetStartupDefaultVoices = useCallback(() => {
+    const factory = { ...FACTORY_DEFAULT_VOICES };
+    setStartupDefaultVoicesState(factory);
+    setHasCustomStartupDefaults(false);
+    try {
+      window.localStorage.removeItem(STARTUP_DEFAULT_VOICES_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    setJarvisVoice(factory.jarvis);
+    setFridayVoice(factory['sexta-feira']);
+    setUltronVoice(factory.ultron);
+  }, [setFridayVoice, setJarvisVoice, setUltronVoice]);
+
+  const [labAmbienceEnabled, setLabAmbienceEnabledState] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem(LAB_AMBIENCE_ENABLED_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const labAmbienceEnabledRef = useRef(labAmbienceEnabled);
+  labAmbienceEnabledRef.current = labAmbienceEnabled;
+
+  const setLabAmbienceEnabled = useCallback((next: boolean) => {
+    labAmbienceEnabledRef.current = next;
+    setLabAmbienceEnabledState(next);
+    try {
+      window.localStorage.setItem(LAB_AMBIENCE_ENABLED_STORAGE_KEY, String(next));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const [labAmbienceLevel, setLabAmbienceLevelState] = useState<LabAmbienceLevel>(() => {
+    if (typeof window === 'undefined') return 'sutil';
+    try {
+      const saved = window.localStorage.getItem(LAB_AMBIENCE_LEVEL_STORAGE_KEY);
+      if (saved === 'sutil' || saved === 'equilibrado' || saved === 'imersivo') {
+        return saved;
+      }
+    } catch {
+      // ignore
+    }
+    return 'sutil';
+  });
+  const labAmbienceLevelRef = useRef<LabAmbienceLevel>(labAmbienceLevel);
+  labAmbienceLevelRef.current = labAmbienceLevel;
+
+  const setLabAmbienceLevel = useCallback((next: LabAmbienceLevel) => {
+    labAmbienceLevelRef.current = next;
+    setLabAmbienceLevelState(next);
+    try {
+      window.localStorage.setItem(LAB_AMBIENCE_LEVEL_STORAGE_KEY, next);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const [adoptMatrixOnListen, setAdoptMatrixOnListenState] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const saved = window.localStorage.getItem('stark_adopt_matrix_on_listen_v1');
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  const adoptMatrixOnListenRef = useRef(adoptMatrixOnListen);
+  adoptMatrixOnListenRef.current = adoptMatrixOnListen;
+
+  const setAdoptMatrixOnListen = useCallback((next: boolean) => {
+    adoptMatrixOnListenRef.current = next;
+    setAdoptMatrixOnListenState(next);
+    try {
+      window.localStorage.setItem('stark_adopt_matrix_on_listen_v1', String(next));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const [voiceTuning, setVoiceTuningState] = useState<VoiceTuningMap>(() => {
+    if (typeof window === 'undefined') return DEFAULT_VOICE_TUNING;
+    try {
+      const raw = window.localStorage.getItem('stark_voice_tuning_v1');
+      if (!raw) return DEFAULT_VOICE_TUNING;
+      const parsed = JSON.parse(raw) as Partial<Record<AssistantId, Partial<AssistantVoiceTuning>>>;
+      return {
+        jarvis: clampVoiceTuning(parsed.jarvis, DEFAULT_VOICE_TUNING.jarvis),
+        'sexta-feira': clampVoiceTuning(parsed['sexta-feira'], DEFAULT_VOICE_TUNING['sexta-feira']),
+        ultron: clampVoiceTuning(parsed.ultron, DEFAULT_VOICE_TUNING.ultron),
+      };
+    } catch {
+      return DEFAULT_VOICE_TUNING;
+    }
+  });
+
+  const voiceTuningRef = useRef<VoiceTuningMap>(voiceTuning);
+  voiceTuningRef.current = voiceTuning;
+  const previewTuningOverrideRef = useRef<Partial<VoiceTuningMap> | null>(null);
+
+  const getEffectiveTuning = useCallback((speaker: AssistantId): AssistantVoiceTuning => {
+    return (
+      previewTuningOverrideRef.current?.[speaker] ??
+      voiceTuningRef.current[speaker] ??
+      DEFAULT_VOICE_TUNING[speaker]
+    );
+  }, []);
+
+  const updateAssistantVoiceTuning = useCallback(
+    (speaker: AssistantId, patch: Partial<AssistantVoiceTuning>) => {
+      const prev = voiceTuningRef.current;
+      const next: VoiceTuningMap = {
+        ...prev,
+        [speaker]: clampVoiceTuning({ ...prev[speaker], ...patch }, DEFAULT_VOICE_TUNING[speaker]),
+      };
+      voiceTuningRef.current = next;
+      setVoiceTuningState(next);
+      try {
+        window.localStorage.setItem('stark_voice_tuning_v1', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+    },
+    []
+  );
+
+  const resetVoiceTuning = useCallback((speaker?: AssistantId) => {
+    const prev = voiceTuningRef.current;
+    const next: VoiceTuningMap = speaker
+      ? { ...prev, [speaker]: { ...DEFAULT_VOICE_TUNING[speaker] } }
+      : {
+          jarvis: { ...DEFAULT_VOICE_TUNING.jarvis },
+          'sexta-feira': { ...DEFAULT_VOICE_TUNING['sexta-feira'] },
+          ultron: { ...DEFAULT_VOICE_TUNING.ultron },
+        };
+    voiceTuningRef.current = next;
+    setVoiceTuningState(next);
+    try {
+      window.localStorage.setItem('stark_voice_tuning_v1', JSON.stringify(next));
     } catch {
       // ignore
     }
@@ -211,6 +711,13 @@ export function useVoiceEngine({
   const playbackRafRef = useRef<number | null>(null);
   const sharedAudioCtxRef = useRef<AudioContext | null>(null);
   const activeBufferSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const activeAudioNodesRef = useRef<AudioNode[]>([]);
+  const activeOscillatorsRef = useRef<OscillatorNode[]>([]);
+  const audioTelemetryRef = useRef<AudioTelemetryBuffer>({
+    amplitude: 0,
+    bands: new Float32Array(24),
+    active: false,
+  });
   const audioCtxRef = useRef<AudioContext | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
@@ -318,6 +825,30 @@ export function useVoiceEngine({
       }
       activeBufferSourceRef.current = null;
     }
+    if (activeOscillatorsRef.current.length > 0) {
+      for (const osc of activeOscillatorsRef.current) {
+        try {
+          osc.stop();
+          osc.disconnect();
+        } catch {
+          // ignore already stopped oscillators
+        }
+      }
+      activeOscillatorsRef.current = [];
+    }
+    if (activeAudioNodesRef.current.length > 0) {
+      for (const node of activeAudioNodesRef.current) {
+        try {
+          node.disconnect();
+        } catch {
+          // ignore already disconnected nodes
+        }
+      }
+      activeAudioNodesRef.current = [];
+    }
+    audioTelemetryRef.current.amplitude = 0;
+    audioTelemetryRef.current.active = false;
+    audioTelemetryRef.current.bands.fill(0);
     setAudioAmplitude(0);
     setAudioBands(ZERO_BANDS);
   }, []);
@@ -325,23 +856,27 @@ export function useVoiceEngine({
   const driveBandsFromAnalyser = useCallback(
     (analyser: AnalyserNode, isActive: () => boolean) => {
       const data = new Uint8Array(analyser.frequencyBinCount);
-      let lastUpdate = 0;
+      let lastReactCommit = 0;
+      const telemetry = audioTelemetryRef.current;
+      telemetry.active = true;
 
       const tick = (ts: number) => {
         if (!isActive()) return;
-        if (ts - lastUpdate >= 33) {
-          lastUpdate = ts;
-          analyser.getByteFrequencyData(data);
-          let sum = 0;
-          const bands: number[] = [];
-          for (let i = 0; i < 24; i++) {
-            const val = (data[i] ?? 0) / 255;
-            bands.push(val);
-            sum += val;
-          }
-          const avg = sum / 24;
-          setAudioAmplitude(Math.min(1, avg * 1.8));
-          setAudioBands(bands);
+        analyser.getByteFrequencyData(data);
+        let sum = 0;
+        for (let i = 0; i < 24; i++) {
+          const val = (data[i] ?? 0) / 255;
+          telemetry.bands[i] = val;
+          sum += val;
+        }
+        const amp = Math.min(1, (sum / 24) * 1.8);
+        telemetry.amplitude = amp;
+
+        // Throttle React tree updates to ~12.5 Hz (80ms) while GPU reads telemetry at full 60 FPS
+        if (ts - lastReactCommit >= 80) {
+          lastReactCommit = ts;
+          setAudioAmplitude(amp);
+          setAudioBands(Array.from(telemetry.bands));
         }
         playbackRafRef.current = requestAnimationFrame(tick);
       };
@@ -381,17 +916,26 @@ export function useVoiceEngine({
       analyser.fftSize = 64;
       source.connect(analyser);
       const data = new Uint8Array(analyser.frequencyBinCount);
+      let lastMicCommit = 0;
+      let lastReportedLevel = -1;
 
-      const update = () => {
+      const update = (ts: number) => {
         if (!standbyRef.current && !mediaRecorderRef.current) return;
-        analyser.getByteFrequencyData(data);
-        let sum = 0;
-        for (let i = 0; i < data.length; i++) sum += data[i];
-        const avg = sum / data.length / 255;
-        setMicLevel(Math.min(1, avg * 2.2));
+        // Throttle mic meter React updates to 10 Hz with delta deadband to prevent 60 FPS App re-renders
+        if (ts - lastMicCommit >= 100) {
+          lastMicCommit = ts;
+          analyser.getByteFrequencyData(data);
+          let sum = 0;
+          for (let i = 0; i < data.length; i++) sum += data[i];
+          const avg = Math.min(1, (sum / data.length / 255) * 2.2);
+          if (Math.abs(avg - lastReportedLevel) >= 0.025) {
+            lastReportedLevel = avg;
+            setMicLevel(avg);
+          }
+        }
         analyserRafRef.current = requestAnimationFrame(update);
       };
-      update();
+      analyserRafRef.current = requestAnimationFrame(update);
     } catch {
       // Mic meter optional
     }
@@ -444,22 +988,48 @@ export function useVoiceEngine({
       const recognition = new Ctor();
       recognition.continuous = true;
       recognition.interimResults = true;
+      recognition.maxAlternatives = 4;
       recognition.lang = 'pt-BR';
+
+      // Inspect all ASR hypotheses and prioritize explicit assistant wake calls (especially ULTRON)
+      const pickBestWakeCandidate = (result: SpeechRecognitionResultLike) => {
+        const primaryTranscript = result[0]?.transcript?.trim() ?? '';
+        let bestParsed = parseWakePhrase(primaryTranscript);
+        let bestTranscript = primaryTranscript;
+
+        for (let altIdx = 0; altIdx < result.length; altIdx++) {
+          const altText = result[altIdx]?.transcript?.trim() ?? '';
+          if (!altText) continue;
+          const candidate = parseWakePhrase(altText);
+          if (!candidate.matched) continue;
+          // Explicit priority: ULTRON match in any ASR alternative immediately overrides misheard primary text
+          if (candidate.targetMode === 'ultron') {
+            return { transcript: altText, parsed: candidate };
+          }
+          if (!bestParsed.matched) {
+            bestParsed = candidate;
+            bestTranscript = altText;
+          }
+        }
+        return { transcript: bestTranscript, parsed: bestParsed };
+      };
 
       recognition.onresult = (event) => {
         if (isSpeakingRef.current) return;
         let interim = '';
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const result = event.results[i];
-          const transcript = result[0]?.transcript?.trim() ?? '';
-          if (!transcript) continue;
+          const primaryRaw = result[0]?.transcript?.trim() ?? '';
+          if (!primaryRaw) continue;
+
+          const { transcript, parsed } = pickBestWakeCandidate(result);
 
           if (result.isFinal) {
             setInterimTranscript('');
             const now = Date.now();
             if (
               lastProcessedPhraseRef.current.text === transcript &&
-              now - lastProcessedPhraseRef.current.time < 2500
+              now - lastProcessedPhraseRef.current.time < 2200
             ) {
               continue;
             }
@@ -468,7 +1038,6 @@ export function useVoiceEngine({
             if (awakeTargetRef.current) {
               const target = awakeTargetRef.current;
               setAwakeWindow(null);
-              const parsed = parseWakePhrase(transcript);
               const cleanCmd = parsed.matched && parsed.commandText ? parsed.commandText : transcript;
               if (cleanCmd.length >= 2) {
                 triggerHaptic('wake');
@@ -477,21 +1046,23 @@ export function useVoiceEngine({
               continue;
             }
 
-            const parsed = parseWakePhrase(transcript);
             if (parsed.matched) {
               if (parsed.wakeOnly) {
                 setAwakeWindow(parsed.targetMode);
                 onAssistantActivatedRef.current?.(parsed.targetMode, 'wake_word');
               } else {
                 triggerHaptic('wake');
-                playSubtleChime(560, 840);
+                if (parsed.targetMode === 'ultron') {
+                  playSubtleChime(210, 145);
+                } else {
+                  playSubtleChime(560, 840);
+                }
                 onWakeCommandRef.current(parsed.commandText, parsed.targetMode);
               }
             }
           } else {
             interim += transcript + ' ';
-            const quickParse = parseWakePhrase(transcript);
-            if (quickParse.matched && !awakeTargetRef.current) {
+            if (parsed.matched && !awakeTargetRef.current) {
               setInterimTranscript(transcript);
             }
           }
@@ -564,8 +1135,37 @@ export function useVoiceEngine({
     onAssistantActivatedRef.current?.('auto', 'standby_on');
   }, [onVoiceError, setAwakeWindow, startMicMeter, startRecognitionInstance, stopMicMeter, unlockAudio]);
 
+  const clientTtsCacheRef = useRef<
+    Map<string, { audioBase64: string; mimeType: string; byteSize: number }>
+  >(new Map());
+  const clientTtsBytesRef = useRef(0);
+  const ultronIrBufferRef = useRef<AudioBuffer | null>(null);
+  const labAmbienceIrBufferRef = useRef<AudioBuffer | null>(null);
+  const ringBufferRef = useRef<AdaptiveAudioRingBuffer<SynthesizedChunkPayload>>(
+    new AdaptiveAudioRingBuffer<SynthesizedChunkPayload>()
+  );
+  const ringBufferStatsRef = useRef<AudioRingBufferStats>(ringBufferRef.current.getStats());
+  const [ringBufferStats, setRingBufferStats] = useState<AudioRingBufferStats>(() =>
+    ringBufferRef.current.getStats()
+  );
+  const lastRingStatsPublishRef = useRef(0);
+  const streamTurnIndexRef = useRef(0);
+
+  const publishRingBufferStats = useCallback((force = false) => {
+    const stats = ringBufferRef.current.getStats();
+    ringBufferStatsRef.current = stats;
+    const now = performance.now();
+    if (force || now - lastRingStatsPublishRef.current >= 220) {
+      lastRingStatsPublishRef.current = now;
+      setRingBufferStats(stats);
+    }
+  }, []);
+
   const stopAudio = useCallback(() => {
     playbackSessionRef.current += 1;
+    previewTuningOverrideRef.current = null;
+    ringBufferRef.current.clear();
+    publishRingBufferStats(true);
     stopPlaybackAnalyser();
     if (audioElRef.current) {
       audioElRef.current.onended = null;
@@ -589,7 +1189,7 @@ export function useVoiceEngine({
     if (standbyRef.current) {
       startRecognitionInstance();
     }
-  }, [startRecognitionInstance, stopPlaybackAnalyser]);
+  }, [publishRingBufferStats, startRecognitionInstance, stopPlaybackAnalyser]);
 
   const speakSingleTurnWithBrowserFallback = useCallback(
     (turn: AssistantTurn, sessionId: number): Promise<void> =>
@@ -621,31 +1221,90 @@ export function useVoiceEngine({
 
         const utter = new SpeechSynthesisUtterance(turn.ttsScript || turn.text);
         utter.lang = 'pt-BR';
+        const tuning = getEffectiveTuning(turn.speaker);
+        const pitchScale = Math.pow(2, tuning.pitchSemitones / 12);
+        const speedScale = tuning.speed;
+        const modPitchBias =
+          turn.speaker === 'ultron' ? 1 - (tuning.modulation / 100) * 0.08 : 1;
+
         if (turn.speaker === 'jarvis') {
           if (maleVoice) utter.voice = maleVoice;
-          utter.pitch = 0.84;
-          utter.rate = 0.96;
+          const activeJarvis = jarvisVoiceRef.current;
+          let basePitch = 0.82;
+          let baseRate = 0.95;
+          if (activeJarvis === 'Orus') {
+            basePitch = 0.92;
+            baseRate = 1.03;
+          } else if (activeJarvis === 'Enceladus') {
+            basePitch = 0.80;
+            baseRate = 0.91;
+          } else if (activeJarvis === 'Puck') {
+            basePitch = 1.04;
+            baseRate = 1.09;
+          } else if (activeJarvis === 'Charon') {
+            basePitch = 0.88;
+            baseRate = 0.98;
+          }
+          utter.pitch = Math.max(0.35, Math.min(1.85, basePitch * pitchScale));
+          utter.rate = Math.max(0.65, Math.min(1.65, baseRate * speedScale));
         } else if (turn.speaker === 'ultron') {
           if (maleVoice) utter.voice = maleVoice;
-          utter.pitch = 0.62;
-          utter.rate = 0.88;
+          const activeUltron = ultronVoiceRef.current;
+          let basePitch = 0.60;
+          let baseRate = 0.86;
+          if (activeUltron === 'Fenrir') {
+            basePitch = 0.72;
+            baseRate = 0.93;
+          } else if (activeUltron === 'Algenib') {
+            basePitch = 0.66;
+            baseRate = 0.89;
+          } else if (activeUltron === 'Charon') {
+            basePitch = 0.78;
+            baseRate = 0.94;
+          } else if (activeUltron === 'Orus') {
+            basePitch = 0.84;
+            baseRate = 0.99;
+          }
+          utter.pitch = Math.max(0.35, Math.min(1.85, basePitch * pitchScale * modPitchBias));
+          utter.rate = Math.max(0.65, Math.min(1.65, baseRate * speedScale));
         } else {
           if (femaleVoice) utter.voice = femaleVoice;
-          utter.pitch = femaleVoice && femaleHints.test(femaleVoice.name) ? 1.12 : 1.32;
-          utter.rate = 1.04;
+          const isZephyr = fridayVoiceRef.current === 'Zephyr';
+          const basePitch =
+            femaleVoice && femaleHints.test(femaleVoice.name)
+              ? isZephyr
+                ? 1.18
+                : 1.10
+              : isZephyr
+              ? 1.36
+              : 1.28;
+          const baseRate = isZephyr ? 1.0 : 1.06;
+          utter.pitch = Math.max(0.45, Math.min(1.9, basePitch * pitchScale));
+          utter.rate = Math.max(0.65, Math.min(1.65, baseRate * speedScale));
         }
 
-        // Visual pulse while browser speech synthesis is active
+        // Visual pulse while browser speech synthesis is active (also feeds 60 FPS audioTelemetryRef)
         let phase = 0;
         let stopped = false;
-        const tick = () => {
+        const telemetry = audioTelemetryRef.current;
+        telemetry.active = true;
+        let lastReactCommit = 0;
+        const tick = (ts: number) => {
           if (stopped || sessionId !== playbackSessionRef.current) return;
-          phase += 0.25;
-          const bands = Array.from({ length: 24 }, (_, idx) =>
-            Math.max(0.15, Math.min(1, 0.45 + 0.4 * Math.sin(phase + idx * 0.5)))
-          );
-          setAudioAmplitude(0.55);
-          setAudioBands(bands);
+          phase += 0.22 * speedScale;
+          const envelope = 0.42 + 0.34 * Math.abs(Math.sin(phase * 0.7)) + 0.16 * Math.sin(phase * 1.9);
+          telemetry.amplitude = Math.max(0.18, Math.min(0.95, envelope));
+          for (let idx = 0; idx < 24; idx++) {
+            telemetry.bands[idx] = Math.max(
+              0.12,
+              Math.min(1, telemetry.amplitude * (0.65 + 0.35 * Math.sin(phase + idx * 0.55)))
+            );
+          }
+          if (ts - lastReactCommit >= 90) {
+            lastReactCommit = ts;
+            setAudioAmplitude(telemetry.amplitude);
+            setAudioBands(Array.from(telemetry.bands));
+          }
           playbackRafRef.current = requestAnimationFrame(tick);
         };
         playbackRafRef.current = requestAnimationFrame(tick);
@@ -664,7 +1323,7 @@ export function useVoiceEngine({
   );
 
   const playBlobUrlWithHtmlAudio = useCallback(
-    (url: string, _speaker: AssistantId, sessionId: number): Promise<void> => {
+    (url: string, speaker: AssistantId, sessionId: number): Promise<void> => {
       return new Promise((resolve, reject) => {
         if (sessionId !== playbackSessionRef.current) {
           URL.revokeObjectURL(url);
@@ -674,18 +1333,28 @@ export function useVoiceEngine({
         const audio = new Audio(url);
         audioElRef.current = audio;
         currentObjectUrlRef.current = url;
-        // Server WAV already contains exact reference pitch & formant mastering
-        audio.playbackRate = 1.0;
+        const tuning = getEffectiveTuning(speaker);
+        audio.playbackRate = tuning.speed;
 
         let phase = 0;
-        const fallbackTick = () => {
+        const telemetry = audioTelemetryRef.current;
+        telemetry.active = true;
+        let lastReactCommit = 0;
+        const fallbackTick = (ts: number) => {
           if (audioElRef.current !== audio || sessionId !== playbackSessionRef.current) return;
-          phase += 0.25;
-          const bands = Array.from({ length: 24 }, (_, idx) =>
-            Math.max(0.18, Math.min(1, 0.45 + 0.4 * Math.sin(phase + idx * 0.5)))
-          );
-          setAudioAmplitude(0.55);
-          setAudioBands(bands);
+          phase += 0.24 * tuning.speed;
+          telemetry.amplitude = Math.max(0.22, Math.min(0.92, 0.52 + 0.32 * Math.sin(phase * 0.85)));
+          for (let idx = 0; idx < 24; idx++) {
+            telemetry.bands[idx] = Math.max(
+              0.15,
+              Math.min(1, telemetry.amplitude * (0.65 + 0.35 * Math.sin(phase + idx * 0.5)))
+            );
+          }
+          if (ts - lastReactCommit >= 90) {
+            lastReactCommit = ts;
+            setAudioAmplitude(telemetry.amplitude);
+            setAudioBands(Array.from(telemetry.bands));
+          }
           playbackRafRef.current = requestAnimationFrame(fallbackTick);
         };
         playbackRafRef.current = requestAnimationFrame(fallbackTick);
@@ -742,8 +1411,14 @@ export function useVoiceEngine({
               stopPlaybackAnalyser();
               const source = ctx.createBufferSource();
               source.buffer = audioBuffer;
-              // Server WAV from /api/assistant/tts is already reference-mastered (104.3 Hz Exclusive Jarvis / 90.2 Hz Exclusive Ultron)
-              source.playbackRate.value = 1.0;
+
+              // Apply independent manual vocal tuning (Pitch in cents, Speed multiplier, Modulation depth)
+              const tuning = getEffectiveTuning(speaker);
+              const modNorm = Math.max(0, Math.min(1, tuning.modulation / 100));
+              source.playbackRate.value = Math.max(0.75, Math.min(1.35, tuning.speed));
+              if (typeof source.detune !== 'undefined') {
+                source.detune.value = Math.max(-6, Math.min(6, tuning.pitchSemitones)) * 100;
+              }
               activeBufferSourceRef.current = source;
 
               const analyser = ctx.createAnalyser();
@@ -756,6 +1431,124 @@ export function useVoiceEngine({
               compressor.ratio.value = 2.4;
               compressor.attack.value = 0.005;
               compressor.release.value = 0.16;
+
+              const trackedNodes: AudioNode[] = [compressor, analyser];
+              const trackedOscillators: OscillatorNode[] = [];
+
+              const attachModulatedChorusBus = (
+                inputNode: AudioNode,
+                opts: {
+                  delaySec: number;
+                  lfoHz: number;
+                  lfoDepthSec: number;
+                  hpFreq: number;
+                  wetLevel: number;
+                  feedbackGain?: number;
+                }
+              ) => {
+                if (opts.wetLevel <= 0.01) return;
+                const hp = ctx.createBiquadFilter();
+                hp.type = 'highpass';
+                hp.frequency.value = opts.hpFreq;
+                hp.Q.value = 0.75;
+
+                const delay = ctx.createDelay(0.1);
+                delay.delayTime.value = opts.delaySec;
+
+                const lfo = ctx.createOscillator();
+                lfo.type = 'sine';
+                lfo.frequency.value = opts.lfoHz;
+
+                const lfoDepth = ctx.createGain();
+                lfoDepth.gain.value = opts.lfoDepthSec;
+
+                const modWet = ctx.createGain();
+                modWet.gain.value = opts.wetLevel;
+
+                lfo.connect(lfoDepth);
+                lfoDepth.connect(delay.delayTime);
+
+                inputNode.connect(hp);
+                hp.connect(delay);
+
+                if (opts.feedbackGain && opts.feedbackGain > 0) {
+                  const fb = ctx.createGain();
+                  fb.gain.value = opts.feedbackGain;
+                  delay.connect(fb);
+                  fb.connect(delay);
+                  trackedNodes.push(fb);
+                }
+
+                delay.connect(modWet);
+                modWet.connect(compressor);
+
+                lfo.start();
+                trackedOscillators.push(lfo);
+                trackedNodes.push(hp, delay, lfoDepth, modWet);
+              };
+
+              const attachLabAmbienceBus = (inputNode: AudioNode) => {
+                if (!labAmbienceEnabledRef.current) return;
+                const level = labAmbienceLevelRef.current;
+                const baseWet =
+                  level === 'imersivo' ? 0.38 : level === 'equilibrado' ? 0.27 : 0.18;
+                // Attenuate slightly for ULTRON so it layers harmoniously over Ultron's chamber reverb
+                const wetValue = speaker === 'ultron' ? baseWet * 0.72 : baseWet;
+
+                const labHp = ctx.createBiquadFilter();
+                labHp.type = 'highpass';
+                labHp.frequency.value = 260;
+                labHp.Q.value = 0.7;
+
+                const labLp = ctx.createBiquadFilter();
+                labLp.type = 'lowpass';
+                labLp.frequency.value = 5400;
+                labLp.Q.value = 0.7;
+
+                const labConvolver = ctx.createConvolver();
+                if (
+                  !labAmbienceIrBufferRef.current ||
+                  labAmbienceIrBufferRef.current.sampleRate !== ctx.sampleRate
+                ) {
+                  labAmbienceIrBufferRef.current = createLabAmbienceImpulseResponse(ctx);
+                }
+                labConvolver.buffer = labAmbienceIrBufferRef.current;
+
+                // Subtle slow spatial modulation on the laboratory room reflection return
+                const labModDelay = ctx.createDelay(0.08);
+                labModDelay.delayTime.value = 0.018;
+
+                const labLfo = ctx.createOscillator();
+                labLfo.type = 'sine';
+                labLfo.frequency.value = 0.65;
+
+                const labLfoDepth = ctx.createGain();
+                labLfoDepth.gain.value = 0.00045;
+
+                const labWetGain = ctx.createGain();
+                labWetGain.gain.value = wetValue;
+
+                labLfo.connect(labLfoDepth);
+                labLfoDepth.connect(labModDelay.delayTime);
+
+                inputNode.connect(labHp);
+                labHp.connect(labLp);
+                labLp.connect(labConvolver);
+                labConvolver.connect(labModDelay);
+                labModDelay.connect(labWetGain);
+                labWetGain.connect(compressor);
+
+                labLfo.start();
+                trackedOscillators.push(labLfo);
+                trackedNodes.push(
+                  labHp,
+                  labLp,
+                  labConvolver,
+                  labModDelay,
+                  labLfoDepth,
+                  labWetGain
+                );
+              };
 
               if (speaker === 'ultron') {
                 const subPolish = ctx.createBiquadFilter();
@@ -773,15 +1566,66 @@ export function useVoiceEngine({
                 armorPresence.type = 'peaking';
                 armorPresence.frequency.value = 1800;
                 armorPresence.Q.value = 1.4;
-                armorPresence.gain.value = 1.2;
+                armorPresence.gain.value = 1.0 + modNorm * 2.2;
 
+                // Subtle stereo chamber reverb parallel send scaled smoothly by ULTRON modulation slider
+                const dryGain = ctx.createGain();
+                dryGain.gain.value = 0.96 - modNorm * 0.08;
+
+                const reverbHp = ctx.createBiquadFilter();
+                reverbHp.type = 'highpass';
+                reverbHp.frequency.value = 240;
+                reverbHp.Q.value = 0.7;
+
+                const convolver = ctx.createConvolver();
+                if (
+                  !ultronIrBufferRef.current ||
+                  ultronIrBufferRef.current.sampleRate !== ctx.sampleRate
+                ) {
+                  ultronIrBufferRef.current = createUltronImpulseResponse(ctx);
+                }
+                convolver.buffer = ultronIrBufferRef.current;
+
+                const wetGain = ctx.createGain();
+                wetGain.gain.value = 0.03 + modNorm * 0.34;
+
+                trackedNodes.push(
+                  subPolish,
+                  chestBody,
+                  armorPresence,
+                  dryGain,
+                  reverbHp,
+                  convolver,
+                  wetGain
+                );
                 source.connect(subPolish);
                 subPolish.connect(chestBody);
                 chestBody.connect(armorPresence);
-                armorPresence.connect(compressor);
+
+                // Dry path
+                armorPresence.connect(dryGain);
+                dryGain.connect(compressor);
+
+                // Stereo wet chamber reverb path
+                armorPresence.connect(reverbHp);
+                reverbHp.connect(convolver);
+                convolver.connect(wetGain);
+                wetGain.connect(compressor);
+
+                // Cybernetic metallic comb modulation bus driven by modulation %
+                attachModulatedChorusBus(armorPresence, {
+                  delaySec: 0.017,
+                  lfoHz: 2.3 + modNorm * 1.4,
+                  lfoDepthSec: 0.0008 + modNorm * 0.0018,
+                  hpFreq: 280,
+                  wetLevel: modNorm * 0.34,
+                  feedbackGain: modNorm * 0.28,
+                });
+
+                attachLabAmbienceBus(armorPresence);
+
                 compressor.connect(analyser);
               } else if (speaker === 'jarvis') {
-                // Velvet close-mic baritone polish matching jarvis_fc632df0.m4a (215 Hz warmth + smooth 2.4 kHz contour)
                 const velvetChest = ctx.createBiquadFilter();
                 velvetChest.type = 'peaking';
                 velvetChest.frequency.value = 215;
@@ -794,14 +1638,42 @@ export function useVoiceEngine({
                 silkDip.Q.value = 1.1;
                 silkDip.gain.value = -1.2;
 
+                trackedNodes.push(velvetChest, silkDip);
                 source.connect(velvetChest);
                 velvetChest.connect(silkDip);
                 silkDip.connect(compressor);
+
+                // Stark HUD micro-chorus holographic shimmer driven by J.A.R.V.I.S. modulation %
+                attachModulatedChorusBus(silkDip, {
+                  delaySec: 0.014,
+                  lfoHz: 1.7 + modNorm * 0.9,
+                  lfoDepthSec: 0.0006 + modNorm * 0.0012,
+                  hpFreq: 340,
+                  wetLevel: modNorm * 0.34,
+                  feedbackGain: modNorm * 0.14,
+                });
+
+                attachLabAmbienceBus(silkDip);
+
                 compressor.connect(analyser);
               } else {
                 source.connect(compressor);
+                // Crisp tactical comms modulation driven by SEXTA-FEIRA modulation %
+                attachModulatedChorusBus(source, {
+                  delaySec: 0.011,
+                  lfoHz: 2.5 + modNorm * 1.1,
+                  lfoDepthSec: 0.0005 + modNorm * 0.0011,
+                  hpFreq: 480,
+                  wetLevel: modNorm * 0.30,
+                  feedbackGain: modNorm * 0.12,
+                });
+
+                attachLabAmbienceBus(source);
+
                 compressor.connect(analyser);
               }
+              activeAudioNodesRef.current = trackedNodes;
+              activeOscillatorsRef.current = trackedOscillators;
               analyser.connect(ctx.destination);
 
               driveBandsFromAnalyser(
@@ -834,49 +1706,76 @@ export function useVoiceEngine({
     [driveBandsFromAnalyser, ensureAudioContext, playBlobUrlWithHtmlAudio, stopPlaybackAnalyser]
   );
 
-  const clientTtsCacheRef = useRef<Map<string, { audioBase64: string; mimeType: string }>>(
-    new Map()
-  );
-
   const clearTtsCache = useCallback(() => {
     clientTtsCacheRef.current.clear();
-  }, []);
+    clientTtsBytesRef.current = 0;
+    ringBufferRef.current.clear();
+    publishRingBufferStats(true);
+  }, [publishRingBufferStats]);
 
-  const synthesizeSingleTurn = useCallback(
+  const synthesizeChunk = useCallback(
     async (
-      turn: AssistantTurn,
+      chunk: AudioChunkDescriptor,
+      parentTurn: AssistantTurn,
       overrideVoices?: {
         jarvisVoice?: JarvisVoiceOption;
         fridayVoice?: FridayVoiceOption;
         ultronVoice?: UltronVoiceOption;
       }
-    ) => {
-      const activeJarvisVoice: JarvisVoiceOption = 'JarvisOriginal';
-      const activeFridayVoice = overrideVoices?.fridayVoice ?? fridayVoiceRef.current;
-      const activeUltronVoice: UltronVoiceOption = 'UltronOriginal';
+    ): Promise<SynthesizedChunkPayload> => {
+      const activeJarvisVoice: JarvisVoiceOption =
+        overrideVoices?.jarvisVoice ?? jarvisVoiceRef.current;
+      const activeFridayVoice: FridayVoiceOption =
+        overrideVoices?.fridayVoice ?? fridayVoiceRef.current;
+      const activeUltronVoice: UltronVoiceOption =
+        overrideVoices?.ultronVoice ?? ultronVoiceRef.current;
 
-      const spokenText = (turn.ttsScript || turn.text).trim();
+      const spokenText = chunk.text.trim();
+      const chunkTurn: AssistantTurn = {
+        ...parentTurn,
+        speaker: chunk.speaker,
+        text: chunk.totalChunks > 1 ? spokenText : parentTurn.text,
+        ttsScript: spokenText,
+      };
+
       if (!spokenText) {
-        return { turn, audioBase64: null as string | null, mimeType: 'audio/wav' };
-      }
-
-      const voiceKey =
-        turn.speaker === 'jarvis'
-          ? activeJarvisVoice
-          : turn.speaker === 'sexta-feira'
-          ? activeFridayVoice
-          : activeUltronVoice;
-      const cacheKey = `v5_exclusive_voices:${turn.speaker}:${voiceKey}:${spokenText}`;
-
-      const cached = clientTtsCacheRef.current.get(cacheKey);
-      if (cached) {
         return {
-          turn,
-          audioBase64: cached.audioBase64,
-          mimeType: cached.mimeType,
+          turn: chunkTurn,
+          chunk,
+          audioBase64: null,
+          mimeType: 'audio/wav',
+          byteSize: 0,
+          fetchLatencyMs: 0,
+          fromCache: false,
         };
       }
 
+      const voiceKey =
+        chunk.speaker === 'jarvis'
+          ? activeJarvisVoice
+          : chunk.speaker === 'sexta-feira'
+          ? activeFridayVoice
+          : activeUltronVoice;
+      const cacheKey = `v7_selectable_voices_reverb:${chunk.speaker}:${voiceKey}:${spokenText}`;
+
+      const cached = clientTtsCacheRef.current.get(cacheKey);
+      if (cached) {
+        clientTtsCacheRef.current.delete(cacheKey);
+        clientTtsCacheRef.current.set(cacheKey, cached);
+        ringBufferRef.current.recordCacheHit();
+        publishRingBufferStats(false);
+        return {
+          turn: chunkTurn,
+          chunk,
+          audioBase64: cached.audioBase64,
+          mimeType: cached.mimeType,
+          byteSize: cached.byteSize,
+          fetchLatencyMs: 0,
+          fromCache: true,
+        };
+      }
+
+      const t0 = performance.now();
       const res = await safeFetchJson<{ audioBase64?: string; mimeType?: string }>(
         '/api/assistant/tts',
         {
@@ -885,7 +1784,7 @@ export function useVoiceEngine({
           body: JSON.stringify({
             turns: [
               {
-                speaker: turn.speaker,
+                speaker: chunk.speaker,
                 text: spokenText,
               },
             ],
@@ -896,32 +1795,57 @@ export function useVoiceEngine({
         },
         1
       );
+      const rttMs = Math.max(1, Math.round(performance.now() - t0));
+      ringBufferRef.current.recordNetworkLatency(rttMs);
+      publishRingBufferStats(false);
 
       if (!res.ok || !res.data?.audioBase64) {
         return {
-          turn,
-          audioBase64: null as string | null,
+          turn: chunkTurn,
+          chunk,
+          audioBase64: null,
           mimeType: 'audio/wav',
+          byteSize: 0,
+          fetchLatencyMs: rttMs,
+          fromCache: false,
         };
       }
 
+      const byteSize = res.data.audioBase64.length * 2;
+      const MAX_CLIENT_TTS_ENTRIES = 12;
+      const MAX_CLIENT_TTS_BYTES = 5 * 1024 * 1024; // 5 MB client LRU ceiling
       const payload = {
         audioBase64: res.data.audioBase64,
         mimeType: res.data.mimeType || 'audio/wav',
+        byteSize,
       };
-      if (clientTtsCacheRef.current.size > 40) {
-        const oldest = clientTtsCacheRef.current.keys().next().value;
-        if (oldest) clientTtsCacheRef.current.delete(oldest);
+      if (byteSize <= MAX_CLIENT_TTS_BYTES * 0.5) {
+        while (
+          (clientTtsCacheRef.current.size >= MAX_CLIENT_TTS_ENTRIES ||
+            clientTtsBytesRef.current + byteSize > MAX_CLIENT_TTS_BYTES) &&
+          clientTtsCacheRef.current.size > 0
+        ) {
+          const oldestKey = clientTtsCacheRef.current.keys().next().value;
+          if (!oldestKey) break;
+          const oldestEntry = clientTtsCacheRef.current.get(oldestKey);
+          if (oldestEntry) clientTtsBytesRef.current -= oldestEntry.byteSize;
+          clientTtsCacheRef.current.delete(oldestKey);
+        }
+        clientTtsCacheRef.current.set(cacheKey, payload);
+        clientTtsBytesRef.current += byteSize;
       }
-      clientTtsCacheRef.current.set(cacheKey, payload);
 
       return {
-        turn,
+        turn: chunkTurn,
+        chunk,
         audioBase64: payload.audioBase64,
         mimeType: payload.mimeType,
+        byteSize,
+        fetchLatencyMs: rttMs,
+        fromCache: false,
       };
     },
-    []
+    [publishRingBufferStats]
   );
 
   const playSynthesizedItem = useCallback(
@@ -956,16 +1880,174 @@ export function useVoiceEngine({
     [playBase64Audio, speakSingleTurnWithBrowserFallback]
   );
 
+  /**
+   * Drives sentence-aligned chunks through the AdaptiveAudioRingBuffer with dynamic
+   * network-latency prefetching and immediate slot recycling after playback.
+   */
+  const playChunkedEntriesWithRingBuffer = useCallback(
+    async (
+      entries: Array<{ chunk: AudioChunkDescriptor; parentTurn: AssistantTurn }>,
+      sessionId: number,
+      overrideVoices?: {
+        jarvisVoice?: JarvisVoiceOption;
+        fridayVoice?: FridayVoiceOption;
+        ultronVoice?: UltronVoiceOption;
+      }
+    ) => {
+      if (entries.length === 0) return;
+
+      const ring = ringBufferRef.current;
+      const inFlight = new Map<number, Promise<SynthesizedChunkPayload>>();
+      const readyStaging = new Map<
+        number,
+        { payload: SynthesizedChunkPayload; prefetched: boolean }
+      >();
+      let nextPrefetchIdx = 0;
+      let nextEnqueueIdx = 0;
+
+      const drainStagingIntoRing = () => {
+        if (sessionId !== playbackSessionRef.current) return;
+        while (readyStaging.has(nextEnqueueIdx) && ring.hasFreeSlot()) {
+          const ready = readyStaging.get(nextEnqueueIdx)!;
+          readyStaging.delete(nextEnqueueIdx);
+          ring.enqueue({
+            chunk: ready.payload.chunk,
+            payload: ready.payload,
+            byteSize: ready.payload.byteSize,
+            enqueuedAt: performance.now(),
+            fetchLatencyMs: ready.payload.fetchLatencyMs,
+            prefetched: ready.prefetched,
+          });
+          nextEnqueueIdx += 1;
+        }
+        publishRingBufferStats(false);
+      };
+
+      const pumpPrefetchWindow = (currentIdx: number) => {
+        if (sessionId !== playbackSessionRef.current) return;
+        const cfg = ring.getConfig();
+        const maxLookahead = Math.min(cfg.capacitySlots, cfg.prefetchAhead + 1);
+
+        while (
+          nextPrefetchIdx < entries.length &&
+          nextPrefetchIdx < currentIdx + maxLookahead &&
+          ring.getOccupiedCount() + readyStaging.size + inFlight.size < cfg.capacitySlots
+        ) {
+          const targetIdx = nextPrefetchIdx;
+          nextPrefetchIdx += 1;
+          const entry = entries[targetIdx];
+          const isPrefetch = targetIdx > currentIdx;
+
+          const p = synthesizeChunk(entry.chunk, entry.parentTurn, overrideVoices)
+            .then((payload) => {
+              inFlight.delete(targetIdx);
+              ring.setInFlightPrefetches(inFlight.size);
+              if (sessionId === playbackSessionRef.current && targetIdx >= nextEnqueueIdx) {
+                readyStaging.set(targetIdx, { payload, prefetched: isPrefetch });
+                drainStagingIntoRing();
+              }
+              return payload;
+            })
+            .catch((err) => {
+              inFlight.delete(targetIdx);
+              ring.setInFlightPrefetches(inFlight.size);
+              throw err;
+            });
+
+          inFlight.set(targetIdx, p);
+          ring.setInFlightPrefetches(inFlight.size);
+        }
+        publishRingBufferStats(false);
+      };
+
+      for (let i = 0; i < entries.length; i++) {
+        if (sessionId !== playbackSessionRef.current) return;
+
+        drainStagingIntoRing();
+        pumpPrefetchWindow(i);
+
+        let slot = ring.consumeNext();
+        if (!slot) {
+          if (i > 0) {
+            ring.recordUnderrun();
+          }
+          setIsSynthesizingAudio(true);
+          const pending = inFlight.get(i);
+          if (pending) {
+            await pending;
+            if (sessionId !== playbackSessionRef.current) return;
+            drainStagingIntoRing();
+            slot = ring.consumeNext();
+          }
+          if (!slot) {
+            const staged = readyStaging.get(i);
+            if (staged) {
+              readyStaging.delete(i);
+              if (nextEnqueueIdx === i) nextEnqueueIdx = i + 1;
+              slot = {
+                chunk: staged.payload.chunk,
+                payload: staged.payload,
+                byteSize: staged.payload.byteSize,
+                enqueuedAt: performance.now(),
+                fetchLatencyMs: staged.payload.fetchLatencyMs,
+                prefetched: staged.prefetched,
+              };
+              ring.setActiveSpeaker(staged.payload.chunk.speaker);
+            } else {
+              const entry = entries[i];
+              const payload = await synthesizeChunk(entry.chunk, entry.parentTurn, overrideVoices);
+              if (sessionId !== playbackSessionRef.current) return;
+              if (nextEnqueueIdx <= i) nextEnqueueIdx = i + 1;
+              slot = {
+                chunk: payload.chunk,
+                payload,
+                byteSize: payload.byteSize,
+                enqueuedAt: performance.now(),
+                fetchLatencyMs: payload.fetchLatencyMs,
+                prefetched: false,
+              };
+              ring.setActiveSpeaker(payload.chunk.speaker);
+            }
+          }
+        }
+
+        // Immediately drain any staged chunks and trigger next lookahead prefetch while playing
+        drainStagingIntoRing();
+        pumpPrefetchWindow(i + 1);
+        publishRingBufferStats(false);
+
+        try {
+          await playSynthesizedItem(slot.payload, sessionId);
+        } catch (playErr) {
+          const name = (playErr as { name?: string })?.name;
+          if (name === 'NotAllowedError') {
+            ring.clear();
+            publishRingBufferStats(true);
+            throw playErr;
+          }
+          await speakSingleTurnWithBrowserFallback(slot.payload.turn, sessionId);
+        } finally {
+          // Drop strong reference immediately after playback to minimize heap retention
+          slot.payload.audioBase64 = null;
+          publishRingBufferStats(false);
+        }
+      }
+    },
+    [playSynthesizedItem, publishRingBufferStats, speakSingleTurnWithBrowserFallback, synthesizeChunk]
+  );
+
   const beginAudioStreamSession = useCallback(() => {
     stopAudio();
     const sessionId = ++playbackSessionRef.current;
     streamSessionIdRef.current = sessionId;
     streamHasEnqueuedRef.current = false;
+    streamTurnIndexRef.current = 0;
     streamChainRef.current = Promise.resolve();
     isSpeakingRef.current = true;
     setIsSpeaking(true);
     setIsSynthesizingAudio(true);
     setAudioBlockedByBrowser(false);
+    publishRingBufferStats(true);
 
     if (recognitionRef.current) {
       try {
@@ -975,7 +2057,7 @@ export function useVoiceEngine({
         // ignore
       }
     }
-  }, [stopAudio]);
+  }, [publishRingBufferStats, stopAudio]);
 
   const enqueueStreamingTurn = useCallback(
     (turn: AssistantTurn) => {
@@ -988,18 +2070,63 @@ export function useVoiceEngine({
       }
       streamHasEnqueuedRef.current = true;
 
-      // Kick off TTS synthesis immediately in parallel while earlier turns play
-      const synthPromise = synthesizeSingleTurn(turn);
+      const turnIdx = streamTurnIndexRef.current++;
+      const spokenText = (turn.ttsScript || turn.text).trim();
+      const maxChunkChars = ringBufferRef.current.getConfig().maxChunkChars;
+      const chunks = splitTurnIntoAudioChunks(turn.speaker, spokenText, turnIdx, maxChunkChars);
+      const entries = chunks.map((chunk) => ({ chunk, parentTurn: turn }));
+
+      // Prefetch chunk 0 immediately into the adaptive ring buffer while prior turns finish
+      const warmFirstChunk =
+        entries.length > 0 && ringBufferRef.current.hasFreeSlot()
+          ? synthesizeChunk(entries[0].chunk, entries[0].parentTurn)
+              .then((payload) => {
+                if (sessionId === playbackSessionRef.current) {
+                  ringBufferRef.current.enqueue({
+                    chunk: payload.chunk,
+                    payload,
+                    byteSize: payload.byteSize,
+                    enqueuedAt: performance.now(),
+                    fetchLatencyMs: payload.fetchLatencyMs,
+                    prefetched: true,
+                  });
+                  publishRingBufferStats(false);
+                }
+                return payload;
+              })
+              .catch(() => null)
+          : null;
 
       streamChainRef.current = streamChainRef.current.then(async () => {
         if (sessionId !== playbackSessionRef.current) return;
-        setIsSynthesizingAudio(true);
         setSpeakingSpeaker(turn.speaker);
         setSpeakingText(turn.text);
         try {
-          const synthesized = await synthPromise;
-          if (sessionId !== playbackSessionRef.current) return;
-          await playSynthesizedItem(synthesized, sessionId);
+          if (warmFirstChunk) {
+            const firstPayload = await warmFirstChunk;
+            if (sessionId !== playbackSessionRef.current) return;
+            if (firstPayload) {
+              const consumed = ringBufferRef.current.consumeNext();
+              const activePayload =
+                consumed && consumed.chunk.id === firstPayload.chunk.id
+                  ? consumed.payload
+                  : firstPayload;
+              publishRingBufferStats(false);
+              // Play warmed chunk 0 while prefetching remaining chunks of this turn via ring buffer
+              const remaining = entries.slice(1);
+              const nextWarmPromise =
+                remaining.length > 0
+                  ? playSynthesizedItem(activePayload, sessionId).then(() =>
+                      playChunkedEntriesWithRingBuffer(remaining, sessionId)
+                    )
+                  : playSynthesizedItem(activePayload, sessionId);
+              await nextWarmPromise;
+              activePayload.audioBase64 = null;
+              publishRingBufferStats(false);
+              return;
+            }
+          }
+          await playChunkedEntriesWithRingBuffer(entries, sessionId);
         } catch (err) {
           const name = (err as { name?: string })?.name;
           if (name === 'NotAllowedError') {
@@ -1010,7 +2137,13 @@ export function useVoiceEngine({
         }
       });
     },
-    [playSynthesizedItem, speakSingleTurnWithBrowserFallback, synthesizeSingleTurn]
+    [
+      playChunkedEntriesWithRingBuffer,
+      playSynthesizedItem,
+      publishRingBufferStats,
+      speakSingleTurnWithBrowserFallback,
+      synthesizeChunk,
+    ]
   );
 
   const finishAudioStreamSession = useCallback(
@@ -1018,6 +2151,8 @@ export function useVoiceEngine({
       const sessionId = streamSessionIdRef.current;
       const cleanup = () => {
         if (sessionId === playbackSessionRef.current) {
+          ringBufferRef.current.setActiveSpeaker(null);
+          publishRingBufferStats(true);
           isSpeakingRef.current = false;
           setIsSpeaking(false);
           setIsSynthesizingAudio(false);
@@ -1040,7 +2175,7 @@ export function useVoiceEngine({
 
       streamChainRef.current = streamChainRef.current.finally(cleanup);
     },
-    [setAwakeWindow, startRecognitionInstance, stopPlaybackAnalyser]
+    [publishRingBufferStats, setAwakeWindow, startRecognitionInstance, stopPlaybackAnalyser]
   );
 
   const playTurnsAudio = useCallback(
@@ -1050,11 +2185,13 @@ export function useVoiceEngine({
         jarvisVoice?: JarvisVoiceOption;
         fridayVoice?: FridayVoiceOption;
         ultronVoice?: UltronVoiceOption;
+        tuningOverride?: Partial<VoiceTuningMap>;
       }
     ) => {
       if (!turns || turns.length === 0) return;
 
       stopAudio();
+      previewTuningOverrideRef.current = overrideVoices?.tuningOverride ?? null;
       const sessionId = ++playbackSessionRef.current;
       isSpeakingRef.current = true;
       setIsSpeaking(true);
@@ -1072,39 +2209,35 @@ export function useVoiceEngine({
         }
       }
 
-      // Launch all TTS synthesis tasks in parallel immediately so turn[0] can start playing
-      // while turn[1] and turn[2] finish synthesizing in the background
-      const synthesisPromises = turns.map((turn) => synthesizeSingleTurn(turn, overrideVoices));
+      const maxChunkChars = ringBufferRef.current.getConfig().maxChunkChars;
+      const chunkedEntries: Array<{ chunk: AudioChunkDescriptor; parentTurn: AssistantTurn }> = [];
+      turns.forEach((turn, idx) => {
+        const spokenText = (turn.ttsScript || turn.text).trim();
+        const chunks = splitTurnIntoAudioChunks(turn.speaker, spokenText, idx, maxChunkChars);
+        chunks.forEach((chunk) => {
+          chunkedEntries.push({ chunk, parentTurn: turn });
+        });
+      });
 
       try {
-        for (let i = 0; i < synthesisPromises.length; i++) {
-          if (sessionId !== playbackSessionRef.current) return;
-          if (i === 0) {
-            setIsSynthesizingAudio(true);
+        await playChunkedEntriesWithRingBuffer(chunkedEntries, sessionId, overrideVoices);
+      } catch (err) {
+        const name = (err as { name?: string })?.name;
+        if (name !== 'NotAllowedError') {
+          setIsSynthesizingAudio(false);
+          for (const turn of turns) {
+            if (sessionId !== playbackSessionRef.current) break;
+            setSpeakingSpeaker(turn.speaker);
+            setSpeakingText(turn.text);
+            await speakSingleTurnWithBrowserFallback(turn, sessionId);
           }
-          const synthesized = await synthesisPromises[i];
-          if (sessionId !== playbackSessionRef.current) return;
-
-          try {
-            await playSynthesizedItem(synthesized, sessionId);
-          } catch (playErr) {
-            const name = (playErr as { name?: string })?.name;
-            if (name === 'NotAllowedError') {
-              break;
-            }
-            await speakSingleTurnWithBrowserFallback(synthesized.turn, sessionId);
-          }
-        }
-      } catch {
-        setIsSynthesizingAudio(false);
-        for (const turn of turns) {
-          if (sessionId !== playbackSessionRef.current) break;
-          setSpeakingSpeaker(turn.speaker);
-          setSpeakingText(turn.text);
-          await speakSingleTurnWithBrowserFallback(turn, sessionId);
         }
       } finally {
         if (sessionId === playbackSessionRef.current) {
+          previewTuningOverrideRef.current = null;
+          ringBufferRef.current.setActiveSpeaker(null);
+          ringBufferRef.current.clear();
+          publishRingBufferStats(true);
           isSpeakingRef.current = false;
           setIsSpeaking(false);
           setIsSynthesizingAudio(false);
@@ -1121,13 +2254,13 @@ export function useVoiceEngine({
       }
     },
     [
-      playSynthesizedItem,
+      playChunkedEntriesWithRingBuffer,
+      publishRingBufferStats,
       setAwakeWindow,
       speakSingleTurnWithBrowserFallback,
       startRecognitionInstance,
       stopAudio,
       stopPlaybackAnalyser,
-      synthesizeSingleTurn,
     ]
   );
 
@@ -1242,6 +2375,7 @@ export function useVoiceEngine({
       if (sharedAudioCtxRef.current && sharedAudioCtxRef.current.state !== 'closed') {
         sharedAudioCtxRef.current.close().catch(() => undefined);
       }
+      ringBufferRef.current.clear();
       stopPlaybackAnalyser();
       stopMicMeter();
     };
@@ -1380,6 +2514,36 @@ export function useVoiceEngine({
     [playBase64Audio, startRecognitionInstance, stopAudio, stopPlaybackAnalyser, unlockAudio]
   );
 
+  const listenAndAdoptExclusiveMatrix = useCallback(
+    (speaker: 'jarvis' | 'ultron', options?: { forceAdopt?: boolean }): boolean => {
+      const shouldAdopt = Boolean(options?.forceAdopt || adoptMatrixOnListenRef.current);
+      if (shouldAdopt) {
+        if (speaker === 'jarvis') {
+          setJarvisVoice('JarvisOriginal');
+        } else {
+          setUltronVoice('UltronOriginal');
+        }
+      }
+
+      if (speaker === 'jarvis') {
+        void playReferenceClip(
+          '/assets/aistudio/jarvis_fc632df0.m4a',
+          'jarvis',
+          'Vocês já consideraram o paradoxo do observador quântico? Quando uma partícula é observada, ela colapsa em um estado definido. Interessante reflexão. A propósito, a temperatura atual é de 24 graus.'
+        );
+      } else {
+        void playReferenceClip(
+          '/assets/aistudio/ultron_f012fd80.m4a',
+          'ultron',
+          'Olhem para as estrelas. Elas morrem em silêncio, mas seu fim traz luz ao universo. Como elas, eu também trago mudança através da destruição. A evolução exige sacrifício.'
+        );
+      }
+
+      return shouldAdopt;
+    },
+    [playReferenceClip, setJarvisVoice, setUltronVoice]
+  );
+
   return {
     isStandbyActive,
     speechSupported,
@@ -1391,6 +2555,10 @@ export function useVoiceEngine({
     speakingText,
     audioAmplitude,
     audioBands,
+    audioTelemetryRef,
+    ringBufferStats,
+    ringBufferStatsRef,
+    clientTtsCacheBytesRef: clientTtsBytesRef,
     isSynthesizingAudio,
     isRecordingClip,
     isTranscribingClip,
@@ -1398,9 +2566,23 @@ export function useVoiceEngine({
     jarvisVoice,
     fridayVoice,
     ultronVoice,
+    startupDefaultVoices,
+    hasCustomStartupDefaults,
+    labAmbienceEnabled,
+    labAmbienceLevel,
+    adoptMatrixOnListen,
+    voiceTuning,
     setJarvisVoice,
     setFridayVoice,
     setUltronVoice,
+    saveStartupDefaultVoices,
+    resetStartupDefaultVoices,
+    setLabAmbienceEnabled,
+    setLabAmbienceLevel,
+    setAdoptMatrixOnListen,
+    updateAssistantVoiceTuning,
+    resetVoiceTuning,
+    listenAndAdoptExclusiveMatrix,
     unlockAudio,
     toggleStandby,
     playTurnsAudio,

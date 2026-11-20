@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import type { AudioTelemetryBuffer } from '../hooks/useVoiceEngine';
 import type { AssistantId } from '../types/assistant';
 import {
   ASSISTANT_AVATAR_URLS,
@@ -13,6 +14,7 @@ interface Hologram3DStageProps {
   isThinking: boolean;
   audioAmplitude: number;
   audioBands?: number[];
+  audioTelemetryRef?: MutableRefObject<AudioTelemetryBuffer>;
   narrativeEmphasis: number;
   narrativeProgress: number;
 }
@@ -229,6 +231,7 @@ export function Hologram3DStage({
   isThinking,
   audioAmplitude,
   audioBands,
+  audioTelemetryRef,
   narrativeEmphasis,
   narrativeProgress,
 }: Hologram3DStageProps) {
@@ -242,6 +245,7 @@ export function Hologram3DStage({
     isThinking,
     audioAmplitude,
     audioBands: audioBands ?? [],
+    audioTelemetryRef,
     narrativeEmphasis,
     narrativeProgress,
   });
@@ -252,6 +256,7 @@ export function Hologram3DStage({
     isThinking,
     audioAmplitude,
     audioBands: audioBands ?? [],
+    audioTelemetryRef,
     narrativeEmphasis,
     narrativeProgress,
   };
@@ -312,10 +317,14 @@ export function Hologram3DStage({
 
     const scene = new THREE.Scene();
 
-    // Subtle studio metallic reflections for the 3D orbital HUD rings
+    // Studio metallic reflections for 3D rings — immediately dispose temporary RoomEnvironment & PMREMGenerator
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    const envTexture = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+    const roomEnv = new RoomEnvironment();
+    const envTarget = pmremGenerator.fromScene(roomEnv, 0.04);
+    const envTexture = envTarget.texture;
     scene.environment = envTexture;
+    roomEnv.dispose();
+    pmremGenerator.dispose();
 
     const camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 100);
     camera.position.set(0, 0.08, 6.7);
@@ -336,20 +345,22 @@ export function Hologram3DStage({
     rimLight.position.set(-4.5, -2.5, -4.0);
     scene.add(rimLight);
 
-    // Preload all 3 official avatar textures so switching speakers is instantaneous
+    // Lazy VRAM-conscious texture cache (generateMipmaps = false saves ~33% GPU memory per portrait)
     const textureLoader = new THREE.TextureLoader();
-    const maxAniso = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
-    const textures: Record<AssistantId, THREE.Texture> = {
-      jarvis: textureLoader.load(ASSISTANT_AVATAR_URLS.jarvis),
-      'sexta-feira': textureLoader.load(ASSISTANT_AVATAR_URLS['sexta-feira']),
-      ultron: textureLoader.load(ASSISTANT_AVATAR_URLS.ultron),
-    };
-    (Object.values(textures) as THREE.Texture[]).forEach((tex) => {
+    const maxAniso = Math.min(renderer.capabilities.getMaxAnisotropy(), 4);
+    const loadedTextures = new Map<AssistantId, THREE.Texture>();
+    const getSpeakerTexture = (id: AssistantId): THREE.Texture => {
+      const cached = loadedTextures.get(id);
+      if (cached) return cached;
+      const tex = textureLoader.load(ASSISTANT_AVATAR_URLS[id]);
       tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = maxAniso;
-      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.generateMipmaps = false;
+      tex.minFilter = THREE.LinearFilter;
       tex.magFilter = THREE.LinearFilter;
-    });
+      tex.anisotropy = maxAniso;
+      loadedTextures.set(id, tex);
+      return tex;
+    };
 
     // Root Hologram Assembly Group
     const rootGroup = new THREE.Group();
@@ -365,11 +376,12 @@ export function Hologram3DStage({
     const targetPrimaryColor = new THREE.Color(initialProfile.primaryHex);
     const targetSecondaryColor = new THREE.Color(initialProfile.secondaryHex);
 
-    // 1. Primary 3D Sculpted Holographic Image Mesh
-    const segments = isSoftwareGl ? 56 : 96;
+    // 1. Primary 3D Sculpted Holographic Image Mesh (64x64 HW / 36x36 SW cuts vertex shader cost by ~55%)
+    const segments = isSoftwareGl ? 36 : 64;
     const portraitGeo = new THREE.PlaneGeometry(3.45, 3.45, segments, segments);
+    const initialTex = getSpeakerTexture(liveStateRef.current.speaker);
     const portraitUniforms = {
-      uTexture: { value: textures[liveStateRef.current.speaker] },
+      uTexture: { value: initialTex },
       uTime: { value: 0 },
       uAudioAmp: { value: 0 },
       uBass: { value: 0 },
@@ -398,7 +410,7 @@ export function Hologram3DStage({
 
     // 2. Volumetric Holographic Parallax Echo Layer (placed slightly behind for optical 3D depth)
     const echoUniforms = {
-      uTexture: { value: textures[liveStateRef.current.speaker] },
+      uTexture: { value: initialTex },
       uTime: { value: 0 },
       uAudioAmp: { value: 0 },
       uBass: { value: 0 },
@@ -631,9 +643,19 @@ export function Hologram3DStage({
 
     let rafId = 0;
     let disposed = false;
+    let isPageHidden = typeof document !== 'undefined' && document.hidden;
     let lastTime = performance.now();
     let elapsed = 0;
     let activeSpeaker: AssistantId = liveStateRef.current.speaker;
+    const minFrameMs = isSoftwareGl ? 32 : 0;
+
+    const onVisibilityChange = () => {
+      isPageHidden = document.hidden;
+      if (!isPageHidden) {
+        lastTime = performance.now();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     const afterDraw = () => {
       if (!isSoftwareGl) return;
@@ -650,7 +672,8 @@ export function Hologram3DStage({
     const tick = (now: number) => {
       if (disposed) return;
       rafId = window.requestAnimationFrame(tick);
-      if (contextLost) return;
+      if (contextLost || isPageHidden) return;
+      if (minFrameMs > 0 && now - lastTime < minFrameMs) return;
 
       const dt = Math.min((now - lastTime) / 1000, 0.05);
       lastTime = now;
@@ -658,20 +681,28 @@ export function Hologram3DStage({
 
       const state = liveStateRef.current;
 
-      // Instant speaker texture & color profile transition
+      // Instant speaker texture & color profile transition (lazy-cached in VRAM)
       if (state.speaker !== activeSpeaker) {
         activeSpeaker = state.speaker;
         const nextProfile = ASSISTANT_VISUAL_PROFILES[activeSpeaker];
-        portraitUniforms.uTexture.value = textures[activeSpeaker];
-        echoUniforms.uTexture.value = textures[activeSpeaker];
+        const nextTex = getSpeakerTexture(activeSpeaker);
+        portraitUniforms.uTexture.value = nextTex;
+        echoUniforms.uTexture.value = nextTex;
         portraitUniforms.uPersona.value = nextProfile.personaIndex;
         echoUniforms.uPersona.value = nextProfile.personaIndex;
         targetPrimaryColor.set(nextProfile.primaryHex);
         targetSecondaryColor.set(nextProfile.secondaryHex);
       }
 
-      // Compute bass / mid / high from 24-band FFT or synthesize organic cadence while speaking/thinking
-      const bands = state.audioBands;
+      // Direct zero-allocation 60fps Float32Array FFT telemetry read (decoupled from React re-renders)
+      const directTelemetry = state.audioTelemetryRef?.current;
+      const bands: ArrayLike<number> =
+        directTelemetry && directTelemetry.active ? directTelemetry.bands : state.audioBands;
+      const liveAmplitude =
+        directTelemetry && directTelemetry.active
+          ? directTelemetry.amplitude
+          : state.audioAmplitude;
+
       let rawBass = 0;
       let rawMid = 0;
       let rawHigh = 0;
@@ -683,9 +714,9 @@ export function Hologram3DStage({
         rawMid /= 8;
         rawHigh /= Math.max(1, Math.min(24, bands.length) - 14);
       } else if (state.isSpeaking) {
-        rawBass = Math.max(0.12, state.audioAmplitude * 0.95);
-        rawMid = Math.max(0.1, state.audioAmplitude * 0.85);
-        rawHigh = Math.max(0.08, state.audioAmplitude * 0.7);
+        rawBass = Math.max(0.12, liveAmplitude * 0.95);
+        rawMid = Math.max(0.1, liveAmplitude * 0.85);
+        rawHigh = Math.max(0.08, liveAmplitude * 0.7);
       } else if (state.isThinking) {
         rawBass = 0.2 + Math.sin(elapsed * 5.2) * 0.1;
         rawMid = 0.24 + Math.cos(elapsed * 6.8) * 0.12;
@@ -693,7 +724,7 @@ export function Hologram3DStage({
       }
 
       const rawAmp = state.isSpeaking
-        ? Math.max(state.audioAmplitude, (rawBass + rawMid) * 0.5)
+        ? Math.max(liveAmplitude, (rawBass + rawMid) * 0.5)
         : state.isThinking
         ? 0.22 + Math.sin(elapsed * 4.2) * 0.08
         : 0.04;
@@ -880,6 +911,7 @@ export function Hologram3DStage({
     return () => {
       disposed = true;
       window.cancelAnimationFrame(rafId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('pointermove', handlePointerMove);
       container.removeEventListener('pointerleave', handlePointerLeave);
       canvas.removeEventListener('webglcontextlost', onContextLost);
@@ -906,9 +938,10 @@ export function Hologram3DStage({
       baseInnerMat.dispose();
       beamGeo.dispose();
       beamMat.dispose();
-      (Object.values(textures) as THREE.Texture[]).forEach((tex) => tex.dispose());
+      loadedTextures.forEach((tex) => tex.dispose());
+      loadedTextures.clear();
+      envTarget.dispose();
       envTexture.dispose();
-      pmremGenerator.dispose();
       renderer.dispose();
     };
   }, []);

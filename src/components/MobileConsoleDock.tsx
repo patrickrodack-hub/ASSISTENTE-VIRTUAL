@@ -1,14 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Activity,
+  AudioWaveform,
+  Check,
   CheckCircle2,
   Circle,
   Crosshair,
+  FlaskConical,
   HeartPulse,
   Radar,
+  RotateCcw,
   ShieldAlert,
   SlidersHorizontal,
+  Sparkles,
   Users,
   Volume2,
   X,
@@ -20,12 +25,18 @@ import type {
   InteractionMode,
   TaskItem,
 } from '../types/assistant';
-import type {
-  FridayVoiceOption,
-  JarvisVoiceOption,
-  UltronVoiceOption,
+import {
+  JARVIS_VOICE_OPTIONS,
+  ULTRON_VOICE_OPTIONS,
+  type AssistantVoiceTuning,
+  type AudioTelemetryBuffer,
+  type FridayVoiceOption,
+  type JarvisVoiceOption,
+  type UltronVoiceOption,
+  type VoiceTuningMap,
 } from '../hooks/useVoiceEngine';
 import { triggerHaptic } from '../utils/haptics';
+import { MobileLiveWaveform } from './MobileLiveWaveform';
 
 interface MobileConsoleDockProps {
   targetMode: InteractionMode;
@@ -35,6 +46,7 @@ interface MobileConsoleDockProps {
   processingTasks: Record<AssistantId, string>;
   isSpeaking: boolean;
   speakingSpeaker: AssistantId | 'ambos' | 'todos' | null;
+  audioTelemetryRef: RefObject<AudioTelemetryBuffer>;
   isStandbyActive: boolean;
   micLevel: number;
   interimTranscript: string;
@@ -48,9 +60,18 @@ interface MobileConsoleDockProps {
   jarvisVoice: JarvisVoiceOption;
   fridayVoice: FridayVoiceOption;
   ultronVoice: UltronVoiceOption;
+  adoptMatrixOnListen: boolean;
+  labAmbienceEnabled?: boolean;
+  voiceTuning: VoiceTuningMap;
   onChangeJarvisVoice: (v: JarvisVoiceOption) => void;
   onChangeFridayVoice: (v: FridayVoiceOption) => void;
   onChangeUltronVoice: (v: UltronVoiceOption) => void;
+  onToggleLabAmbience?: (next: boolean) => void;
+  onToggleAdoptMatrixOnListen: (next: boolean) => void;
+  onUpdateVoiceTuning: (speaker: AssistantId, patch: Partial<AssistantVoiceTuning>) => void;
+  onApplyTunedVoice?: (speaker: AssistantId, tuning: AssistantVoiceTuning) => void;
+  onResetVoiceTuning: (speaker?: AssistantId) => void;
+  onTestSynthesizedVoice: (speaker: AssistantId, previewTuning?: AssistantVoiceTuning) => void;
   onPlayJarvisSample?: () => void;
   onPlayUltronSample?: () => void;
   openAlerts: AlertItem[];
@@ -69,6 +90,7 @@ export function MobileConsoleDock({
   processingTasks,
   isSpeaking,
   speakingSpeaker,
+  audioTelemetryRef,
   isStandbyActive,
   micLevel,
   interimTranscript,
@@ -82,9 +104,18 @@ export function MobileConsoleDock({
   jarvisVoice,
   fridayVoice,
   ultronVoice,
+  adoptMatrixOnListen,
+  labAmbienceEnabled = false,
+  voiceTuning,
   onChangeJarvisVoice,
   onChangeFridayVoice,
   onChangeUltronVoice,
+  onToggleLabAmbience,
+  onToggleAdoptMatrixOnListen,
+  onUpdateVoiceTuning,
+  onApplyTunedVoice,
+  onResetVoiceTuning,
+  onTestSynthesizedVoice,
   onPlayJarvisSample,
   onPlayUltronSample,
   openAlerts,
@@ -95,6 +126,40 @@ export function MobileConsoleDock({
   onOpenTasksTab,
 }: MobileConsoleDockProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<'vozes' | 'afinacao'>('vozes');
+  const [draftTuning, setDraftTuning] = useState<VoiceTuningMap>(() => ({
+    jarvis: { ...voiceTuning.jarvis },
+    'sexta-feira': { ...voiceTuning['sexta-feira'] },
+    ultron: { ...voiceTuning.ultron },
+  }));
+
+  useEffect(() => {
+    setDraftTuning({
+      jarvis: { ...voiceTuning.jarvis },
+      'sexta-feira': { ...voiceTuning['sexta-feira'] },
+      ultron: { ...voiceTuning.ultron },
+    });
+  }, [voiceTuning]);
+
+  const updateDraftTuning = (
+    speaker: AssistantId,
+    patch: Partial<AssistantVoiceTuning>
+  ) => {
+    setDraftTuning((prev) => ({
+      ...prev,
+      [speaker]: { ...prev[speaker], ...patch },
+    }));
+  };
+
+  const isTuningDirty = (speaker: AssistantId): boolean => {
+    const a = draftTuning[speaker];
+    const b = voiceTuning[speaker];
+    return (
+      a.pitchSemitones !== b.pitchSemitones ||
+      a.speed !== b.speed ||
+      a.modulation !== b.modulation
+    );
+  };
 
   const assistants: Array<{
     id: AssistantId;
@@ -247,6 +312,19 @@ export function MobileConsoleDock({
           </div>
         </div>
 
+        {/* Dynamic Real-Time AI Speech Waveform inside MobileConsoleDock */}
+        <div className="mt-2">
+          <MobileLiveWaveform
+            audioTelemetryRef={audioTelemetryRef}
+            isSpeaking={isSpeaking}
+            speakingSpeaker={speakingSpeaker}
+            isProcessing={isProcessing}
+            isStandbyActive={isStandbyActive}
+            micLevel={micLevel}
+            compact
+          />
+        </div>
+
         {/* Live Mobile "Em processamento" Banner inside Dock */}
         <AnimatePresence initial={false}>
           {isProcessing && activeThinkingId && (
@@ -308,7 +386,7 @@ export function MobileConsoleDock({
                     Central Tática &amp; Calibração Mobile
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Vozes originais, modo de operação e alertas de Patrick Pessoa
+                    Vozes, afinação vocal, modo de operação e alertas de Patrick Pessoa
                   </p>
                 </div>
                 <button
@@ -319,6 +397,257 @@ export function MobileConsoleDock({
                   <X className="h-4 w-4" />
                 </button>
               </div>
+
+              {/* Expanded Live Waveform inside Mobile Drawer */}
+              <MobileLiveWaveform
+                audioTelemetryRef={audioTelemetryRef}
+                isSpeaking={isSpeaking}
+                speakingSpeaker={speakingSpeaker}
+                isProcessing={isProcessing}
+                isStandbyActive={isStandbyActive}
+                micLevel={micLevel}
+                compact={false}
+              />
+
+              {/* Drawer Sub-Tabs: Vozes & Operação vs Afinação Vocal */}
+              <div className="grid grid-cols-2 gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic('toggle');
+                    setDrawerTab('vozes');
+                  }}
+                  className={`min-h-[38px] inline-flex items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    drawerTab === 'vozes'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-cyan-200 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  <Volume2 className="h-3.5 w-3.5" />
+                  <span>Vozes &amp; Modo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic('toggle');
+                    setDrawerTab('afinacao');
+                  }}
+                  className={`min-h-[38px] inline-flex items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    drawerTab === 'afinacao'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-amber-200 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  <AudioWaveform className="h-3.5 w-3.5" />
+                  <span>Afinação Vocal</span>
+                </button>
+              </div>
+
+              {drawerTab === 'afinacao' ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                      Tom, Velocidade e Modulação Independentes
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic('tap');
+                        onResetVoiceTuning();
+                      }}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-600 dark:text-cyan-300"
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                      <span>Restaurar todos</span>
+                    </button>
+                  </div>
+
+                  {(
+                    [
+                      {
+                        id: 'jarvis' as const,
+                        name: 'J.A.R.V.I.S.',
+                        accent: 'text-amber-700 dark:text-amber-300',
+                        border: 'border-amber-500/35',
+                        slider: 'accent-amber-500',
+                      },
+                      {
+                        id: 'sexta-feira' as const,
+                        name: 'SEXTA-FEIRA',
+                        accent: 'text-sky-700 dark:text-cyan-300',
+                        border: 'border-sky-500/35',
+                        slider: 'accent-sky-500',
+                      },
+                      {
+                        id: 'ultron' as const,
+                        name: 'ULTRON',
+                        accent: 'text-red-600 dark:text-red-400',
+                        border: 'border-red-500/35',
+                        slider: 'accent-red-500',
+                      },
+                    ]
+                  ).map((item) => {
+                    const t = draftTuning[item.id];
+                    const dirty = isTuningDirty(item.id);
+                    return (
+                      <div
+                        key={item.id}
+                        className={`rounded-2xl border ${item.border} bg-slate-50 dark:bg-slate-950/75 p-3.5 space-y-3`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className={`font-display text-xs font-bold ${item.accent}`}>
+                              {item.name}
+                            </span>
+                            <span
+                              className={`rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold border ${
+                                dirty
+                                  ? 'border-amber-500/50 bg-amber-500/15 text-amber-800 dark:text-amber-200'
+                                  : 'border-emerald-500/45 bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+                              }`}
+                            >
+                              {dirty ? 'Pendente' : 'Ativa'}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              triggerHaptic('tap');
+                              onResetVoiceTuning(item.id);
+                            }}
+                            className="rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1 text-[10px] font-medium text-slate-600 dark:text-slate-300"
+                          >
+                            Reset
+                          </button>
+                        </div>
+
+                        <div className="space-y-2.5 text-xs">
+                          <div className="space-y-1">
+                            <div className="flex justify-between font-mono text-[11px]">
+                              <span className="text-slate-600 dark:text-slate-300">Tom (Pitch)</span>
+                              <span className={item.accent}>
+                                {t.pitchSemitones > 0 ? `+${t.pitchSemitones.toFixed(1)}` : t.pitchSemitones.toFixed(1)} st
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={-6}
+                              max={6}
+                              step={0.5}
+                              value={t.pitchSemitones}
+                              onChange={(e) =>
+                                updateDraftTuning(item.id, {
+                                  pitchSemitones: parseFloat(e.target.value),
+                                })
+                              }
+                              className={`w-full ${item.slider}`}
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="flex justify-between font-mono text-[11px]">
+                              <span className="text-slate-600 dark:text-slate-300">Velocidade</span>
+                              <span className={item.accent}>{t.speed.toFixed(2)}x</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0.75}
+                              max={1.35}
+                              step={0.05}
+                              value={t.speed}
+                              onChange={(e) =>
+                                updateDraftTuning(item.id, {
+                                  speed: parseFloat(e.target.value),
+                                })
+                              }
+                              className={`w-full ${item.slider}`}
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="flex justify-between font-mono text-[11px]">
+                              <span className="text-slate-600 dark:text-slate-300">Modulação</span>
+                              <span className={item.accent}>{t.modulation}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={100}
+                              step={5}
+                              value={t.modulation}
+                              onChange={(e) =>
+                                updateDraftTuning(item.id, {
+                                  modulation: parseInt(e.target.value, 10),
+                                })
+                              }
+                              className={`w-full ${item.slider}`}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <button
+                            type="button"
+                            disabled={isSpeaking}
+                            onClick={() => {
+                              triggerHaptic('tap');
+                              onTestSynthesizedVoice(item.id, t);
+                            }}
+                            className="inline-flex items-center justify-center gap-1 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-2 text-[11px] font-semibold text-slate-800 dark:text-slate-100 disabled:opacity-50"
+                          >
+                            <Sparkles className="h-3 w-3 shrink-0" />
+                            <span>Testar Afinação</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              triggerHaptic('success');
+                              if (onApplyTunedVoice) {
+                                onApplyTunedVoice(item.id, t);
+                              } else {
+                                onUpdateVoiceTuning(item.id, t);
+                              }
+                            }}
+                            className={`inline-flex items-center justify-center gap-1 rounded-xl border px-2.5 py-2 text-[11px] font-semibold transition-all ${
+                              dirty
+                                ? 'border-emerald-500 bg-emerald-500 text-slate-950 shadow-xs'
+                                : 'border-emerald-500/50 bg-emerald-500/15 text-emerald-800 dark:text-emerald-200'
+                            }`}
+                          >
+                            <Check className="h-3 w-3 shrink-0" />
+                            <span>Aplicar Voz Afinada</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <>
+              {onToggleLabAmbience && (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={labAmbienceEnabled}
+                  onClick={() => {
+                    triggerHaptic('toggle');
+                    onToggleLabAmbience(!labAmbienceEnabled);
+                  }}
+                  className={`w-full flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                    labAmbienceEnabled
+                      ? 'border-cyan-500/60 bg-cyan-500/15 text-cyan-900 dark:text-cyan-200'
+                      : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-2 text-xs font-semibold">
+                    <FlaskConical className="h-3.5 w-3.5 text-cyan-500 shrink-0" />
+                    <span>Ambiente de Laboratório (Reverb)</span>
+                  </span>
+                  <span className="font-mono text-[10px] uppercase font-bold">
+                    {labAmbienceEnabled ? 'Ativo' : 'Off'}
+                  </span>
+                </button>
+              )}
 
               {/* Operation Mode Grid */}
               <div className="space-y-2">
@@ -358,35 +687,68 @@ export function MobileConsoleDock({
               {/* Voice Timbre Calibration */}
               <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 p-4 space-y-3">
                 <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                  Calibração das Vozes Originais (Toque para testar)
+                  Seleção de Voz dos Assistentes (Ativa na hora)
                 </div>
+
+                <label className="flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/70 px-3 py-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={adoptMatrixOnListen}
+                    onChange={(e) => {
+                      triggerHaptic('toggle');
+                      onToggleAdoptMatrixOnListen(e.target.checked);
+                    }}
+                    className="h-3.5 w-3.5 rounded accent-amber-500 dark:accent-cyan-400 cursor-pointer shrink-0"
+                  />
+                  <span className="text-[11px] leading-snug text-slate-700 dark:text-slate-200">
+                    Assumir voz ao clicar em <strong>“Ouvir Matriz Exclusiva”</strong>
+                  </span>
+                </label>
 
                 <div className="space-y-2.5">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
-                        J.A.R.V.I.S.
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          triggerHaptic('tap');
-                          onChangeJarvisVoice(jarvisVoice);
-                        }}
-                        className="min-h-[38px] w-52 rounded-xl border border-amber-500/40 bg-amber-500/10 dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200 flex items-center justify-between gap-1.5 active:scale-[0.98]"
+                      <label
+                        htmlFor="mobile-jarvis-voice"
+                        className="text-xs font-semibold text-amber-700 dark:text-amber-300 shrink-0"
                       >
-                        <span className="truncate">Exclusiva · {jarvisVoice}</span>
-                        <span className="font-mono text-[10px] shrink-0">104.3 Hz</span>
-                      </button>
+                        J.A.R.V.I.S.
+                      </label>
+                      <select
+                        id="mobile-jarvis-voice"
+                        value={jarvisVoice}
+                        onChange={(e) => {
+                          triggerHaptic('tap');
+                          onChangeJarvisVoice(e.target.value as JarvisVoiceOption);
+                        }}
+                        className="min-h-[40px] w-52 rounded-xl border border-amber-500/40 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                      >
+                        {JARVIS_VOICE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.shortLabel}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     {onPlayJarvisSample && (
                       <button
                         type="button"
                         onClick={onPlayJarvisSample}
-                        className="w-full min-h-[38px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:text-amber-200 active:scale-[0.98]"
+                        className={`w-full min-h-[38px] inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold active:scale-[0.98] transition-colors ${
+                          jarvisVoice === 'JarvisOriginal'
+                            ? 'border-amber-500/60 bg-amber-500/20 text-amber-800 dark:text-amber-100'
+                            : 'border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-200'
+                        }`}
                       >
                         <Volume2 className="h-3.5 w-3.5 shrink-0" />
-                        <span>Ouvir Matriz Exclusiva (104.3 Hz)</span>
+                        <span>
+                          {adoptMatrixOnListen
+                            ? 'Ouvir e Assumir Matriz Exclusiva (104.3 Hz)'
+                            : 'Ouvir Matriz Exclusiva (104.3 Hz)'}
+                        </span>
+                        {jarvisVoice === 'JarvisOriginal' && (
+                          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-300" />
+                        )}
                       </button>
                     )}
                   </div>
@@ -394,17 +756,18 @@ export function MobileConsoleDock({
                   <div className="flex items-center justify-between gap-3">
                     <label
                       htmlFor="mobile-friday-voice"
-                      className="text-xs font-semibold text-sky-700 dark:text-sky-300"
+                      className="text-xs font-semibold text-sky-700 dark:text-sky-300 shrink-0"
                     >
                       SEXTA-FEIRA
                     </label>
                     <select
                       id="mobile-friday-voice"
                       value={fridayVoice}
-                      onChange={(e) =>
-                        onChangeFridayVoice(e.target.value as FridayVoiceOption)
-                      }
-                      className="min-h-[40px] w-48 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                      onChange={(e) => {
+                        triggerHaptic('tap');
+                        onChangeFridayVoice(e.target.value as FridayVoiceOption);
+                      }}
+                      className="min-h-[40px] w-52 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
                     >
                       <option value="Kore">Kore (Feminina · Tática)</option>
                       <option value="Zephyr">Zephyr (Feminina · Calorosa)</option>
@@ -413,29 +776,47 @@ export function MobileConsoleDock({
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs font-semibold text-red-600 dark:text-red-400">
-                        ULTRON
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          triggerHaptic('tap');
-                          onChangeUltronVoice(ultronVoice);
-                        }}
-                        className="min-h-[38px] w-52 rounded-xl border border-red-500/40 bg-red-500/10 dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-red-700 dark:text-red-300 flex items-center justify-between gap-1.5 active:scale-[0.98]"
+                      <label
+                        htmlFor="mobile-ultron-voice"
+                        className="text-xs font-semibold text-red-600 dark:text-red-400 shrink-0"
                       >
-                        <span className="truncate">Exclusiva · {ultronVoice}</span>
-                        <span className="font-mono text-[10px] shrink-0">90.2 Hz</span>
-                      </button>
+                        ULTRON
+                      </label>
+                      <select
+                        id="mobile-ultron-voice"
+                        value={ultronVoice}
+                        onChange={(e) => {
+                          triggerHaptic('tap');
+                          onChangeUltronVoice(e.target.value as UltronVoiceOption);
+                        }}
+                        className="min-h-[40px] w-52 rounded-xl border border-red-500/40 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                      >
+                        {ULTRON_VOICE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.shortLabel}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     {onPlayUltronSample && (
                       <button
                         type="button"
                         onClick={onPlayUltronSample}
-                        className="w-full min-h-[38px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-red-500/35 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-700 dark:text-red-300 active:scale-[0.98]"
+                        className={`w-full min-h-[38px] inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold active:scale-[0.98] transition-colors ${
+                          ultronVoice === 'UltronOriginal'
+                            ? 'border-red-500/60 bg-red-500/20 text-red-800 dark:text-red-100'
+                            : 'border-red-500/35 bg-red-500/10 text-red-700 dark:text-red-300'
+                        }`}
                       >
                         <Volume2 className="h-3.5 w-3.5 shrink-0" />
-                        <span>Ouvir Matriz Exclusiva (90.2 Hz)</span>
+                        <span>
+                          {adoptMatrixOnListen
+                            ? 'Ouvir e Assumir Matriz Exclusiva (90.2 Hz)'
+                            : 'Ouvir Matriz Exclusiva (90.2 Hz)'}
+                        </span>
+                        {ultronVoice === 'UltronOriginal' && (
+                          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-red-600 dark:text-red-300" />
+                        )}
                       </button>
                     )}
                   </div>
@@ -549,6 +930,8 @@ export function MobileConsoleDock({
                   );
                 })}
               </div>
+              </>
+              )}
             </motion.div>
           </motion.div>
         )}
