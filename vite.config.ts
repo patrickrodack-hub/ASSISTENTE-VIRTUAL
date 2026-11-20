@@ -53,10 +53,16 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          skipWaiting: true,
+          clientsClaim: true,
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,woff,woff2}'],
-          navigateFallbackDenylist: [/^\/api\//],
+          navigateFallbackDenylist: [/^\/api\//, /^\/audio\//],
           runtimeCaching: [
+            {
+              urlPattern: /\/api\/(assistant|intel|voice-samples|health|dossier)/i,
+              handler: 'NetworkOnly',
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',
@@ -90,7 +96,7 @@ export default defineConfig(() => {
               handler: 'NetworkFirst',
               options: {
                 cacheName: 'stark-workspace-api-cache',
-                networkTimeoutSeconds: 3,
+                networkTimeoutSeconds: 4,
                 expiration: {
                   maxEntries: 5,
                   maxAgeSeconds: 60 * 60 * 24 * 7,

@@ -21,6 +21,7 @@ import type {
 } from '../types/assistant';
 import { AuditTelemetryPanel } from './AuditTelemetryPanel';
 import { PerformanceAuditCharts } from './PerformanceAuditCharts';
+import { SecurityAlertsGlobe } from './SecurityAlertsGlobe';
 import { SystemStabilityChart } from './SystemStabilityChart';
 import type { UsePerformanceMonitorReturn } from '../hooks/usePerformanceMonitor';
 import type { AudioRingBufferStats } from '../utils/audioRingBuffer';
@@ -640,6 +641,8 @@ export function AuditPanel({
   return (
     <div className="space-y-6">
       <SystemStabilityChart workspace={workspace} isDark={isDark} />
+
+      <SecurityAlertsGlobe workspace={workspace} isDark={isDark} />
 
       {performanceMonitor && (
         <PerformanceAuditCharts

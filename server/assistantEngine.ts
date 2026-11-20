@@ -117,6 +117,60 @@ async function withTransientRetry<T>(fn: () => Promise<T>, maxRetries = 1): Prom
   }
 }
 
+async function researchWithGeminiGoogleSearch(
+  query: string,
+  queryDate: string
+): Promise<{ summaryText: string; sources: GroundingSource[] } | null> {
+  const cleanQuery = query.trim();
+  if (!cleanQuery || !isGeminiApiConfigured()) return null;
+
+  const groundingModels = ['gemini-3.1-flash-lite', 'gemini-4-hydrogen'];
+  for (const model of groundingModels) {
+    try {
+      const ai = getClient();
+      const response = await ai.models.generateContent({
+        model,
+        contents: `Pesquise na web em tempo real (data de referência: ${queryDate}, Português do Brasil) e resuma fatos objetivos, números, datas e fontes reais para: "${cleanQuery.slice(
+          0,
+          320
+        )}"`,
+        config: {
+          tools: [{ googleSearch: {} }],
+        },
+      });
+
+      const summary = (response.text ?? '').trim();
+      const rawChunks =
+        response.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [];
+      const extractedSources: GroundingSource[] = [];
+      for (const chunk of rawChunks) {
+        const web = (chunk as { web?: { uri?: string; title?: string } })?.web;
+        if (web?.uri && /^https?:\/\//i.test(web.uri)) {
+          if (!extractedSources.some((s) => s.uri === web.uri)) {
+            extractedSources.push({
+              title: web.title?.trim() || web.uri,
+              uri: web.uri,
+              sourceType: 'Google Search Grounding',
+            });
+          }
+        }
+      }
+
+      if (summary || extractedSources.length > 0) {
+        return {
+          summaryText: summary
+            ? `=== GOOGLE SEARCH GROUNDING EM TEMPO REAL (${queryDate}) ===\n${summary}`
+            : '',
+          sources: extractedSources.slice(0, 8),
+        };
+      }
+    } catch {
+      // Try next grounding model
+    }
+  }
+  return null;
+}
+
 interface StructuredAIResult {
   detectedEmotion: DetectedEmotion;
   resolvedMode: AssistantId | 'ambos' | 'todos';
@@ -428,7 +482,7 @@ async function prepareInteractionPrompt(params: {
     workspace = await upsertDailyIntelSnapshots(queryDate, researchResult.snapshots);
   }
 
-  const groundedContext = researchResult?.summaryText ?? '';
+  let groundedContext = researchResult?.summaryText ?? '';
   const dailyFeedContext = formatDailySnapshotsContext(
     workspace.dailyIntelFeed ?? [],
     queryDate
@@ -437,8 +491,25 @@ async function prepareInteractionPrompt(params: {
     researchResult?.snapshots && researchResult.snapshots.length > 0
       ? researchResult.snapshots
       : (workspace.dailyIntelFeed ?? []).filter((s) => s.queryDate === queryDate);
-  const sources: GroundingSource[] = researchResult?.sources ?? [];
-  const searchEnginesUsed: string[] = researchResult?.enginesUsed ?? [];
+  const sources: GroundingSource[] = [...(researchResult?.sources ?? [])];
+  const searchEnginesUsed: string[] = [...(researchResult?.enginesUsed ?? [])];
+
+  // External / Vercel resilience: if direct HTTP/RSS scrapers returned 0 sources (e.g., cloud IP block),
+  // automatically execute live Google Search Grounding via Gemini SDK.
+  if (shouldSearch && sources.length === 0 && isGeminiApiConfigured()) {
+    const geminiGrounded = await researchWithGeminiGoogleSearch(params.message, queryDate);
+    if (geminiGrounded) {
+      groundedContext = [groundedContext, geminiGrounded.summaryText].filter(Boolean).join('\n\n');
+      for (const src of geminiGrounded.sources) {
+        if (!sources.some((existing) => existing.uri === src.uri)) {
+          sources.push(src);
+        }
+      }
+      if (!searchEnginesUsed.includes('Google Search Grounding')) {
+        searchEnginesUsed.push('Google Search Grounding');
+      }
+    }
+  }
 
   if (liveIntel) {
     if (!searchEnginesUsed.includes('Clima Open-Meteo RJ')) {
@@ -2023,24 +2094,38 @@ export async function synthesizeAssistantSpeech(params: {
     return cachedAudio;
   }
 
-  const models = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'];
+  const attempts: Array<{
+    model: string;
+    apiVersion?: string;
+    useSpeechMetadata: boolean;
+  }> = [
+    { model: 'gemini-3.8-flash-lite-tts', apiVersion: 'v1beta', useSpeechMetadata: true },
+    { model: 'gemini-3.8-flash-tts', apiVersion: 'v1beta', useSpeechMetadata: true },
+    { model: 'gemini-3.8-flash-lite-tts', apiVersion: undefined, useSpeechMetadata: false },
+    { model: 'gemini-3.8-flash-tts', apiVersion: undefined, useSpeechMetadata: false },
+  ];
   let lastErr: unknown = null;
 
-  for (const model of models) {
+  for (const attempt of attempts) {
     try {
-      const response = await ai.models.generateContent({
-        model,
+      const client = attempt.apiVersion ? ai : getClient();
+      const part = attempt.useSpeechMetadata
+        ? {
+            text: combinedText,
+            speechMetadata: {
+              style: styleHint,
+            },
+          }
+        : {
+            text: combinedText,
+          };
+
+      const response = await client.models.generateContent({
+        model: attempt.model,
         contents: [
           {
             role: 'user',
-            parts: [
-              {
-                text: combinedText,
-                speechMetadata: {
-                  style: styleHint,
-                },
-              },
-            ],
+            parts: [part],
           },
         ],
         config: {

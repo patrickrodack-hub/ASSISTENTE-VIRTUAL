@@ -1191,6 +1191,23 @@ export function useVoiceEngine({
     }
   }, [publishRingBufferStats, startRecognitionInstance, stopPlaybackAnalyser]);
 
+  // Pre-warm browser SpeechSynthesis voices on external HTTPS deployments (Chrome/Safari load voices asynchronously)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const warmVoices = () => {
+      try {
+        window.speechSynthesis.getVoices();
+      } catch {
+        // ignore
+      }
+    };
+    warmVoices();
+    window.speechSynthesis.addEventListener?.('voiceschanged', warmVoices);
+    return () => {
+      window.speechSynthesis.removeEventListener?.('voiceschanged', warmVoices);
+    };
+  }, []);
+
   const speakSingleTurnWithBrowserFallback = useCallback(
     (turn: AssistantTurn, sessionId: number): Promise<void> =>
       new Promise((resolve) => {
@@ -1202,6 +1219,16 @@ export function useVoiceEngine({
           resolve();
           return;
         }
+
+        const rawScript = (turn.ttsScript || turn.text || '')
+          .replace(/[*_`#>-]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (!rawScript) {
+          resolve();
+          return;
+        }
+
         const voices = window.speechSynthesis.getVoices();
         const ptVoices = voices.filter((v) => v.lang.toLowerCase().startsWith('pt'));
 
@@ -1219,16 +1246,18 @@ export function useVoiceEngine({
           ptVoices.find((v) => v !== femaleVoice) ??
           ptVoices[0];
 
-        const utter = new SpeechSynthesisUtterance(turn.ttsScript || turn.text);
-        utter.lang = 'pt-BR';
         const tuning = getEffectiveTuning(turn.speaker);
         const pitchScale = Math.pow(2, tuning.pitchSemitones / 12);
         const speedScale = tuning.speed;
         const modPitchBias =
           turn.speaker === 'ultron' ? 1 - (tuning.modulation / 100) * 0.08 : 1;
 
+        let targetVoice: SpeechSynthesisVoice | undefined;
+        let resolvedPitch = 1.0;
+        let resolvedRate = 1.0;
+
         if (turn.speaker === 'jarvis') {
-          if (maleVoice) utter.voice = maleVoice;
+          targetVoice = maleVoice;
           const activeJarvis = jarvisVoiceRef.current;
           let basePitch = 0.82;
           let baseRate = 0.95;
@@ -1245,10 +1274,10 @@ export function useVoiceEngine({
             basePitch = 0.88;
             baseRate = 0.98;
           }
-          utter.pitch = Math.max(0.35, Math.min(1.85, basePitch * pitchScale));
-          utter.rate = Math.max(0.65, Math.min(1.65, baseRate * speedScale));
+          resolvedPitch = Math.max(0.35, Math.min(1.85, basePitch * pitchScale));
+          resolvedRate = Math.max(0.65, Math.min(1.65, baseRate * speedScale));
         } else if (turn.speaker === 'ultron') {
-          if (maleVoice) utter.voice = maleVoice;
+          targetVoice = maleVoice;
           const activeUltron = ultronVoiceRef.current;
           let basePitch = 0.60;
           let baseRate = 0.86;
@@ -1265,10 +1294,10 @@ export function useVoiceEngine({
             basePitch = 0.84;
             baseRate = 0.99;
           }
-          utter.pitch = Math.max(0.35, Math.min(1.85, basePitch * pitchScale * modPitchBias));
-          utter.rate = Math.max(0.65, Math.min(1.65, baseRate * speedScale));
+          resolvedPitch = Math.max(0.35, Math.min(1.85, basePitch * pitchScale * modPitchBias));
+          resolvedRate = Math.max(0.65, Math.min(1.65, baseRate * speedScale));
         } else {
-          if (femaleVoice) utter.voice = femaleVoice;
+          targetVoice = femaleVoice;
           const isZephyr = fridayVoiceRef.current === 'Zephyr';
           const basePitch =
             femaleVoice && femaleHints.test(femaleVoice.name)
@@ -1279,13 +1308,32 @@ export function useVoiceEngine({
               ? 1.36
               : 1.28;
           const baseRate = isZephyr ? 1.0 : 1.06;
-          utter.pitch = Math.max(0.45, Math.min(1.9, basePitch * pitchScale));
-          utter.rate = Math.max(0.65, Math.min(1.65, baseRate * speedScale));
+          resolvedPitch = Math.max(0.45, Math.min(1.9, basePitch * pitchScale));
+          resolvedRate = Math.max(0.65, Math.min(1.65, baseRate * speedScale));
         }
+
+        // Split long texts into <= 175-char chunks to avoid Chrome's 15-second SpeechSynthesis freeze bug
+        const sentenceParts = rawScript.match(/[^.!?]+[.!?]*\s*/g) ?? [rawScript];
+        const speechChunks: string[] = [];
+        let currentBuf = '';
+        for (const rawPart of sentenceParts) {
+          const part = rawPart.trim();
+          if (!part) continue;
+          if (currentBuf && currentBuf.length + part.length + 1 > 175) {
+            speechChunks.push(currentBuf.trim());
+            currentBuf = part;
+          } else {
+            currentBuf = currentBuf ? `${currentBuf} ${part}` : part;
+          }
+        }
+        if (currentBuf.trim()) speechChunks.push(currentBuf.trim());
+        if (speechChunks.length === 0) speechChunks.push(rawScript.slice(0, 175));
 
         // Visual pulse while browser speech synthesis is active (also feeds 60 FPS audioTelemetryRef)
         let phase = 0;
         let stopped = false;
+        let settled = false;
+        let watchdogTimer: number | null = null;
         const telemetry = audioTelemetryRef.current;
         telemetry.active = true;
         let lastReactCommit = 0;
@@ -1310,14 +1358,68 @@ export function useVoiceEngine({
         playbackRafRef.current = requestAnimationFrame(tick);
 
         const cleanup = () => {
+          if (settled) return;
+          settled = true;
           stopped = true;
+          if (watchdogTimer !== null) {
+            window.clearTimeout(watchdogTimer);
+            watchdogTimer = null;
+          }
           stopPlaybackAnalyser();
           resolve();
         };
 
-        utter.onend = cleanup;
-        utter.onerror = cleanup;
-        window.speechSynthesis.speak(utter);
+        let chunkIdx = 0;
+        const speakNextChunk = () => {
+          if (settled || sessionId !== playbackSessionRef.current || chunkIdx >= speechChunks.length) {
+            cleanup();
+            return;
+          }
+          const chunkText = speechChunks[chunkIdx];
+          chunkIdx += 1;
+
+          const utter = new SpeechSynthesisUtterance(chunkText);
+          utter.lang = 'pt-BR';
+          if (targetVoice) utter.voice = targetVoice;
+          utter.pitch = resolvedPitch;
+          utter.rate = resolvedRate;
+
+          let chunkDone = false;
+          const onChunkFinished = () => {
+            if (chunkDone) return;
+            chunkDone = true;
+            if (watchdogTimer !== null) {
+              window.clearTimeout(watchdogTimer);
+              watchdogTimer = null;
+            }
+            speakNextChunk();
+          };
+
+          utter.onend = onChunkFinished;
+          utter.onerror = onChunkFinished;
+
+          // Safety watchdog prevents silent browser hangs from locking the speech queue permanently
+          const estimatedMs = Math.max(4500, Math.min(16000, Math.round((chunkText.length / 11) * 1000 / Math.max(0.65, resolvedRate)) + 3500));
+          watchdogTimer = window.setTimeout(() => {
+            try {
+              window.speechSynthesis.cancel();
+            } catch {
+              // ignore
+            }
+            onChunkFinished();
+          }, estimatedMs);
+
+          try {
+            if (window.speechSynthesis.paused) {
+              window.speechSynthesis.resume();
+            }
+            window.speechSynthesis.speak(utter);
+          } catch {
+            onChunkFinished();
+          }
+        };
+
+        speakNextChunk();
       }),
     [stopPlaybackAnalyser]
   );
@@ -1776,25 +1878,33 @@ export function useVoiceEngine({
       }
 
       const t0 = performance.now();
-      const res = await safeFetchJson<{ audioBase64?: string; mimeType?: string }>(
-        '/api/assistant/tts',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            turns: [
-              {
-                speaker: chunk.speaker,
-                text: spokenText,
-              },
-            ],
-            jarvisVoice: activeJarvisVoice,
-            fridayVoice: activeFridayVoice,
-            ultronVoice: activeUltronVoice,
-          }),
-        },
-        1
-      );
+      const ttsController = new AbortController();
+      const ttsTimeoutId = window.setTimeout(() => ttsController.abort(), 11500);
+      let res: Awaited<ReturnType<typeof safeFetchJson<{ audioBase64?: string; mimeType?: string }>>>;
+      try {
+        res = await safeFetchJson<{ audioBase64?: string; mimeType?: string }>(
+          '/api/assistant/tts',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: ttsController.signal,
+            body: JSON.stringify({
+              turns: [
+                {
+                  speaker: chunk.speaker,
+                  text: spokenText,
+                },
+              ],
+              jarvisVoice: activeJarvisVoice,
+              fridayVoice: activeFridayVoice,
+              ultronVoice: activeUltronVoice,
+            }),
+          },
+          0
+        );
+      } finally {
+        window.clearTimeout(ttsTimeoutId);
+      }
       const rttMs = Math.max(1, Math.round(performance.now() - t0));
       ringBufferRef.current.recordNetworkLatency(rttMs);
       publishRingBufferStats(false);

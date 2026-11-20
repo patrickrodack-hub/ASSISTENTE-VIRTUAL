@@ -50,13 +50,18 @@ function decodeHtmlEntities(input: string): string {
     .trim();
 }
 
+const IS_SERVERLESS_ENV = Boolean(
+  process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME
+);
+
 async function fetchWithTimeout(
   url: string,
   options: RequestInit = {},
   timeoutMs = 3600
 ): Promise<Response> {
+  const effectiveTimeout = IS_SERVERLESS_ENV ? Math.max(timeoutMs, 5400) : timeoutMs;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), effectiveTimeout);
   try {
     return await fetch(url, {
       ...options,
@@ -116,6 +121,36 @@ export function getQueryDateSaoPaulo(clientTimeIso?: string, clientTimezone?: st
   }
 }
 
+async function searchWikipediaPt(
+  query: string,
+  sourceType = 'Enciclopédia / Web',
+  maxItems = 3
+): Promise<Array<{ title: string; uri: string; snippet: string; sourceType: string; date?: string }>> {
+  const clean = query.replace(/site:[^\s]+/gi, '').trim();
+  if (clean.length < 3) return [];
+  try {
+    const url = `https://pt.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(
+      clean
+    )}&srlimit=${maxItems}&utf8=1&format=json&origin=*`;
+    const res = await fetchWithTimeout(url, { headers: { 'User-Agent': BROWSER_UA } }, 3600);
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      query?: {
+        search?: Array<{ title: string; snippet?: string; timestamp?: string }>;
+      };
+    };
+    return (data.query?.search ?? []).slice(0, maxItems).map((item) => ({
+      title: item.title,
+      uri: `https://pt.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/\s+/g, '_'))}`,
+      snippet: decodeHtmlEntities(item.snippet || item.title),
+      sourceType,
+      date: item.timestamp,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 async function searchBingWeb(
   query: string,
   sourceType: string,
@@ -130,18 +165,29 @@ async function searchBingWeb(
       },
       3200
     );
-    if (!res.ok) return [];
-    const xml = await res.text();
-    return parseRssItems(xml, maxItems).map((item) => ({
-      title: item.title,
-      uri: item.link,
-      snippet: item.description || item.title,
-      sourceType,
-      date: item.pubDate,
-    }));
+    if (res.ok) {
+      const xml = await res.text();
+      const bingItems = parseRssItems(xml, maxItems).map((item) => ({
+        title: item.title,
+        uri: item.link,
+        snippet: item.description || item.title,
+        sourceType,
+        date: item.pubDate,
+      }));
+      if (bingItems.length > 0) {
+        return bingItems;
+      }
+    }
   } catch {
-    return [];
+    // Fall through to cloud-friendly search fallbacks (Google News RSS + Wikipedia PT-BR)
   }
+
+  // Fallback for cloud datacenter IPs (e.g., Vercel AWS) where Bing RSS returns CAPTCHA/empty
+  const [gNewsFallback, wikiFallback] = await Promise.all([
+    searchGoogleNews(query, sourceType, maxItems),
+    searchWikipediaPt(query, `${sourceType} · Referência`, Math.min(2, maxItems)),
+  ]);
+  return [...gNewsFallback, ...wikiFallback].slice(0, maxItems);
 }
 
 async function searchGoogleNews(
@@ -433,6 +479,44 @@ async function fetchBcbPtaxUsd(): Promise<DailyIntelRecordItem | null> {
   return null;
 }
 
+async function fetchAwesomeApiCurrencies(): Promise<DailyIntelRecordItem[]> {
+  try {
+    const url = 'https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,BTC-BRL';
+    const res = await fetchWithTimeout(url, { headers: { 'User-Agent': BROWSER_UA } }, 3600);
+    if (!res.ok) return [];
+    const data = (await res.json()) as Record<
+      string,
+      { name?: string; bid?: string; ask?: string; pctChange?: string; high?: string; low?: string; create_date?: string }
+    >;
+    const pairs: Array<{ key: string; label: string }> = [
+      { key: 'USDBRL', label: 'Dólar Comercial (USD/BRL)' },
+      { key: 'EURBRL', label: 'Euro (EUR/BRL)' },
+      { key: 'BTCBRL', label: 'Bitcoin (BTC/BRL)' },
+    ];
+    const records: DailyIntelRecordItem[] = [];
+    for (const pair of pairs) {
+      const q = data[pair.key];
+      const bid = Number(q?.bid);
+      if (!q || !Number.isFinite(bid)) continue;
+      const pct = Number(q.pctChange ?? 0);
+      const sign = pct >= 0 ? '+' : '';
+      const formatted =
+        bid >= 1000
+          ? bid.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
+          : bid.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+      records.push({
+        title: `${pair.label}: R$ ${formatted} (${sign}${pct.toFixed(2)}%)`,
+        detail: `Mín. dia: R$ ${q.low ?? formatted} · Máx. dia: R$ ${q.high ?? formatted} · Câmbio em tempo real`,
+        uri: 'https://www.b3.com.br/pt_br/market-data-e-indices/servicos-de-dados/market-data/cotacoes/',
+        publishedAt: q.create_date || new Date().toISOString(),
+      });
+    }
+    return records;
+  } catch {
+    return [];
+  }
+}
+
 async function fetchB3MarketAndCurrencies(
   query: string,
   queryDate: string
@@ -451,9 +535,15 @@ async function fetchB3MarketAndCurrencies(
     searchGoogleNews(`site:b3.com.br OR "Ibovespa" OR "dólar B3" ${query} when:2d`, 'B3 (b3.com.br)', 4),
   ]);
 
-  const quoteRecords = [ibov, usd, ptax, eur, btc, petr4, vale3].filter(
+  let quoteRecords = [ibov, usd, ptax, eur, btc, petr4, vale3].filter(
     (q): q is DailyIntelRecordItem => q !== null
   );
+
+  // Cloud-IP fallback: if Yahoo Finance / BCB PTAX failed or rate-limited from Vercel US IPs
+  if (!usd && !eur && !ptax) {
+    const awesomeFallback = await fetchAwesomeApiCurrencies();
+    quoteRecords = [...quoteRecords, ...awesomeFallback];
+  }
 
   const items: Array<{
     title: string;

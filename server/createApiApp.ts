@@ -76,10 +76,14 @@ export function createApiApp(): express.Express {
 
   // Lightweight health & runtime diagnostic endpoint (works on Node, Cloud Run, and Vercel)
   app.get('/api/health', (_req, res) => {
+    const geminiConfigured = isGeminiApiConfigured();
     res.json({
       ok: true,
       runtime: IS_SERVERLESS_RUNTIME ? 'vercel-serverless' : 'node-express',
-      geminiConfigured: isGeminiApiConfigured(),
+      vercelEnv: Boolean(process.env.VERCEL),
+      geminiConfigured,
+      voiceTtsReady: geminiConfigured,
+      webSearchFallback: 'google-news+wikipedia+awesomeapi+gemini-grounding',
       exclusiveVoices: {
         jarvis: { voiceKey: 'JarvisOriginal', targetF0Hz: 104.3 },
         ultron: { voiceKey: 'UltronOriginal', targetF0Hz: 90.2 },

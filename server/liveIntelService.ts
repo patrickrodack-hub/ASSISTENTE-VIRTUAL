@@ -25,13 +25,18 @@ function decodeHtml(input: string): string {
     .trim();
 }
 
+const IS_SERVERLESS_ENV = Boolean(
+  process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME
+);
+
 async function fetchWithTimeout(
   url: string,
   options: RequestInit = {},
   timeoutMs = 2600
 ): Promise<Response> {
+  const effectiveTimeout = IS_SERVERLESS_ENV ? Math.max(timeoutMs, 5000) : timeoutMs;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), effectiveTimeout);
   try {
     return await fetch(url, {
       ...options,
