@@ -3956,6 +3956,7 @@ export default function App() {
             audioTelemetryRef={voice.audioTelemetryRef}
             manualSpeaker={manualHologramSpeaker}
             onSelectManualSpeaker={setManualHologramSpeaker}
+            starkRoomDockEnabled={isStarkRoomTheme && activeView === 'console' && !isFocusMode}
             onTestSpeak={(speakerId) => {
               voice.unlockAudio();
               const profile = ASSISTANT_VISUAL_PROFILES[speakerId];

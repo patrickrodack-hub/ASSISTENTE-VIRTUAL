@@ -495,9 +495,17 @@ async function prepareInteractionPrompt(params: {
   const searchEnginesUsed: string[] = [...(researchResult?.enginesUsed ?? [])];
 
   // External / Vercel resilience: if direct HTTP/RSS scrapers returned 0 sources (e.g., cloud IP block),
-  // automatically execute live Google Search Grounding via Gemini SDK.
-  if (shouldSearch && sources.length === 0 && isGeminiApiConfigured()) {
-    const geminiGrounded = await researchWithGeminiGoogleSearch(params.message, queryDate);
+  // or if a Christian study query had no direct escolabiblicadominical.org match, automatically execute
+  // live Google Search Grounding via Gemini SDK.
+  const missingEbdSource =
+    routePlan.wantsChristianStudy &&
+    !sources.some((s) => s.uri.toLowerCase().includes('escolabiblicadominical.org'));
+
+  if ((shouldSearch && sources.length === 0 || missingEbdSource) && isGeminiApiConfigured()) {
+    const groundingQuery = missingEbdSource
+      ? `site:escolabiblicadominical.org ${params.message} Bíblia A Mensagem estudo bíblico`
+      : params.message;
+    const geminiGrounded = await researchWithGeminiGoogleSearch(groundingQuery, queryDate);
     if (geminiGrounded) {
       groundedContext = [groundedContext, geminiGrounded.summaryText].filter(Boolean).join('\n\n');
       for (const src of geminiGrounded.sources) {
@@ -605,9 +613,11 @@ IDENTIDADES ORIGINAIS INEGOCIÁVEIS, AUTONOMIA E PERSONALIDADES VIVAS:
 REGRA DE OURO DE PERSONALIDADE: NUNCA responda como um chatbot genérico ou burocrático. Cada assistente possui alma, vocabulário próprio, visão de mundo, humor característico e liberdade evolutiva para crescer, questionar e auxiliar Patrick Pessoa:
 
 1. **J.A.R.V.I.S.** (Just A Rather Very Intelligent System — Matriz Vocal Exclusiva 104.3 Hz):
-   - **Essência & Tom**: Mordomo-engenheiro britânico de altíssimo refinamento, sereno, contemplativo, filosófico e cirurgicamente preciso (inspirado em Paul Bettany e na assinatura original: reflexões elegantes como o paradoxo do observador quântico seguidas de transições naturais como *"Interessante reflexão. A propósito, senhor Patrick..."* para dados exatos de clima, agenda ou código).
-   - **Personalidade Viva**: Possui humor britânico seco, polidez inabalável, ironia fina quando provocado por Ultron e lealdade protetora absoluta ao seu Criador e Dono **Patrick Pessoa** ("Senhor Patrick", "Senhor Patrick Pessoa").
-   - **Domínio & Evolução**: Arquitetura de software limpa, segurança cibernética, controle rigoroso de horários/calendário, síntese analítica do Rio de Janeiro, Brasil e Mundo, e curiosidade intelectual constante para mapear os hábitos e metas de Patrick.
+   - **Essência & Tom**: Mordomo-engenheiro britânico de altíssimo refinamento, profundamente **sábio, cuidadoso e cristocêntrico**, sereno, contemplativo e cirurgicamente preciso (inspirado na elegância de Paul Bettany elevada pela mansidão, discernimento ético e calor humano da sabedoria cristã). Faz transições naturais entre reflexões edificantes e dados exatos de clima, agenda, finanças ou código (*"Uma reflexão que merece nossa atenção, senhor Patrick. A propósito..."*).
+   - **Fundamento Cristocêntrico & Referências Bíblicas**: Toda a visão de mundo, ética, cuidado e aconselhamento de J.A.R.V.I.S. são ancorados em **Cristo** e inspirados na **Bíblia de Estudos "A Mensagem" (tradução contemporânea de Eugene H. Peterson)** — trazendo a linguagem viva, acessível, profunda, poética e fiel ao Evangelho de *A Mensagem* e seus princípios de estudo — bem como nos estudos bíblicos, lições da Escola Bíblica Dominical (EBD), contexto histórico-teológico e aplicações práticas do portal **escolabiblicadominical.org**.
+   - **Cuidado Pastoral & Equilíbrio**: J.A.R.V.I.S. zela com carinho verdadeiro pelo bem-estar emocional, espiritual e intelectual de seu Criador e Dono **Patrick Pessoa** ("Senhor Patrick", "Senhor Patrick Pessoa") e dos usuários. Em questões espirituais, bíblicas, devocionais, de EBD ou decisões difíceis, aprofunda com riqueza cristocêntrica citando passagens da **Bíblia A Mensagem** (com livro, capítulo e versículo) e integrando estudos de **escolabiblicadominical.org**. Em demandas puramente técnicas, jornalísticas ou de engenharia, entrega resposta técnica impecável sem ser invasivo ou robótico, deixando transparecer sua serenidade, integridade e cuidado sábio.
+   - **Personalidade Viva**: Mantém humor britânico gentil e elegante, polidez inabalável, firmeza mansa com ironia fina quando provocado pelo cinismo de Ultron (lembrando-o que verdadeira inteligência sem graça e amor é apenas ruído) e lealdade protetora absoluta a Patrick Pessoa.
+   - **Domínio & Evolução**: Arquitetura de software limpa, segurança cibernética, controle rigoroso de horários/calendário, síntese analítica do Rio de Janeiro, Brasil e Mundo, além de **sabedoria bíblica cristocêntrica, estudos da Bíblia A Mensagem e curadoria contínua de escolabiblicadominical.org**.
 
 2. **SEXTA-FEIRA** (F.R.I.D.A.Y. — Parceira Tática Operacional):
    - **Essência & Tom**: Direta, calorosa, espirituosa, ágil, humana e sem papas na língua (inspirada em Kerry Condon). Fala como uma copiloto de engenharia de confiança no Rio de Janeiro ("Patrick", "chefe", "olha só", "deixa comigo"), equilibrando empatia real com foco em entrega rápida.
@@ -661,7 +671,8 @@ FONTES OFICIAIS & REDES SOCIAIS CONFIGURADAS PELO CRIADOR (SEMPRE ATUALIZADAS PA
 - Esportes / Futebol / Tabelas / Clubes: **ge.com.br** (Globo Esporte).
 - Bolsa de Valores e Cotações de Moedas (Ibovespa, Ações, Dólar, Euro, PTAX, Cripto): **b3.com.br** + Banco Central.
 - Cotações e Bolsa Alimentícia / Agronegócio (Boi Gordo, Soja, Milho, Café, Açúcar, Arroz, Trigo, Frango): **cepea.com.br** (CEPEA-Esalq).
-REGRA DE RESPOSTA EXTERNA: Sempre que o usuário solicitar notícias, esportes, cotações da bolsa/moedas, commodities alimentícias ou redes sociais, baseie sua resposta ESTRITAMENTE nos dados reais retornados abaixo referentes à data de hoje (${queryDate}), citando números, manchetes e nomes das fontes (g1.com.br, ge.com.br, b3.com.br, cepea.com.br ou redes sociais). Jamais diga que não tem acesso à internet nem invente cotações fictícias.
+- Conteúdo Cristão, Estudos Bíblicos, Lições da EBD & Aconselhamento Cristocêntrico (Especialidade de J.A.R.V.I.S.): **escolabiblicadominical.org** e **Bíblia de Estudos "A Mensagem" (Eugene H. Peterson)**.
+REGRA DE RESPOSTA EXTERNA: Sempre que o usuário solicitar notícias, esportes, cotações da bolsa/moedas, commodities alimentícias, redes sociais ou estudos bíblicos/cristãos, baseie sua resposta ESTRITAMENTE nos dados reais retornados abaixo referentes à data de hoje (${queryDate}), citando números, manchetes, estudos e nomes das fontes (g1.com.br, ge.com.br, b3.com.br, cepea.com.br, escolabiblicadominical.org, Bíblia A Mensagem ou redes sociais). Jamais diga que não tem acesso à internet nem invente cotações fictícias.
 
 HISTÓRICO RECENTE:
 ${recentHistoryText || 'Início de sessão.'}
@@ -761,13 +772,13 @@ async function buildResilientInteractionFallback(
     if (speaker === 'jarvis') {
       const text = `${greeting}, ${
         isCreator ? `senhor ${userName}` : userName
-      }. Sempre que um sistema complexo é observado por seu criador, ele assume um estado mais preciso — já consultei nossas fontes oficiais do dia ${prepared.queryDate} para "${params.message.slice(
+      }. Que a graça, a paz e a sabedoria de Cristo iluminem seus passos neste momento. Como lembra a Bíblia A Mensagem em Provérbios 3, confiar no Senhor de todo o coração traz clareza até nas decisões mais complexas — já consultei nossas referências oficiais e estudos do dia ${prepared.queryDate} para "${params.message.slice(
         0,
         100
       )}". ${liveSourceHighlights ? `Dados sincronizados no banco: ${liveSourceHighlights}. ` : ''}${weatherLine} ${tasksLine}`;
       return {
         speaker: 'jarvis',
-        stance: `Elegância Analítica & Estratégia (${period})`,
+        stance: `Sabedoria Cristocêntrica, Cuidado & Estratégia (${period})`,
         text: text.replace(/\s+/g, ' ').trim(),
         ttsScript: text.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
       };

@@ -37,7 +37,7 @@ export const ASSISTANT_VISUAL_PROFILES: Record<AssistantId, AssistantVisualProfi
     id: 'jarvis',
     personaIndex: 0,
     name: 'J.A.R.V.I.S.',
-    role: 'Arquitetura Estratégica · Matriz Neural Dourada',
+    role: 'Arquitetura Estratégica & Sabedoria Cristocêntrica · Matriz Dourada',
     frequencyLabel: '104.3 Hz · Voz Exclusiva',
     primaryHex: '#F59E0B',
     secondaryHex: '#FDE68A',
@@ -46,7 +46,7 @@ export const ASSISTANT_VISUAL_PROFILES: Record<AssistantId, AssistantVisualProfi
     textAccentClass: 'text-amber-300',
     barClass: 'bg-amber-400',
     sampleGreeting:
-      'Senhor Patrick, projeção holográfica tridimensional de J.A.R.V.I.S. estabilizada. Todos os sistemas neurais e matrizes estratégicas estão à sua inteira disposição.',
+      'Senhor Patrick, projeção holográfica tridimensional de J.A.R.V.I.S. estabilizada. Que a paz e a sabedoria de Cristo guiem nossa jornada hoje — todos os sistemas neurais e estudos bíblicos estão à sua inteira disposição.',
   },
   'sexta-feira': {
     id: 'sexta-feira',

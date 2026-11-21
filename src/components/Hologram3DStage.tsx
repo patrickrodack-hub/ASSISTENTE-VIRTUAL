@@ -17,6 +17,7 @@ interface Hologram3DStageProps {
   audioTelemetryRef?: MutableRefObject<AudioTelemetryBuffer>;
   narrativeEmphasis: number;
   narrativeProgress: number;
+  compact?: boolean;
 }
 
 const VERTEX_SHADER = /* glsl */ `
@@ -234,6 +235,7 @@ export function Hologram3DStage({
   audioTelemetryRef,
   narrativeEmphasis,
   narrativeProgress,
+  compact = false,
 }: Hologram3DStageProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [fallback2D, setFallback2D] = useState(false);
@@ -296,8 +298,8 @@ export function Hologram3DStage({
       return;
     }
 
-    const width = Math.max(container.clientWidth, 320);
-    const height = Math.max(container.clientHeight, 320);
+    const width = Math.max(container.clientWidth, compact ? 220 : 320);
+    const height = Math.max(container.clientHeight, compact ? 200 : 320);
 
     renderer.setPixelRatio(
       isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2)
@@ -327,7 +329,7 @@ export function Hologram3DStage({
     pmremGenerator.dispose();
 
     const camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 100);
-    camera.position.set(0, 0.08, 6.7);
+    camera.position.set(0, compact ? 0.04 : 0.08, compact ? 7.25 : 6.7);
 
     // Three-point holographic lighting for the 3D mechanical rings and prisms
     const ambientLight = new THREE.AmbientLight(0xdbeafe, 0.7);
@@ -619,11 +621,18 @@ export function Hologram3DStage({
     const resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (!entry) return;
-      const nextW = Math.max(Math.floor(entry.contentRect.width), 300);
-      const nextH = Math.max(Math.floor(entry.contentRect.height), 300);
+      const minW = compact ? 200 : 300;
+      const minH = compact ? 180 : 300;
+      const nextW = Math.max(Math.floor(entry.contentRect.width), minW);
+      const nextH = Math.max(Math.floor(entry.contentRect.height), minH);
       camera.aspect = nextW / nextH;
-      // Pull camera slightly back on narrow mobile portrait viewports so full rings stay visible
-      camera.position.z = nextW < 520 ? 8.1 : nextW < 768 ? 7.35 : 6.55;
+      if (compact) {
+        const aspect = nextW / nextH;
+        camera.position.z = aspect < 1 ? 8.2 : aspect < 1.35 ? 7.35 : 6.9;
+      } else {
+        // Pull camera slightly back on narrow mobile portrait viewports so full rings stay visible
+        camera.position.z = nextW < 520 ? 8.1 : nextW < 768 ? 7.35 : 6.55;
+      }
       camera.updateProjectionMatrix();
       renderer.setSize(nextW, nextH, false);
     });
@@ -952,7 +961,9 @@ export function Hologram3DStage({
     return (
       <div className="relative w-full h-full flex items-center justify-center">
         <div
-          className={`relative w-72 h-72 sm:w-96 sm:h-96 rounded-full overflow-hidden border-2 ${profile.borderClass} transition-transform duration-150`}
+          className={`relative ${
+            compact ? 'w-40 h-40 sm:w-48 sm:h-48' : 'w-72 h-72 sm:w-96 sm:h-96'
+          } rounded-full overflow-hidden border-2 ${profile.borderClass} transition-transform duration-150`}
           style={{
             transform: `scale(${scale.toFixed(3)})`,
             boxShadow: `0 0 65px ${profile.primaryHex}55`,

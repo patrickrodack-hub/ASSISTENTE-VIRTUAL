@@ -1,5 +1,5 @@
 import type { AssistantId, InteractionMode } from '../types/assistant';
-import { resolveTopicSearchRoute } from './searchRouter';
+import { CHRISTIAN_STUDY_REGEX, resolveTopicSearchRoute } from './searchRouter';
 
 export interface AssistantRoutingDecision {
   resolvedMode: AssistantId | 'ambos' | 'todos';
@@ -141,6 +141,7 @@ export function resolveAssistantRouting(
         lower
       );
     const wantsJarvis =
+      CHRISTIAN_STUDY_REGEX.test(clean) ||
       /\b(arquitetura|seguran[cç]a|criptografia|autentica[cç][aã]o|servidor|banco de dados|api|estrutura|estrat[eé]gia|padroniza[cç][aã]o|protocolo|escalabilidade)\b/i.test(
         lower
       );
@@ -184,11 +185,13 @@ export function resolveAssistantRouting(
     );
 
   const reasoningTaskByAssistant: Record<AssistantId, string> = {
-    jarvis: isCodeQuery
+    jarvis: routePlan.wantsChristianStudy
+      ? 'Consultando a Bíblia de Estudos A Mensagem e estudos de escolabiblicadominical.org...'
+      : isCodeQuery
       ? 'Auditando arquitetura, contratos de tipo e blindagem de segurança...'
       : isSearchQuery
       ? `Consultando ${domainsLabel} e atualizando cache em tempo real...`
-      : 'Processando matriz estratégica e memória contextual de Patrick...',
+      : 'Processando matriz estratégica, sabedoria cristocêntrica e memória de Patrick...',
     'sexta-feira': isCodeQuery
       ? 'Mapeando solução prática, fluidez de execução e estabilidade...'
       : isSearchQuery

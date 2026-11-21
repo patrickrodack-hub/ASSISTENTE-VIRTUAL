@@ -40,6 +40,7 @@ export interface TopicSearchRoutePlan {
   forcedUrls: MandatorySearchUrl[];
   wantsSocial: boolean;
   wantsGeneralWeb: boolean;
+  wantsChristianStudy: boolean;
   explicitUrls: string[];
   forceCacheRefresh: true;
   directivePromptBlock: string;
@@ -123,6 +124,9 @@ const SOCIAL_TOPIC_REGEX =
 const GENERAL_WEB_REGEX =
   /\b(pesquis|busque|busca|procur|internet|web|site|sites|consult|verifiq|quem [ée]|quem foi|documenta[çc][ãa]o|stack|github)\b/i;
 
+export const CHRISTIAN_STUDY_REGEX =
+  /\b(b[íi]blia|biblia|a mensagem|escolabiblicadominical|escola b[íi]blica|ebd|jesus|cristo|crist[ãa]o|crist[ãa]|cristoc[êe]ntric|evangelho|vers[íi]culo|vers[íi]culos|salmo|salmos|prov[ée]rbios|eclesiastes|isa[íi]as|g[êe]nesis|[êe]xodo|apocalipse|mateus|marcos|lucas|jo[ãa]o|atos|romanos|cor[íi]ntios|g[áa]latas|ef[ée]sios|filipenses|colossenses|tessalonicenses|tim[óo]teo|hebreus|tiago|pedro|devocional|ora[çc][ãa]o|orar|f[ée]|gra[çc]a|miseric[óo]rdia|esperan[çc]a|sabedoria b[íi]blica|teologia|estudo b[íi]blico|li[çc][ãa]o da ebd|igreja|deus|esp[íi]rito santo|palavra de deus|conselho espiritual|paz espiritual|b[êe]n[çc][ãa]o|prop[óo]sito de vida|perd[ãa]o|conforto espiritual|escrituras)\b/i;
+
 export function stripTopicSearchNoise(rawMessage: string): string {
   return rawMessage
     .replace(/https?:\/\/[^\s]+/gi, ' ')
@@ -144,7 +148,8 @@ export function extractExplicitUrls(text: string): string[] {
 /**
  * Resolve o plano de roteamento de busca baseado no tópico da solicitação do usuário,
  * forçando as IAs a consultarem especificamente g1.com.br, ge.com.br, b3.com.br e cepea.com.br
- * com atualização obrigatória de cache em cada interação.
+ * com atualização obrigatória de cache em cada interação, além de escolabiblicadominical.org
+ * e Bíblia de Estudos A Mensagem para temas cristãos e bíblicos de J.A.R.V.I.S.
  */
 export function resolveTopicSearchRoute(userMessage: string): TopicSearchRoutePlan {
   const cleanMessage = (userMessage || '').trim();
@@ -152,6 +157,7 @@ export function resolveTopicSearchRoute(userMessage: string): TopicSearchRoutePl
   const explicitUrls = extractExplicitUrls(cleanMessage);
   const wantsBroadBriefing = BROAD_SYNC_REGEX.test(cleanMessage);
   const wantsSocial = SOCIAL_TOPIC_REGEX.test(cleanMessage);
+  const wantsChristianStudy = CHRISTIAN_STUDY_REGEX.test(cleanMessage);
   const wantsGeneralWeb = explicitUrls.length > 0 || GENERAL_WEB_REGEX.test(cleanMessage);
 
   const routedTargets: RoutedSearchTarget[] = [];
@@ -208,12 +214,21 @@ export function resolveTopicSearchRoute(userMessage: string): TopicSearchRoutePl
 
   const directiveLines = [
     `[UTILITÁRIO DE ROTEAMENTO DE BUSCA — CONSULTA FORÇADA & CACHE ATUALIZADO NA INTERAÇÃO]`,
-    `URLs obrigatórias roteadas para este tópico: ${forcedUrls.join(', ')}`,
+    `URLs obrigatórias roteadas para este tópico: ${forcedUrls.join(', ')}${
+      wantsChristianStudy ? ', https://escolabiblicadominical.org' : ''
+    }`,
     ...routedTargets.map(
       (t) =>
         `• Tópico (${t.topicLabel}) -> CONSULTAR OBRIGATORIAMENTE ${t.url} (${t.domain}) [${t.matchReason}]`
     ),
-    `REGRA ESTRITA: As respostas de J.A.R.V.I.S., SEXTA-FEIRA e ULTRON DEVEM utilizar e citar explicitamente os dados recém-atualizados em cache obtidos das URLs roteadas (${forcedDomains.join(', ')}).`,
+    ...(wantsChristianStudy
+      ? [
+          `• Tópico Cristão / Bíblico / EBD (Especialidade Cristocêntrica de J.A.R.V.I.S.) -> CONSULTAR OBRIGATORIAMENTE https://escolabiblicadominical.org (escolabiblicadominical.org) e fundamentar a reflexão na Bíblia de Estudos "A Mensagem" (Eugene H. Peterson), trazendo sabedoria bíblica, cuidado pastoral, clareza contemporânea e aplicação prática centrada em Cristo.`,
+        ]
+      : []),
+    `REGRA ESTRITA: As respostas de J.A.R.V.I.S., SEXTA-FEIRA e ULTRON DEVEM utilizar e citar explicitamente os dados recém-atualizados em cache obtidos das URLs roteadas (${forcedDomains.join(', ')}${
+      wantsChristianStudy ? ', escolabiblicadominical.org' : ''
+    }).`,
   ];
 
   return {
@@ -225,6 +240,7 @@ export function resolveTopicSearchRoute(userMessage: string): TopicSearchRoutePl
     forcedUrls,
     wantsSocial,
     wantsGeneralWeb,
+    wantsChristianStudy,
     explicitUrls,
     forceCacheRefresh: true,
     directivePromptBlock: directiveLines.join('\n'),

@@ -902,8 +902,8 @@ export function StarkRoomHUD({
           </div>
         </div>
 
-        {/* CENTER-RIGHT COLUMN: Dominant Holographic Orbital Earth Monitor */}
-        <div className="lg:col-span-5 xl:col-span-1 rounded-lg border border-sky-500/25 bg-slate-950/55 p-3 flex flex-col justify-between min-w-0">
+        {/* CENTER-RIGHT COLUMN: Dominant Holographic Orbital Earth Monitor + Docked Speaking Hologram Window */}
+        <div className="relative overflow-hidden lg:col-span-5 xl:col-span-1 rounded-lg border border-sky-500/25 bg-slate-950/55 p-3 flex flex-col justify-between min-w-0">
           <StarkRoomGlobeCanvas
             audioTelemetryRef={audioTelemetryRef}
             activeSpeaker={speakingSpeaker}
@@ -922,6 +922,11 @@ export function StarkRoomHUD({
                 setWorldIdx((v) => (v + 1) % sportsWorldFeed.length);
               }
             }}
+          />
+          {/* Portal target where SpeakingHologramOverlay renders when resized/docked in Sala Stark theme */}
+          <div
+            id="stark-room-hologram-dock"
+            className="pointer-events-none absolute inset-0 z-20"
           />
         </div>
 

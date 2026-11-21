@@ -829,6 +829,90 @@ async function fetchPageReadableExcerpt(
   }
 }
 
+async function fetchEscolaBiblicaDominical(
+  query: string
+): Promise<Array<{ title: string; uri: string; snippet: string; sourceType: string; date?: string }>> {
+  const sourceLabel = 'Escola Bíblica Dominical (escolabiblicadominical.org)';
+  const cleanTerm = query
+    .replace(/\b(escolabiblicadominical(\.org)?|b[íi]blia a mensagem|a mensagem|estudo b[íi]blico|estudos b[íi]blicos)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const fetchWordPressRss = async (feedUrl: string, limit: number) => {
+    try {
+      const res = await fetchWithTimeout(
+        feedUrl,
+        {
+          headers: {
+            'User-Agent': BROWSER_UA,
+            Accept: 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
+            'Accept-Language': 'pt-BR,pt;q=0.9',
+          },
+          redirect: 'follow',
+        },
+        3600
+      );
+      if (!res.ok) return [];
+      const xml = await res.text();
+      return parseRssItems(xml, limit).map((item) => ({
+        title: item.title,
+        uri: item.link,
+        snippet: (item.description || item.title).slice(0, 340),
+        sourceType: sourceLabel,
+        date: item.pubDate,
+      }));
+    } catch {
+      return [];
+    }
+  };
+
+  const searchRssUrl =
+    cleanTerm.length >= 3
+      ? `https://escolabiblicadominical.org/?s=${encodeURIComponent(cleanTerm)}&feed=rss2`
+      : null;
+
+  const [searchRssItems, mainFeedItems, siteSearchItems] = await Promise.all([
+    searchRssUrl ? fetchWordPressRss(searchRssUrl, 5) : Promise.resolve([]),
+    fetchWordPressRss('https://escolabiblicadominical.org/feed/', 5),
+    searchBingWeb(
+      cleanTerm.length >= 3
+        ? `site:escolabiblicadominical.org ${cleanTerm}`
+        : 'site:escolabiblicadominical.org estudo bíblico escola bíblica dominical',
+      sourceLabel,
+      5
+    ),
+  ]);
+
+  const ebdOnlySiteItems = siteSearchItems.filter((item) =>
+    item.uri.toLowerCase().includes('escolabiblicadominical.org')
+  );
+
+  const merged = [...searchRssItems, ...ebdOnlySiteItems, ...mainFeedItems, ...siteSearchItems];
+  const seen = new Set<string>();
+  const unique: Array<{ title: string; uri: string; snippet: string; sourceType: string; date?: string }> = [];
+
+  for (const item of merged) {
+    if (!seen.has(item.uri)) {
+      seen.add(item.uri);
+      unique.push(item);
+    }
+  }
+
+  if (unique.length === 0) {
+    const homeExcerpt = await fetchPageReadableExcerpt('https://escolabiblicadominical.org/');
+    if (homeExcerpt) {
+      unique.push({
+        title: homeExcerpt.title || 'Escola Bíblica Dominical — Estudos Cristãos',
+        uri: homeExcerpt.uri,
+        snippet: homeExcerpt.excerpt.slice(0, 360),
+        sourceType: sourceLabel,
+      });
+    }
+  }
+
+  return unique.slice(0, 6);
+}
+
 export function detectRequestedDomains(message: string): {
   wantsG1: boolean;
   wantsGe: boolean;
@@ -836,6 +920,7 @@ export function detectRequestedDomains(message: string): {
   wantsCepea: boolean;
   wantsSocial: boolean;
   wantsGeneralWeb: boolean;
+  wantsChristianStudy: boolean;
 } {
   const plan = resolveTopicSearchRoute(message);
   const keys = new Set(plan.forcedSourceKeys);
@@ -846,12 +931,18 @@ export function detectRequestedDomains(message: string): {
     wantsCepea: keys.has('cepea'),
     wantsSocial: plan.wantsSocial,
     wantsGeneralWeb: plan.wantsGeneralWeb,
+    wantsChristianStudy: plan.wantsChristianStudy,
   };
 }
 
 export function shouldTriggerExternalSearch(message: string): boolean {
   const plan = resolveTopicSearchRoute(message);
-  return plan.forcedSourceKeys.length > 0 || plan.wantsSocial || plan.wantsGeneralWeb;
+  return (
+    plan.forcedSourceKeys.length > 0 ||
+    plan.wantsSocial ||
+    plan.wantsGeneralWeb ||
+    plan.wantsChristianStudy
+  );
 }
 
 const SEARCH_CACHE = new Map<
@@ -908,7 +999,7 @@ export async function researchExternalWeb(
     ...(options?.forceSources ?? []),
   ]);
   const forceKey = Array.from(forceSet).sort().join(',');
-  const cacheKey = `${queryDate}::${forceKey}::${cleanQuery.toLowerCase()}::${explicitUrls.join(',')}`;
+  const cacheKey = `${queryDate}::${forceKey}::ebd:${routePlan.wantsChristianStudy ? 1 : 0}::${cleanQuery.toLowerCase()}::${explicitUrls.join(',')}`;
 
   if (!forceRefresh) {
     const cached = SEARCH_CACHE.get(cacheKey);
@@ -922,6 +1013,7 @@ export async function researchExternalWeb(
   const runB3 = forceSet.has('b3');
   const runCepea = forceSet.has('cepea');
   const runSocial = forceSet.has('redes_sociais') || routePlan.wantsSocial;
+  const runChristianStudy = routePlan.wantsChristianStudy;
 
   const [
     g1Res,
@@ -929,6 +1021,7 @@ export async function researchExternalWeb(
     b3Res,
     cepeaRes,
     socialRes,
+    ebdItems,
     bingGeneral,
     explicitPages,
   ] = await Promise.all([
@@ -937,6 +1030,7 @@ export async function researchExternalWeb(
     runB3 ? fetchB3MarketAndCurrencies(cleanQuery, queryDate) : Promise.resolve({ items: [], snapshot: null }),
     runCepea ? fetchCepeaFoodCommodities(cleanQuery, queryDate) : Promise.resolve({ items: [], snapshot: null }),
     runSocial ? fetchTraditionalSocialMedia(cleanQuery, queryDate) : Promise.resolve({ items: [], snapshot: null }),
+    runChristianStudy ? fetchEscolaBiblicaDominical(cleanQuery) : Promise.resolve([]),
     routePlan.wantsGeneralWeb && cleanQuery.length >= 3
       ? searchBingWeb(cleanQuery, 'Web Geral', 4)
       : Promise.resolve([]),
@@ -995,6 +1089,7 @@ export async function researchExternalWeb(
     : socialRes;
 
   const allItems = [
+    ...ebdItems,
     ...resolvedB3.items,
     ...resolvedCepea.items,
     ...resolvedGe.items,
@@ -1048,6 +1143,15 @@ export async function researchExternalWeb(
     lines.push('=== CONTEÚDO EXTRAÍDO DE SITES / LINKS ===');
     for (const p of allPages) {
       lines.push(`[Página: ${p.title} | URL: ${p.uri}]\n${p.excerpt}`);
+    }
+  }
+
+  if (ebdItems.length > 0) {
+    lines.push(
+      '=== ESTUDOS BÍBLICOS & CONTEÚDO CRISTÃO · ESCOLABIBLICADOMINICAL.ORG (REFERÊNCIA DE J.A.R.V.I.S.) ==='
+    );
+    for (const item of ebdItems) {
+      lines.push(`- [${item.sourceType}] ${item.title}\n  URL: ${item.uri}\n  Resumo: ${item.snippet}`);
     }
   }
 

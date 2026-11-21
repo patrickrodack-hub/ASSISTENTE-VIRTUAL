@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   ChevronDown,
@@ -34,6 +35,7 @@ interface SpeakingHologramOverlayProps {
   audioTelemetryRef?: MutableRefObject<AudioTelemetryBuffer>;
   manualSpeaker?: AssistantId | null;
   onSelectManualSpeaker?: (speaker: AssistantId | null) => void;
+  starkRoomDockEnabled?: boolean;
   onTestSpeak?: (speaker: AssistantId) => void;
   onStopAudio: () => void;
 }
@@ -97,6 +99,7 @@ export function SpeakingHologramOverlay({
   audioTelemetryRef,
   manualSpeaker,
   onSelectManualSpeaker,
+  starkRoomDockEnabled = false,
   onTestSpeak,
   onStopAudio,
 }: SpeakingHologramOverlayProps) {
@@ -106,24 +109,47 @@ export function SpeakingHologramOverlay({
   const [isMinimized, setIsMinimized] = useState(false);
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [manualOverride, setManualOverride] = useState<AssistantId | null>(null);
+  const [dockHostEl, setDockHostEl] = useState<HTMLElement | null>(null);
   const wasAutoActiveRef = useRef(false);
 
-  // Auto-expand whenever a new AI communication cycle begins
+  // Locate the Sala Stark Monitor Global portal container whenever Sala Stark theme is active
+  useEffect(() => {
+    if (!starkRoomDockEnabled || typeof document === 'undefined') {
+      setDockHostEl(null);
+      return;
+    }
+    const syncHost = () => {
+      const el = document.getElementById('stark-room-hologram-dock');
+      setDockHostEl((prev) => (prev === el ? prev : el));
+    };
+    syncHost();
+    const rafId = window.requestAnimationFrame(syncHost);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [starkRoomDockEnabled, isVisible, isMinimized]);
+
+  const canDockInStarkWindow = Boolean(starkRoomDockEnabled && dockHostEl);
+
+  // Auto-expand on new communication cycles outside Sala Stark; inside Sala Stark, preserve the
+  // user's chosen window mode (resized inside Monitor Global vs maximized fullscreen) across turns.
   useEffect(() => {
     if (isAutoActive && !wasAutoActiveRef.current) {
-      setIsMinimized(false);
+      if (!starkRoomDockEnabled) {
+        setIsMinimized(false);
+      }
       setManualOverride(null);
     }
     wasAutoActiveRef.current = isAutoActive;
-  }, [isAutoActive]);
+  }, [isAutoActive, starkRoomDockEnabled]);
 
-  // Auto-expand when user explicitly clicks to project a hologram in 3D
+  // Clear temporary entity override when user explicitly clicks to project a hologram in 3D
   useEffect(() => {
     if (manualSpeaker) {
-      setIsMinimized(false);
+      if (!starkRoomDockEnabled) {
+        setIsMinimized(false);
+      }
       setManualOverride(null);
     }
-  }, [manualSpeaker]);
+  }, [manualSpeaker, starkRoomDockEnabled]);
 
   // Clear temporary switcher override when an actual speaker begins speaking
   useEffect(() => {
@@ -337,11 +363,263 @@ export function SpeakingHologramOverlay({
   const reactiveTiltX = isSpeaking ? (narrativeEmphasis - 0.3) * 10 : 0;
   const reactiveTiltY = isSpeaking ? Math.sin(narrativeProgress * Math.PI * 5) * 10 : 0;
 
+  const starkDockedWindowContent = (
+    <motion.div
+      key="hologram-stark-docked"
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.96 }}
+      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+      role="region"
+      aria-label={`Holograma 3D de ${profile.name} na janela Monitor Global da Sala Stark`}
+      style={{
+        boxShadow: `inset 0 0 ${Math.round(22 + audioAmplitude * 26)}px ${profile.primaryHex}30`,
+      }}
+      className={`pointer-events-auto absolute inset-0 flex flex-col justify-between overflow-hidden rounded-lg border ${profile.borderClass} bg-[#020816]/96 p-2.5 text-slate-100`}
+    >
+      {/* Radial Holographic Energy Field */}
+      <motion.div
+        aria-hidden="true"
+        animate={{
+          opacity: 0.68 + audioAmplitude * 0.3 + narrativeEmphasis * 0.14,
+          scale: 1 + audioAmplitude * 0.05,
+        }}
+        transition={{ type: 'spring', stiffness: 180, damping: 24 }}
+        className="pointer-events-none absolute inset-0 will-change-transform"
+        style={{
+          background: `radial-gradient(circle at 50% 48%, ${profile.primaryHex}2C 0%, ${profile.primaryHex}0D 38%, rgba(2,8,22,0.82) 78%)`,
+        }}
+      />
+
+      {/* Orbital Reticle Rings Inside the Monitor Global Window */}
+      <div
+        aria-hidden="true"
+        style={{ perspective: 900 }}
+        className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden"
+      >
+        <motion.div
+          animate={{
+            rotateX: 68 + reactiveTiltX * 0.28,
+            rotateZ: isSpeaking ? 360 : 180,
+            scale: 1 + audioAmplitude * 0.08,
+          }}
+          transition={{
+            rotateZ: { duration: isThinkingState ? 9 : 20, repeat: Infinity, ease: 'linear' },
+            scale: { type: 'spring', stiffness: 220, damping: 22 },
+          }}
+          style={{
+            transformStyle: 'preserve-3d',
+            borderColor: `${profile.primaryHex}3E`,
+            boxShadow: `0 0 28px ${profile.primaryHex}20`,
+          }}
+          className="h-[220px] w-[220px] sm:h-[260px] sm:w-[260px] rounded-full border will-change-transform"
+        />
+        <motion.div
+          animate={{
+            rotateX: 60 - reactiveTiltX * 0.2,
+            rotateZ: isSpeaking ? -360 : -180,
+            scale: 0.9 + audioAmplitude * 0.1,
+          }}
+          transition={{
+            rotateZ: { duration: isThinkingState ? 7 : 15, repeat: Infinity, ease: 'linear' },
+            scale: { type: 'spring', stiffness: 220, damping: 20 },
+          }}
+          style={{
+            transformStyle: 'preserve-3d',
+            borderColor: `${profile.secondaryHex}34`,
+          }}
+          className="absolute h-[185px] w-[185px] sm:h-[220px] sm:w-[220px] rounded-full border border-dashed will-change-transform"
+        />
+      </div>
+
+      {/* Top HUD Bar Inside Monitor Global Window */}
+      <div className="relative z-10 flex items-center justify-between gap-2 pb-1.5 border-b border-sky-500/20">
+        <div className="flex items-center gap-2 min-w-0">
+          <motion.div
+            animate={{
+              scale: 1 + audioAmplitude * 0.12,
+              rotateY: reactiveTiltY * 0.6,
+            }}
+            transition={{ type: 'spring', stiffness: 280, damping: 20 }}
+            style={{
+              boxShadow: `0 0 ${Math.round(10 + audioAmplitude * 16)}px ${profile.primaryHex}66`,
+            }}
+            className={`h-7 w-7 shrink-0 rounded-full overflow-hidden border ${profile.borderClass}`}
+          >
+            <img
+              src={ASSISTANT_AVATAR_URLS[activeSpeaker]}
+              alt={profile.name}
+              className="h-full w-full object-cover"
+            />
+          </motion.div>
+          <div className="min-w-0 leading-tight">
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-[11px] font-bold tracking-wider text-white truncate">
+                {profile.name}
+              </span>
+              <span className={`font-mono text-[9px] ${profile.textAccentClass} hidden sm:inline`}>
+                {profile.frequencyLabel}
+              </span>
+            </div>
+            <p className="font-mono text-[9px] uppercase tracking-wider text-sky-300/80 truncate">
+              {phaseLabel}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsMinimized(false)}
+            className="inline-flex items-center gap-1 rounded border border-sky-400/50 bg-sky-500/15 hover:bg-sky-500/25 px-2 py-1 font-mono text-[10px] font-semibold text-sky-100 transition-colors"
+            title="Maximizar holograma 3D para a tela inteira"
+          >
+            <Maximize2 className="h-3 w-3" />
+            <span>Maximizar</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleClose}
+            className="inline-flex items-center justify-center rounded border border-slate-700/90 bg-slate-900/90 hover:border-red-500/55 hover:bg-red-950/75 p-1 text-slate-300 hover:text-red-200 transition-colors"
+            title={isSpeaking || isSynthesizingAudio ? 'Silenciar e voltar ao globo orbital' : 'Fechar e voltar ao globo orbital'}
+            aria-label={isSpeaking || isSynthesizingAudio ? 'Silenciar voz' : 'Fechar projeção 3D'}
+          >
+            {isSpeaking || isSynthesizingAudio ? (
+              <Square className="h-3 w-3" />
+            ) : (
+              <X className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Live Three.js 3D Hologram Filling the Monitor Global Stage */}
+      <div className="relative z-10 flex-1 min-h-[190px] w-full">
+        <Hologram3DStage
+          speaker={activeSpeaker}
+          isSpeaking={isSpeaking}
+          isThinking={isThinkingState}
+          audioAmplitude={audioAmplitude}
+          audioBands={audioBands}
+          audioTelemetryRef={audioTelemetryRef}
+          narrativeEmphasis={narrativeEmphasis}
+          narrativeProgress={narrativeProgress}
+          compact
+        />
+      </div>
+
+      {/* Bottom Synchronized Caption, Equalizer & Entity Switcher */}
+      <div className="relative z-10 space-y-1.5 pt-1.5 border-t border-sky-500/20 bg-[#020816]/80 rounded-b">
+        <p className="text-[11px] leading-snug text-center text-slate-200 line-clamp-2 px-1">
+          {subtitleSlice.start > 0 && <span className="text-slate-500 mr-1">…</span>}
+          {subtitleSlice.items.map((word, idx) => {
+            const globalIdx = subtitleSlice.start + idx;
+            const isCurrent = isSpeaking && globalIdx === activeWordIndex;
+            const isSpoken = isSpeaking && globalIdx < activeWordIndex;
+            return (
+              <span
+                key={`dock-${globalIdx}-${word}`}
+                className={`inline-block mr-1 transition-colors duration-100 ${
+                  isCurrent
+                    ? `${profile.textAccentClass} font-bold`
+                    : isSpoken
+                    ? 'text-slate-100'
+                    : isSpeaking
+                    ? 'text-slate-400'
+                    : 'text-slate-200'
+                }`}
+              >
+                {word}
+              </span>
+            );
+          })}
+          {subtitleSlice.start + subtitleSlice.items.length < words.length && (
+            <span className="text-slate-500">…</span>
+          )}
+        </p>
+
+        <div className="flex items-center gap-2 px-0.5">
+          <Volume2 className={`h-3 w-3 shrink-0 ${profile.textAccentClass}`} />
+          <div className="flex-1 flex items-end gap-0.5 h-3.5" aria-hidden="true">
+            {renderBars.slice(0, 18).map((val, idx) => (
+              <span
+                key={idx}
+                className={`flex-1 rounded-full ${profile.barClass} transition-all duration-75`}
+                style={{
+                  height: `${Math.round(16 + val * 84)}%`,
+                  opacity: 0.45 + val * 0.55,
+                }}
+              />
+            ))}
+          </div>
+          <span className="font-mono text-[9px] tabular-nums text-sky-300/80 shrink-0">
+            {isSpeaking
+              ? `${Math.round(narrativeProgress * 100)}%`
+              : isThinkingState
+              ? '3D ATIVO'
+              : 'PRONTO'}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-1.5 pt-1">
+          <div className="flex items-center gap-1">
+            {ALL_ASSISTANTS.map((id) => {
+              const item = ASSISTANT_VISUAL_PROFILES[id];
+              const selected = activeSpeaker === id;
+              const disabled =
+                isSpeaking &&
+                speakingSpeaker !== null &&
+                speakingSpeaker !== 'ambos' &&
+                speakingSpeaker !== 'todos' &&
+                speakingSpeaker !== id;
+              const shortLabel =
+                id === 'jarvis' ? 'J.A.R.V.I.S.' : id === 'sexta-feira' ? 'SEXTA' : 'ULTRON';
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => handleSwitchEntity(id)}
+                  className={`px-2 py-0.5 font-mono text-[9px] font-semibold rounded border transition-colors ${
+                    selected
+                      ? `${item.borderClass} bg-slate-900 text-white`
+                      : 'border-sky-500/25 bg-slate-950/75 text-slate-400 hover:text-slate-200 hover:border-sky-400/50'
+                  } disabled:opacity-40 disabled:cursor-not-allowed`}
+                >
+                  {shortLabel}
+                </button>
+              );
+            })}
+          </div>
+
+          {!isAutoActive && onTestSpeak && (
+            <button
+              type="button"
+              onClick={() => onTestSpeak(activeSpeaker)}
+              className={`inline-flex items-center gap-1 rounded border ${profile.borderClass} bg-slate-900 hover:bg-slate-800 px-2 py-0.5 font-mono text-[9px] font-semibold ${profile.textAccentClass} transition-colors`}
+            >
+              <Play className="h-2.5 w-2.5" />
+              <span>Falar</span>
+            </button>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+
+  if (isVisible && isMinimized && canDockInStarkWindow && dockHostEl) {
+    return createPortal(
+      <AnimatePresence mode="wait">{starkDockedWindowContent}</AnimatePresence>,
+      dockHostEl
+    );
+  }
+
   return (
     <AnimatePresence>
       {isVisible && (
         isMinimized ? (
-          /* Compact Floating 3D Corner Mini-Hologram when minimized */
+          /* Compact Floating 3D Corner Mini-Hologram when minimized outside Sala Stark Monitor Global */
           <motion.div
             key="hologram-mini"
             initial={{ opacity: 0, y: 24, scale: 0.9, rotateX: 16 }}
@@ -584,10 +862,16 @@ export function SpeakingHologramOverlay({
                   type="button"
                   onClick={() => setIsMinimized(true)}
                   className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700/80 bg-[#050C1B]/88 hover:bg-slate-800/90 px-3 py-2 text-xs font-medium text-slate-200 transition-colors"
-                  title="Minimizar para o canto e ver o console"
+                  title={
+                    canDockInStarkWindow
+                      ? 'Redimensionar para a janela Monitor Global da Sala Stark'
+                      : 'Minimizar para o canto e ver o console'
+                  }
                 >
                   <Minimize2 className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Minimizar</span>
+                  <span className="hidden sm:inline">
+                    {canDockInStarkWindow ? 'Janela Stark' : 'Minimizar'}
+                  </span>
                 </button>
 
                 <button
