@@ -820,9 +820,19 @@ export async function streamAssistantInteraction(
   },
   callbacks: StreamInteractionCallbacks
 ): Promise<void> {
+  const cachedWs = getCachedOrSeedWorkspace();
+  const offlineDocs = getSyncOfflineJarvisKnowledgeDocs().slice(0, 12);
   const enrichedPayload = {
     ...payload,
-    jarvisKnowledgeDocs: getSyncOfflineJarvisKnowledgeDocs().slice(0, 12),
+    jarvisKnowledgeDocs: offlineDocs,
+    clientWorkspaceSnapshot: {
+      memories: (cachedWs.memories ?? []).slice(0, 35),
+      tasks: (cachedWs.tasks ?? []).slice(0, 30),
+      agenda: (cachedWs.agenda ?? []).slice(0, 25),
+      routines: (cachedWs.routines ?? []).slice(0, 20),
+      neuralEvolution: cachedWs.neuralEvolution,
+      jarvisKnowledgeBase: offlineDocs,
+    },
   };
 
   const runFallbackJsonOrLocal = async () => {

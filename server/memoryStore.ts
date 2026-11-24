@@ -1873,4 +1873,77 @@ export async function syncJarvisKnowledgeDocuments(
   });
 }
 
+export async function syncClientWorkspaceSnapshotForServerless(snapshot?: {
+  memories?: WorkspaceState['memories'];
+  tasks?: WorkspaceState['tasks'];
+  agenda?: WorkspaceState['agenda'];
+  routines?: WorkspaceState['routines'];
+  neuralEvolution?: WorkspaceState['neuralEvolution'];
+  jarvisKnowledgeBase?: WorkspaceState['jarvisKnowledgeBase'];
+}): Promise<void> {
+  if (!snapshot || typeof snapshot !== 'object') return;
+
+  await updateWorkspace((state) => {
+    if (Array.isArray(snapshot.memories) && snapshot.memories.length > 0) {
+      const memMap = new Map(state.memories.map((m) => [m.id, m]));
+      for (const m of snapshot.memories) {
+        if (m?.id && m?.title && !memMap.has(m.id)) {
+          memMap.set(m.id, m);
+        }
+      }
+      state.memories = Array.from(memMap.values()).slice(0, 100);
+    }
+
+    if (Array.isArray(snapshot.tasks) && snapshot.tasks.length > 0) {
+      const taskMap = new Map(state.tasks.map((t) => [t.id, t]));
+      for (const t of snapshot.tasks) {
+        if (t?.id && t?.title) {
+          taskMap.set(t.id, t);
+        }
+      }
+      state.tasks = Array.from(taskMap.values()).slice(0, 60);
+    }
+
+    if (Array.isArray(snapshot.agenda) && snapshot.agenda.length > 0) {
+      const agdMap = new Map((state.agenda ?? []).map((a) => [a.id, a]));
+      for (const a of snapshot.agenda) {
+        if (a?.id && a?.title) {
+          agdMap.set(a.id, a);
+        }
+      }
+      state.agenda = Array.from(agdMap.values()).slice(0, 60);
+    }
+
+    if (Array.isArray(snapshot.routines) && snapshot.routines.length > 0) {
+      const rtnMap = new Map((state.routines ?? []).map((r) => [r.id, r]));
+      for (const r of snapshot.routines) {
+        if (r?.id && r?.title) {
+          rtnMap.set(r.id, r);
+        }
+      }
+      state.routines = Array.from(rtnMap.values()).slice(0, 30);
+    }
+
+    if (
+      snapshot.neuralEvolution &&
+      typeof snapshot.neuralEvolution.totalLearningCycles === 'number' &&
+      (!state.neuralEvolution ||
+        snapshot.neuralEvolution.totalLearningCycles >
+          (state.neuralEvolution.totalLearningCycles ?? 0))
+    ) {
+      state.neuralEvolution = snapshot.neuralEvolution;
+    }
+
+    if (Array.isArray(snapshot.jarvisKnowledgeBase) && snapshot.jarvisKnowledgeBase.length > 0) {
+      const docMap = new Map((state.jarvisKnowledgeBase ?? []).map((d) => [d.id, d]));
+      for (const doc of snapshot.jarvisKnowledgeBase) {
+        if (doc?.id && doc?.title && Array.isArray(doc.chunks)) {
+          docMap.set(doc.id, { ...doc, offlineReady: true });
+        }
+      }
+      state.jarvisKnowledgeBase = Array.from(docMap.values()).slice(0, 35);
+    }
+  });
+}
+
 

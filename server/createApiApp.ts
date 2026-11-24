@@ -25,6 +25,7 @@ import {
   resolveVoiceSampleAudioFile,
   saveUploadedVoiceSample,
   setTurnFeedback,
+  syncClientWorkspaceSnapshotForServerless,
   syncJarvisKnowledgeDocuments,
   toggleAlertResolved,
   toggleVoiceSampleTraining,
@@ -48,6 +49,7 @@ import {
   synthesizeAssistantSpeech,
   transcribeUserAudio,
   validateExclusiveVoiceFidelity,
+  verifyGeminiApiKeyLive,
 } from './assistantEngine.ts';
 import type {
   JarvisKnowledgeCategory,
@@ -94,6 +96,7 @@ export function createApiApp(): express.Express {
       geminiConfigured,
       geminiKeyStatus: keyDiag.geminiKeyStatus,
       geminiKeyHint: keyDiag.geminiKeyHint,
+      geminiSourceVar: keyDiag.sourceVar || 'GEMINI_API_KEY',
       voiceTtsReady: geminiConfigured,
       webSearchFallback: 'google-news+wikipedia+awesomeapi+gemini-grounding',
       exclusiveVoices: {
@@ -102,6 +105,28 @@ export function createApiApp(): express.Express {
       },
       timestamp: new Date().toISOString(),
     });
+  });
+
+  // Live 1-click Gemini API key ping test (works on Vercel and Developer Mode)
+  app.all('/api/health/verify-key', async (_req, res) => {
+    try {
+      const verification = await verifyGeminiApiKeyLive();
+      res.json({
+        ...verification,
+        runtime: IS_SERVERLESS_RUNTIME ? 'vercel-serverless' : 'node-express',
+        vercelEnv: Boolean(process.env.VERCEL || IS_SERVERLESS_RUNTIME),
+        checkedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        activeModel: null,
+        latencyMs: 0,
+        keyHint: getGeminiKeyDiagnostic().geminiKeyHint,
+        sourceVar: getGeminiKeyDiagnostic().sourceVar || 'GEMINI_API_KEY',
+        error: formatGeminiErrorMessage(err),
+      });
+    }
   });
 
   // Database Summary & Health Endpoint
@@ -430,10 +455,15 @@ export function createApiApp(): express.Express {
         clientTimezone,
         activeUser,
         jarvisKnowledgeDocs,
+        clientWorkspaceSnapshot,
       } = req.body ?? {};
       if (!message || typeof message !== 'string' || !message.trim()) {
         res.status(400).json({ error: 'Envie uma mensagem válida para os assistentes.' });
         return;
+      }
+
+      if (clientWorkspaceSnapshot && typeof clientWorkspaceSnapshot === 'object') {
+        await syncClientWorkspaceSnapshotForServerless(clientWorkspaceSnapshot).catch(() => {});
       }
 
       if (Array.isArray(jarvisKnowledgeDocs) && jarvisKnowledgeDocs.length > 0) {
@@ -501,11 +531,16 @@ export function createApiApp(): express.Express {
       clientTimezone,
       activeUser,
       jarvisKnowledgeDocs,
+      clientWorkspaceSnapshot,
     } = req.body ?? {};
 
     if (!message || typeof message !== 'string' || !message.trim()) {
       res.status(400).json({ error: 'Envie uma mensagem válida para os assistentes.' });
       return;
+    }
+
+    if (clientWorkspaceSnapshot && typeof clientWorkspaceSnapshot === 'object') {
+      await syncClientWorkspaceSnapshotForServerless(clientWorkspaceSnapshot).catch(() => {});
     }
 
     if (Array.isArray(jarvisKnowledgeDocs) && jarvisKnowledgeDocs.length > 0) {

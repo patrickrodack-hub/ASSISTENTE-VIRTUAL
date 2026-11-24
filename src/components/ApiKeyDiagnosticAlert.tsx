@@ -253,38 +253,118 @@ export function WorkspaceConnectionStatusBadge({
   isChecking: boolean;
   onRecheck: () => void;
 }) {
+  const [isVerifyingKey, setIsVerifyingKey] = useState(false);
+  const [keyPingResult, setKeyPingResult] = useState<{
+    ok: boolean;
+    activeModel: string | null;
+    latencyMs: number;
+    keyHint: string;
+    runtime?: string;
+    error: string | null;
+  } | null>(null);
+
   if (!report) return null;
 
   const isHighLatency = report.exceedsLatencyThreshold;
   const isUnreachable = !report.workspaceEndpointReachable;
 
+  const handleVerifyKeyNow = async () => {
+    setIsVerifyingKey(true);
+    try {
+      const res = await fetch('/api/health/verify-key', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        activeModel?: string | null;
+        latencyMs?: number;
+        keyHint?: string;
+        runtime?: string;
+        error?: string | null;
+      };
+      setKeyPingResult({
+        ok: Boolean(data?.ok),
+        activeModel: data?.activeModel ?? null,
+        latencyMs: Number(data?.latencyMs ?? 0),
+        keyHint: String(data?.keyHint ?? report.geminiKeyHint),
+        runtime: data?.runtime,
+        error: data?.error ?? null,
+      });
+      onRecheck();
+    } catch {
+      setKeyPingResult({
+        ok: false,
+        activeModel: null,
+        latencyMs: 0,
+        keyHint: report.geminiKeyHint,
+        error: 'Falha ao contatar /api/health/verify-key.',
+      });
+    } finally {
+      setIsVerifyingKey(false);
+    }
+  };
+
   return (
-    <button
-      type="button"
-      onClick={onRecheck}
-      disabled={isChecking}
-      title={`Diagnóstico periódico em background (/api/workspace): ${report.latencyMs} ms (média: ${report.averageLatencyMs} ms, limite: ${WORKSPACE_LATENCY_THRESHOLD_MS} ms). Clique para testar agora.`}
-      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 min-h-[34px] font-mono text-[11px] font-medium transition-colors ${
-        isUnreachable
-          ? 'border-rose-500/50 bg-rose-500/15 text-rose-700 dark:text-rose-200 hover:bg-rose-500/25'
-          : isHighLatency
-          ? 'border-amber-500/60 bg-amber-500/20 text-amber-800 dark:text-amber-200 animate-pulse hover:bg-amber-500/30'
-          : 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-500/20'
-      }`}
-    >
-      <span
-        className={`h-2 w-2 rounded-full ${
+    <div className="inline-flex flex-wrap items-center gap-1.5">
+      <button
+        type="button"
+        onClick={onRecheck}
+        disabled={isChecking}
+        title={`Diagnóstico periódico em background (/api/workspace): ${report.latencyMs} ms (média: ${report.averageLatencyMs} ms, limite: ${WORKSPACE_LATENCY_THRESHOLD_MS} ms). Clique para testar agora.`}
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 min-h-[34px] font-mono text-[11px] font-medium transition-colors ${
           isUnreachable
-            ? 'bg-rose-500'
+            ? 'border-rose-500/50 bg-rose-500/15 text-rose-700 dark:text-rose-200 hover:bg-rose-500/25'
             : isHighLatency
-            ? 'bg-amber-400'
-            : 'bg-emerald-400'
+            ? 'border-amber-500/60 bg-amber-500/20 text-amber-800 dark:text-amber-200 animate-pulse hover:bg-amber-500/30'
+            : 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-500/20'
         }`}
-      />
-      <span>
-        /api/workspace: {report.latencyMs}ms
-        {isHighLatency ? ' (>3s!)' : ''}
-      </span>
-    </button>
+      >
+        <span
+          className={`h-2 w-2 rounded-full ${
+            isUnreachable
+              ? 'bg-rose-500'
+              : isHighLatency
+              ? 'bg-amber-400'
+              : 'bg-emerald-400'
+          }`}
+        />
+        <span>
+          /api/workspace: {report.latencyMs}ms
+          {isHighLatency ? ' (>3s!)' : ''}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => void handleVerifyKeyNow()}
+        disabled={isVerifyingKey}
+        title={
+          keyPingResult
+            ? keyPingResult.ok
+              ? `Chave Gemini Validada! Modelo ativo: ${keyPingResult.activeModel} (${keyPingResult.latencyMs} ms · ${keyPingResult.keyHint})`
+              : `Falha na chave Gemini: ${keyPingResult.error}`
+            : 'Clique para testar ao vivo a chave GEMINI_API_KEY na Vercel / Servidor'
+        }
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 min-h-[34px] font-mono text-[11px] font-semibold transition-colors ${
+          keyPingResult?.ok
+            ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-700 dark:text-emerald-200'
+            : keyPingResult && !keyPingResult.ok
+            ? 'border-rose-400/60 bg-rose-500/20 text-rose-700 dark:text-rose-200'
+            : 'border-cyan-500/40 bg-cyan-500/10 text-cyan-700 dark:text-cyan-200 hover:bg-cyan-500/20'
+        }`}
+      >
+        <KeyRound className={`h-3 w-3 ${isVerifyingKey ? 'animate-spin' : ''}`} />
+        <span>
+          {isVerifyingKey
+            ? 'Testando Chave...'
+            : keyPingResult
+            ? keyPingResult.ok
+              ? `API OK (${keyPingResult.activeModel} · ${keyPingResult.latencyMs}ms)`
+              : 'Chave c/ Falha'
+            : 'Testar Chave API'}
+        </span>
+      </button>
+    </div>
   );
 }

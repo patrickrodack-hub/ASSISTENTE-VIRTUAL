@@ -61,23 +61,47 @@ import {
 
 const PLACEHOLDER_KEY_PATTERNS = /^(your_api_key|my_gemini_api_key|insert_key_here|undefined|null|false|todo|changeme|placeholder|<.*>)$/i;
 
+function readRawGeminiKeyFromEnv(): { raw: string; sourceVar: string } {
+  const candidates: Array<[string, string | undefined]> = [
+    ['GEMINI_API_KEY', process.env.GEMINI_API_KEY],
+    ['GOOGLE_API_KEY', process.env.GOOGLE_API_KEY],
+    ['GEMINI_KEY', process.env.GEMINI_KEY],
+    ['API_KEY', process.env.API_KEY],
+    ['VITE_GEMINI_API_KEY', process.env.VITE_GEMINI_API_KEY],
+    ['NEXT_PUBLIC_GEMINI_API_KEY', process.env.NEXT_PUBLIC_GEMINI_API_KEY],
+  ];
+  for (const [name, val] of candidates) {
+    if (typeof val === 'string' && val.trim().length > 0) {
+      return { raw: val, sourceVar: name };
+    }
+  }
+  return { raw: '', sourceVar: 'GEMINI_API_KEY' };
+}
+
+function sanitizeEnvApiKey(raw: string): string {
+  // Strip surrounding quotes, zero-width spaces, and accidental line breaks pasted in Vercel dashboard
+  return raw
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/[\r\n\t\u200B-\u200D\uFEFF]+/g, '')
+    .trim();
+}
+
 export function getGeminiKeyDiagnostic(): {
   geminiConfigured: boolean;
   geminiKeyStatus: 'valid' | 'missing' | 'malformed';
   geminiKeyHint: string;
+  sourceVar?: string;
 } {
-  const raw =
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_API_KEY ||
-    process.env.VITE_GEMINI_API_KEY ||
-    '';
-  const unquoted = raw.trim().replace(/^["']+|["']+$/g, '').trim();
+  const { raw, sourceVar } = readRawGeminiKeyFromEnv();
+  const unquoted = sanitizeEnvApiKey(raw);
 
   if (!unquoted) {
     return {
       geminiConfigured: false,
       geminiKeyStatus: 'missing',
       geminiKeyHint: 'Variável GEMINI_API_KEY ausente no ambiente',
+      sourceVar,
     };
   }
 
@@ -89,7 +113,8 @@ export function getGeminiKeyDiagnostic(): {
     return {
       geminiConfigured: false,
       geminiKeyStatus: 'malformed',
-      geminiKeyHint: `Formato inválido (${unquoted.length} caracteres ou valor placeholder)`,
+      geminiKeyHint: `Formato inválido em ${sourceVar} (${unquoted.length} caracteres ou valor placeholder)`,
+      sourceVar,
     };
   }
 
@@ -97,19 +122,16 @@ export function getGeminiKeyDiagnostic(): {
   return {
     geminiConfigured: true,
     geminiKeyStatus: 'valid',
-    geminiKeyHint: `Configurada (${masked})`,
+    geminiKeyHint: `Configurada via ${sourceVar} (${masked})`,
+    sourceVar,
   };
 }
 
 function resolveGeminiApiKey(): string | null {
   const diag = getGeminiKeyDiagnostic();
   if (!diag.geminiConfigured) return null;
-  const raw =
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_API_KEY ||
-    process.env.VITE_GEMINI_API_KEY ||
-    '';
-  return raw.trim().replace(/^["']+|["']+$/g, '').trim();
+  const { raw } = readRawGeminiKeyFromEnv();
+  return sanitizeEnvApiKey(raw);
 }
 
 export function isGeminiApiConfigured(): boolean {
@@ -132,6 +154,75 @@ function getClient(apiVersion?: string): GoogleGenAI {
       },
     },
   });
+}
+
+export async function verifyGeminiApiKeyLive(): Promise<{
+  ok: boolean;
+  activeModel: string | null;
+  latencyMs: number;
+  keyHint: string;
+  sourceVar: string;
+  error: string | null;
+}> {
+  const startedAt = Date.now();
+  const diag = getGeminiKeyDiagnostic();
+  if (!diag.geminiConfigured) {
+    return {
+      ok: false,
+      activeModel: null,
+      latencyMs: Date.now() - startedAt,
+      keyHint: diag.geminiKeyHint,
+      sourceVar: diag.sourceVar || 'GEMINI_API_KEY',
+      error:
+        'Chave GEMINI_API_KEY ausente ou malformada. Adicione GEMINI_API_KEY nas Environment Variables da Vercel e faça Redeploy.',
+    };
+  }
+
+  const ai = getClient();
+  const testCandidates: Array<{ model: string; thinkingLevel?: ThinkingLevel }> = [
+    { model: 'gemini-3.1-flash-lite', thinkingLevel: ThinkingLevel.MINIMAL },
+    { model: 'gemini-4-hydrogen', thinkingLevel: ThinkingLevel.LOW },
+    { model: 'gemini-3.1-flash-lite' },
+    { model: 'gemini-4-hydrogen' },
+  ];
+
+  let lastErr: unknown = null;
+  for (const candidate of testCandidates) {
+    try {
+      const response = await ai.models.generateContent({
+        model: candidate.model,
+        contents: 'Responda apenas: OK',
+        ...(candidate.thinkingLevel
+          ? {
+              config: {
+                thinkingConfig: { thinkingLevel: candidate.thinkingLevel },
+              },
+            }
+          : {}),
+      });
+      if ((response.text ?? '').trim()) {
+        return {
+          ok: true,
+          activeModel: candidate.model,
+          latencyMs: Date.now() - startedAt,
+          keyHint: diag.geminiKeyHint,
+          sourceVar: diag.sourceVar || 'GEMINI_API_KEY',
+          error: null,
+        };
+      }
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
+  return {
+    ok: false,
+    activeModel: null,
+    latencyMs: Date.now() - startedAt,
+    keyHint: diag.geminiKeyHint,
+    sourceVar: diag.sourceVar || 'GEMINI_API_KEY',
+    error: formatGeminiErrorMessage(lastErr),
+  };
 }
 
 function isQuotaOrRateLimitError(err: unknown): boolean {
@@ -1350,15 +1441,19 @@ export async function processAssistantInteraction(params: {
   const ai = getClient();
   const prepared = await prepareInteractionPrompt(params);
 
-  const modelCandidates: Array<{ model: string; thinkingLevel: ThinkingLevel }> =
+  const modelCandidates: Array<{ model: string; thinkingLevel?: ThinkingLevel }> =
     params.triggerType === 'auditoria'
       ? [
           { model: 'gemini-4-hydrogen', thinkingLevel: ThinkingLevel.LOW },
           { model: 'gemini-3.1-flash-lite', thinkingLevel: ThinkingLevel.MINIMAL },
+          { model: 'gemini-4-hydrogen' },
+          { model: 'gemini-3.1-flash-lite' },
         ]
       : [
           { model: 'gemini-3.1-flash-lite', thinkingLevel: ThinkingLevel.MINIMAL },
           { model: 'gemini-4-hydrogen', thinkingLevel: ThinkingLevel.LOW },
+          { model: 'gemini-3.1-flash-lite' },
+          { model: 'gemini-4-hydrogen' },
         ];
 
   try {
@@ -1374,9 +1469,13 @@ export async function processAssistantInteraction(params: {
               contents: prepared.constantContents,
               config: {
                 systemInstruction: prepared.systemInstruction,
-                thinkingConfig: {
-                  thinkingLevel: candidate.thinkingLevel,
-                },
+                ...(candidate.thinkingLevel
+                  ? {
+                      thinkingConfig: {
+                        thinkingLevel: candidate.thinkingLevel,
+                      },
+                    }
+                  : {}),
                 responseMimeType: 'application/json',
                 responseSchema: INTERACTION_RESPONSE_SCHEMA,
               },
@@ -1765,15 +1864,19 @@ export async function processAssistantInteractionStream(
     sourcesCount: prepared.sources.length,
   });
 
-  const streamCandidates: Array<{ model: string; thinkingLevel: ThinkingLevel }> =
+  const streamCandidates: Array<{ model: string; thinkingLevel?: ThinkingLevel }> =
     params.triggerType === 'auditoria'
       ? [
           { model: 'gemini-4-hydrogen', thinkingLevel: ThinkingLevel.LOW },
           { model: 'gemini-3.1-flash-lite', thinkingLevel: ThinkingLevel.MINIMAL },
+          { model: 'gemini-4-hydrogen' },
+          { model: 'gemini-3.1-flash-lite' },
         ]
       : [
           { model: 'gemini-3.1-flash-lite', thinkingLevel: ThinkingLevel.MINIMAL },
           { model: 'gemini-4-hydrogen', thinkingLevel: ThinkingLevel.LOW },
+          { model: 'gemini-3.1-flash-lite' },
+          { model: 'gemini-4-hydrogen' },
         ];
 
   try {
@@ -1789,9 +1892,13 @@ export async function processAssistantInteractionStream(
               contents: prepared.constantContents,
               config: {
                 systemInstruction: prepared.systemInstruction,
-                thinkingConfig: {
-                  thinkingLevel: candidate.thinkingLevel,
-                },
+                ...(candidate.thinkingLevel
+                  ? {
+                      thinkingConfig: {
+                        thinkingLevel: candidate.thinkingLevel,
+                      },
+                    }
+                  : {}),
                 responseMimeType: 'application/json',
                 responseSchema: INTERACTION_RESPONSE_SCHEMA,
               },
