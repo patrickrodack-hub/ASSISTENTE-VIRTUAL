@@ -1,4 +1,4 @@
-export type ResolvedThemeMode = 'sala-stark' | 'hologram' | 'dark' | 'light';
+export type ResolvedThemeMode = 'live' | 'sala-stark' | 'hologram' | 'dark' | 'light';
 export type ThemeMode = 'auto' | ResolvedThemeMode;
 
 export interface AutoThemeSchedule {

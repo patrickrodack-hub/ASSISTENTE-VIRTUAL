@@ -63,6 +63,7 @@ import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallManag
 import { SpeakingHologramOverlay } from './components/SpeakingHologramOverlay';
 import { StarkCentralCoreLoader } from './components/StarkCentralCoreLoader';
 import { StarkRoomHUD } from './components/StarkRoomHUD';
+import { LiveBroadcastHUD } from './components/LiveBroadcastHUD';
 import { VoiceSampleTrainerPanel } from './components/VoiceSampleTrainerPanel';
 import {
   AuditPanel,
@@ -140,7 +141,7 @@ type ActiveView =
   | 'tarefas'
   | 'auditoria';
 
-const THEME_STORAGE_KEY = 'rodack_theme_mode_v3';
+const THEME_STORAGE_KEY = 'rodack_theme_mode_v4';
 const AUTH_USER_STORAGE_KEY = 'rodack_auth_user_v1';
 const DAEMON_ACTIVE_KEY = 'rodack_daemon_active_v1';
 const PROACTIVE_INTERVAL_KEY = 'rodack_proactive_interval_min_v1';
@@ -162,15 +163,16 @@ function getInitialShowChristianDashboard(): boolean {
 }
 
 function getInitialTheme(): ThemeMode {
-  if (typeof window === 'undefined') return 'sala-stark';
+  if (typeof window === 'undefined') return 'live';
   const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
-  return saved === 'auto' ||
+  return saved === 'live' ||
+    saved === 'auto' ||
     saved === 'light' ||
     saved === 'dark' ||
     saved === 'hologram' ||
     saved === 'sala-stark'
     ? saved
-    : 'sala-stark';
+    : 'live';
 }
 
 function getInitialAuthenticatedUser(): SystemUserAccount | null {
@@ -324,6 +326,7 @@ export default function App() {
   useEffect(() => {
     const root = document.documentElement;
     if (
+      resolvedTheme === 'live' ||
       resolvedTheme === 'sala-stark' ||
       resolvedTheme === 'dark' ||
       resolvedTheme === 'hologram'
@@ -336,7 +339,9 @@ export default function App() {
     if (metaTheme) {
       metaTheme.setAttribute(
         'content',
-        resolvedTheme === 'sala-stark'
+        resolvedTheme === 'live'
+          ? '#040A16'
+          : resolvedTheme === 'sala-stark'
           ? '#06101B'
           : resolvedTheme === 'hologram'
           ? '#040B12'
@@ -1926,6 +1931,7 @@ export default function App() {
     );
   }
 
+  const isLiveTheme = resolvedTheme === 'live';
   const isHoloTheme = resolvedTheme === 'hologram';
   const isStarkRoomTheme = resolvedTheme === 'sala-stark';
 
@@ -1933,7 +1939,9 @@ export default function App() {
     <MotionConfig reducedMotion="user">
       <div
         className={`relative min-h-screen flex flex-col transition-colors duration-200 ${
-          isStarkRoomTheme
+          isLiveTheme
+            ? 'bg-[#040A16] text-sky-50'
+            : isStarkRoomTheme
             ? 'bg-[#06101B] text-sky-50'
             : isHoloTheme
             ? 'bg-[#040B12] text-cyan-50'
@@ -1942,27 +1950,31 @@ export default function App() {
       >
         {/* Dynamic Command Environment Backdrop */}
         <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-          <img
-            src={
-              isStarkRoomTheme
-                ? STARK_ROOM_BACKDROP_URL
-                : isHoloTheme
-                ? HOLOLAB_BACKDROP_URL
-                : starkBackdropUrl
-            }
-            alt=""
-            referrerPolicy="no-referrer"
-            className={`h-full w-full object-cover object-center transition-opacity duration-300 ${
-              isStarkRoomTheme
-                ? 'opacity-15 filter saturate-110 contrast-115'
-                : isHoloTheme
-                ? 'opacity-35 filter saturate-125 contrast-110'
-                : 'opacity-10 dark:opacity-20'
-            }`}
-          />
+          {!isLiveTheme && (
+            <img
+              src={
+                isStarkRoomTheme
+                  ? STARK_ROOM_BACKDROP_URL
+                  : isHoloTheme
+                  ? HOLOLAB_BACKDROP_URL
+                  : starkBackdropUrl
+              }
+              alt=""
+              referrerPolicy="no-referrer"
+              className={`h-full w-full object-cover object-center transition-opacity duration-300 ${
+                isStarkRoomTheme
+                  ? 'opacity-15 filter saturate-110 contrast-115'
+                  : isHoloTheme
+                  ? 'opacity-35 filter saturate-125 contrast-110'
+                  : 'opacity-10 dark:opacity-20'
+              }`}
+            />
+          )}
           <div
             className={`absolute inset-0 transition-colors duration-300 ${
-              isStarkRoomTheme
+              isLiveTheme
+                ? 'live-theme-grid'
+                : isStarkRoomTheme
                 ? 'bg-gradient-to-b from-[#06101B]/88 via-[#071525]/86 to-[#050C15]/94 stark-room-grid'
                 : isHoloTheme
                 ? 'bg-gradient-to-b from-[#030911]/82 via-[#04111D]/78 to-[#030911]/92 rodack-holo-grid'
@@ -1972,7 +1984,9 @@ export default function App() {
           <div
             aria-hidden="true"
             className={`absolute inset-x-0 top-0 h-px ${
-              isStarkRoomTheme
+              isLiveTheme
+                ? 'bg-gradient-to-r from-transparent via-cyan-400/90 to-transparent'
+                : isStarkRoomTheme
                 ? 'bg-gradient-to-r from-sky-400/80 via-orange-500/85 to-sky-400/80'
                 : 'bg-gradient-to-r from-transparent via-cyan-400/75 to-sky-400/75'
             }`}
@@ -1996,7 +2010,9 @@ export default function App() {
         {/* Strict 3-Zone Top Bar Contract */}
         <header
           className={`sticky top-0 z-30 border-b backdrop-blur-md transition-colors ${
-            isStarkRoomTheme
+            isLiveTheme
+              ? 'border-sky-400/30 bg-[#040C1C]/94 shadow-[0_4px_26px_rgba(14,165,233,0.18)]'
+              : isStarkRoomTheme
               ? 'border-sky-500/30 bg-[#06111E]/92 shadow-[0_4px_24px_rgba(249,115,22,0.12)]'
               : isHoloTheme
               ? 'border-cyan-400/30 bg-[#040D17]/88 shadow-[0_4px_24px_rgba(6,182,212,0.18)]'
@@ -2131,7 +2147,9 @@ export default function App() {
           {(!isFocusMode || activeView !== 'console') && (
             <div
               className={`mb-3 sm:mb-4 rounded-xl px-3 sm:px-4 py-2.5 space-y-2 ${
-                isStarkRoomTheme
+                isLiveTheme
+                  ? 'live-theme-panel'
+                  : isStarkRoomTheme
                   ? 'stark-room-panel'
                   : isHoloTheme
                   ? 'rodack-holo-panel'
@@ -2210,12 +2228,28 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* 5-Mode Theme Switcher: Automático, Sala Stark, Holográfico, Escuro, Claro */}
+                  {/* 6-Mode Theme Switcher: LIVE, Automático, Sala Stark, Holográfico, Escuro, Claro */}
                   <div
                     role="group"
                     aria-label="Seletor de tema visual"
                     className="inline-flex flex-wrap items-center rounded-lg border border-slate-200 dark:border-cyan-500/30 bg-slate-100 dark:bg-[#030C15] p-0.5 text-xs"
                   >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic('toggle');
+                        setTheme('live');
+                      }}
+                      title="Tema LIVE: Central global ao vivo com bolsa, cripto, alimentos, vídeos e mapa em tempo real"
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 min-h-[32px] font-medium transition-colors whitespace-nowrap shrink-0 ${
+                        theme === 'live'
+                          ? 'bg-gradient-to-r from-cyan-400 via-sky-400 to-blue-500 text-slate-950 font-bold shadow-[0_0_14px_rgba(34,211,238,0.55)]'
+                          : 'text-slate-600 hover:text-slate-900 dark:text-cyan-200/85 dark:hover:text-white'
+                      }`}
+                    >
+                      <Radio className="h-3.5 w-3.5" />
+                      <span>LIVE</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -2570,6 +2604,58 @@ export default function App() {
                 />
                 {activeView === 'console' ? (
                   <>
+                    {/* TEMA LIVE Global Broadcast Intelligence Wall (Adapted from /assets/aistudio/Designer__1__854eb6b0.png) */}
+                    {isLiveTheme && !isFocusMode && (
+                      <LiveBroadcastHUD
+                        workspace={workspace}
+                        liveIntel={liveIntel}
+                        currentUser={currentUser}
+                        isLoadingIntel={isLoadingIntel}
+                        isProcessing={isProcessing}
+                        isSpeaking={voice.isSpeaking}
+                        speakingSpeaker={voice.speakingSpeaker}
+                        isStandbyActive={voice.isStandbyActive}
+                        isFocusMode={isFocusMode}
+                        onRefreshIntel={() => {
+                          void loadLiveIntel(undefined, true);
+                          void loadWorkspace(false);
+                        }}
+                        onAskAssistant={(prompt, mode) => {
+                          voice.unlockAudio();
+                          void submitMessage(prompt, { mode, triggerType: 'texto' });
+                          consolePanelRef.current?.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'start',
+                          });
+                        }}
+                        onSpeakHeadline={(turn) => {
+                          voice.unlockAudio();
+                          void voice.playTurnsAudio([turn]);
+                        }}
+                        onOpenHologram={(speaker) => {
+                          triggerHaptic('tap');
+                          setManualHologramSpeaker(speaker);
+                        }}
+                        onToggleStandby={voice.toggleStandby}
+                        onToggleFocusMode={() => {
+                          triggerHaptic('toggle');
+                          setIsFocusMode((prev) => !prev);
+                        }}
+                        onFocusConsole={() => {
+                          consolePanelRef.current?.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'start',
+                          });
+                        }}
+                        onOpenView={(view) => {
+                          if (view === 'auditoria') {
+                            setAuditSubTab('auditoria');
+                          }
+                          setActiveView(view);
+                        }}
+                      />
+                    )}
+
                     {/* SALA STARK Global Tactical Command Wall (Adapted from /assets/aistudio/image_7f25b6f4.png) */}
                     {isStarkRoomTheme && !isFocusMode && (
                       <StarkRoomHUD
@@ -3167,7 +3253,9 @@ export default function App() {
                             ? 'lg:col-span-12 w-full h-[calc(100dvh-116px)] lg:h-[calc(100dvh-88px)]'
                             : 'lg:col-span-6 2xl:col-span-1 h-[clamp(480px,calc(100dvh-165px),960px)]'
                         } rounded-2xl lg:rounded-xl flex flex-col min-h-[440px] shadow-xs ${
-                          isStarkRoomTheme
+                          isLiveTheme
+                            ? 'live-theme-panel'
+                            : isStarkRoomTheme
                             ? 'stark-room-panel'
                             : 'border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/75'
                         }`}
@@ -3697,7 +3785,7 @@ export default function App() {
                     {showChristianDashboard && (
                       <div ref={christianDashboardRef}>
                         <ChristianDashboard
-                          isStarkRoomTheme={isStarkRoomTheme}
+                          isStarkRoomTheme={isStarkRoomTheme || isLiveTheme}
                           isProcessing={isProcessing}
                           onAskJarvis={(prompt) => {
                             voice.unlockAudio();

@@ -7,6 +7,7 @@ import {
   FlaskConical,
   Globe,
   Moon,
+  Radio,
   RotateCcw,
   Save,
   ShieldCheck,
@@ -538,7 +539,9 @@ export function GlobalVoiceConfigPanel({
                   Ambiente em Execução
                 </div>
                 <div className="mt-0.5 flex items-center gap-1.5 font-display text-sm font-bold text-amber-700 dark:text-cyan-300">
-                  {resolvedTheme === 'sala-stark' ? (
+                  {resolvedTheme === 'live' ? (
+                    <Radio className="h-4 w-4 text-cyan-400 shrink-0" />
+                  ) : resolvedTheme === 'sala-stark' ? (
                     <Globe className="h-4 w-4 text-orange-500 shrink-0" />
                   ) : resolvedTheme === 'hologram' ? (
                     <Sparkles className="h-4 w-4 text-cyan-400 shrink-0" />
@@ -548,7 +551,9 @@ export function GlobalVoiceConfigPanel({
                     <Sun className="h-4 w-4 text-amber-500 shrink-0" />
                   )}
                   <span>
-                    {resolvedTheme === 'sala-stark'
+                    {resolvedTheme === 'live'
+                      ? 'LIVE · Central ao Vivo'
+                      : resolvedTheme === 'sala-stark'
                       ? 'Sala Stark'
                       : resolvedTheme === 'hologram'
                       ? 'Holográfico'
@@ -714,9 +719,17 @@ export function GlobalVoiceConfigPanel({
             <h4 className="text-xs font-semibold uppercase tracking-wider font-mono text-slate-500 dark:text-slate-400">
               Seleção Rápida de Modo Visual
             </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2.5">
               {(
                 [
+                  {
+                    id: 'live',
+                    label: 'LIVE',
+                    desc: 'Central ao vivo: bolsa, cripto, alimentos, vídeos e mapa global',
+                    icon: Radio,
+                    activeClass:
+                      'border-cyan-400/80 bg-cyan-500/20 text-cyan-950 dark:text-cyan-100 shadow-[0_0_16px_rgba(34,211,238,0.22)]',
+                  },
                   {
                     id: 'auto',
                     label: 'Automático',
