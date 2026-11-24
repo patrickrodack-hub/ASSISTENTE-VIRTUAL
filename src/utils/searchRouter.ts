@@ -125,7 +125,7 @@ const GENERAL_WEB_REGEX =
   /\b(pesquis|busque|busca|procur|internet|web|site|sites|consult|verifiq|quem [ée]|quem foi|documenta[çc][ãa]o|stack|github)\b/i;
 
 export const CHRISTIAN_STUDY_REGEX =
-  /\b(b[íi]blia|biblia|a mensagem|escolabiblicadominical|escola b[íi]blica|ebd|jesus|cristo|crist[ãa]o|crist[ãa]|cristoc[êe]ntric|evangelho|vers[íi]culo|vers[íi]culos|salmo|salmos|prov[ée]rbios|eclesiastes|isa[íi]as|g[êe]nesis|[êe]xodo|apocalipse|mateus|marcos|lucas|jo[ãa]o|atos|romanos|cor[íi]ntios|g[áa]latas|ef[ée]sios|filipenses|colossenses|tessalonicenses|tim[óo]teo|hebreus|tiago|pedro|devocional|ora[çc][ãa]o|orar|f[ée]|gra[çc]a|miseric[óo]rdia|esperan[çc]a|sabedoria b[íi]blica|teologia|estudo b[íi]blico|li[çc][ãa]o da ebd|igreja|deus|esp[íi]rito santo|palavra de deus|conselho espiritual|paz espiritual|b[êe]n[çc][ãa]o|prop[óo]sito de vida|perd[ãa]o|conforto espiritual|escrituras)\b/i;
+  /\b(b[íi]blia|biblia|bibliaon|bibliaon\.com|b[íi]blia online|a mensagem|escolabiblicadominical|escola b[íi]blica|ebd|jesus|cristo|crist[ãa]o|crist[ãa]|cristoc[êe]ntric|evangelho|vers[íi]culo|vers[íi]culos|salmo|salmos|prov[ée]rbios|eclesiastes|isa[íi]as|g[êe]nesis|[êe]xodo|apocalipse|mateus|marcos|lucas|jo[ãa]o|atos|romanos|cor[íi]ntios|g[áa]latas|ef[ée]sios|filipenses|colossenses|tessalonicenses|tim[óo]teo|hebreus|tiago|pedro|devocional|ora[çc][ãa]o|orar|f[ée]|gra[çc]a|miseric[óo]rdia|esperan[çc]a|sabedoria b[íi]blica|teologia|estudo b[íi]blico|li[çc][ãa]o da ebd|igreja|deus|esp[íi]rito santo|palavra de deus|conselho espiritual|paz espiritual|b[êe]n[çc][ãa]o|prop[óo]sito de vida|perd[ãa]o|conforto espiritual|escrituras)\b/i;
 
 export function stripTopicSearchNoise(rawMessage: string): string {
   return rawMessage
@@ -208,6 +208,9 @@ export function resolveTopicSearchRoute(userMessage: string): TopicSearchRoutePl
   if (wantsSocial || wantsBroadBriefing) {
     forcedSourceKeys.push('redes_sociais');
   }
+  if (wantsChristianStudy || wantsBroadBriefing) {
+    forcedSourceKeys.push('bibliaon');
+  }
 
   const forcedDomains = routedTargets.map((t) => t.domain);
   const forcedUrls = routedTargets.map((t) => t.url);
@@ -215,7 +218,9 @@ export function resolveTopicSearchRoute(userMessage: string): TopicSearchRoutePl
   const directiveLines = [
     `[UTILITÁRIO DE ROTEAMENTO DE BUSCA — CONSULTA FORÇADA & CACHE ATUALIZADO NA INTERAÇÃO]`,
     `URLs obrigatórias roteadas para este tópico: ${forcedUrls.join(', ')}${
-      wantsChristianStudy ? ', https://escolabiblicadominical.org' : ''
+      wantsChristianStudy
+        ? ', https://www.bibliaon.com, https://escolabiblicadominical.org'
+        : ''
     }`,
     ...routedTargets.map(
       (t) =>
@@ -223,11 +228,11 @@ export function resolveTopicSearchRoute(userMessage: string): TopicSearchRoutePl
     ),
     ...(wantsChristianStudy
       ? [
-          `• Tópico Cristão / Bíblico / EBD (Especialidade Cristocêntrica de J.A.R.V.I.S.) -> CONSULTAR OBRIGATORIAMENTE https://escolabiblicadominical.org (escolabiblicadominical.org) e fundamentar a reflexão na Bíblia de Estudos "A Mensagem" (Eugene H. Peterson), trazendo sabedoria bíblica, cuidado pastoral, clareza contemporânea e aplicação prática centrada em Cristo.`,
+          `• Tópico Cristão / Bíblico / EBD (Especialidade Cristocêntrica de J.A.R.V.I.S.) -> CONSULTAR OBRIGATORIAMENTE https://www.bibliaon.com (bibliaon.com) e https://escolabiblicadominical.org (escolabiblicadominical.org), fundamentando a reflexão na Bíblia de Estudos "A Mensagem" (Eugene H. Peterson) com sabedoria bíblica, paciência, cuidado pastoral e aplicação prática centrada em Cristo.`,
         ]
       : []),
     `REGRA ESTRITA: As respostas de J.A.R.V.I.S., SEXTA-FEIRA e ULTRON DEVEM utilizar e citar explicitamente os dados recém-atualizados em cache obtidos das URLs roteadas (${forcedDomains.join(', ')}${
-      wantsChristianStudy ? ', escolabiblicadominical.org' : ''
+      wantsChristianStudy ? ', bibliaon.com, escolabiblicadominical.org' : ''
     }).`,
   ];
 

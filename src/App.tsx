@@ -3,6 +3,7 @@ import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import {
   AlertTriangle,
   Bell,
+  BookOpen,
   Brain,
   Calendar,
   CheckCircle2,
@@ -40,7 +41,12 @@ import {
   LiveRadarIntelPanel,
 } from './components/AgendaAndIntelPanel';
 import { AssistantPresenceCard } from './components/AssistantPresenceCard';
+import {
+  ApiKeyDiagnosticAlert,
+  WorkspaceConnectionStatusBadge,
+} from './components/ApiKeyDiagnosticAlert';
 import { AuthPortal, type LogoutGreetingSummary } from './components/AuthPortal';
+import { ChristianDashboard } from './components/ChristianDashboard';
 import { DatabaseManagerPanel } from './components/DatabaseManagerPanel';
 import {
   DialogueStream,
@@ -51,6 +57,7 @@ import {
   type GlobalVoiceConfigTab,
 } from './components/GlobalVoiceConfigPanel';
 import { MobileConsoleDock } from './components/MobileConsoleDock';
+import { NeuralEvolutionMatrix } from './components/NeuralEvolutionMatrix';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallManager';
 import { SpeakingHologramOverlay } from './components/SpeakingHologramOverlay';
 import { StarkCentralCoreLoader } from './components/StarkCentralCoreLoader';
@@ -107,6 +114,11 @@ import {
   type ResolvedThemeMode,
   type ThemeMode,
 } from './utils/themeSchedule';
+import {
+  runStartupWorkspaceDiagnostics,
+  startPeriodicWorkspaceDiagnostics,
+  type StartupDiagnosticReport,
+} from './utils/workspaceDiagnostics';
 
 import {
   ASSISTANT_VISUAL_PROFILES,
@@ -134,10 +146,17 @@ const PROACTIVE_INTERVAL_KEY = 'rodack_proactive_interval_min_v1';
 const FIRED_SCHEDULES_KEY = 'rodack_fired_schedules_v1';
 const FOCUS_MODE_STORAGE_KEY = 'rodack_focus_mode_v1';
 const AUTO_SPEAK_STORAGE_KEY = 'rodack_auto_speak_v1';
+const CHRISTIAN_DASHBOARD_STORAGE_KEY = 'rodack_christian_dashboard_v1';
 
 function getInitialAutoSpeak(): boolean {
   if (typeof window === 'undefined') return true;
   const saved = window.localStorage.getItem(AUTO_SPEAK_STORAGE_KEY);
+  return saved === null ? true : saved === 'true';
+}
+
+function getInitialShowChristianDashboard(): boolean {
+  if (typeof window === 'undefined') return true;
+  const saved = window.localStorage.getItem(CHRISTIAN_DASHBOARD_STORAGE_KEY);
   return saved === null ? true : saved === 'true';
 }
 
@@ -220,6 +239,8 @@ export default function App() {
     getCachedOrSeedWorkspace()
   );
   const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
+  const [startupDiagnostic, setStartupDiagnostic] =
+    useState<StartupDiagnosticReport | null>(null);
   const [activeView, setActiveView] = useState<ActiveView>('console');
   const [auditSubTab, setAuditSubTab] = useState<'tarefas' | 'auditoria'>('tarefas');
   const [targetMode, setTargetMode] = useState<InteractionMode>('auto');
@@ -232,9 +253,9 @@ export default function App() {
   const [processingAssistants, setProcessingAssistants] = useState<AssistantId[]>([]);
   const [processingMode, setProcessingMode] = useState<InteractionMode>('auto');
   const [processingTasks, setProcessingTasks] = useState<Record<AssistantId, string>>({
-    jarvis: 'Processando matriz estratégica, clima RJ e memória contextual de Patrick...',
-    'sexta-feira': 'Sincronizando prioridades da agenda, notícias e resposta ágil...',
-    ultron: 'Calculando diagnósticos preditivos e catalogando padrões humanos...',
+    jarvis: 'Processando matriz estratégica, Bíblia A Mensagem, clima RJ e memória evolutiva de Patrick...',
+    'sexta-feira': 'Especialista em Assuntos Gerais cruzando fontes externas, notícias, agenda e resposta ágil...',
+    ultron: 'Calculando diagnósticos preditivos, CEPEA e catalogando padrões cognitivos do Criador...',
   });
   const [isAuditing, setIsAuditing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -244,6 +265,9 @@ export default function App() {
   const [isLoadingIntel, setIsLoadingIntel] = useState(false);
   const [isScanningSocials, setIsScanningSocials] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState<boolean>(getInitialFocusMode);
+  const [showChristianDashboard, setShowChristianDashboard] = useState<boolean>(
+    getInitialShowChristianDashboard
+  );
   const [manualHologramSpeaker, setManualHologramSpeaker] =
     useState<AssistantId | null>(null);
   const [matrixAdoptedNotice, setMatrixAdoptedNotice] = useState<string | null>(null);
@@ -270,6 +294,15 @@ export default function App() {
   const lastInteractionTimeRef = useRef<number>(Date.now());
   const wakeLockSentinelRef = useRef<{ release: () => Promise<void> } | null>(null);
   const consolePanelRef = useRef<HTMLElement | null>(null);
+  const christianDashboardRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(
+      CHRISTIAN_DASHBOARD_STORAGE_KEY,
+      String(showChristianDashboard)
+    );
+  }, [showChristianDashboard]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -424,9 +457,10 @@ export default function App() {
   const loadWorkspace = useCallback(async (showSpinner = false) => {
     if (showSpinner) setIsLoadingWorkspace(true);
     try {
-      const result = await safeFetchJson<WorkspaceState>('/api/workspace');
-      if (result.ok && result.data && Array.isArray(result.data.conversations)) {
-        updateWorkspace(result.data);
+      const diagReport = await runStartupWorkspaceDiagnostics();
+      setStartupDiagnostic(diagReport);
+      if (diagReport.workspaceData && Array.isArray(diagReport.workspaceData.conversations)) {
+        updateWorkspace(diagReport.workspaceData);
         setErrorMsg(null);
       } else {
         const fallback = getCachedOrSeedWorkspace();
@@ -475,10 +509,19 @@ export default function App() {
     }
     void loadWorkspace(false);
     void loadLiveIntel('Rio de Janeiro, RJ', false);
+    const stopPeriodicWorkspaceDiag = startPeriodicWorkspaceDiagnostics({
+      intervalMs: 25_000,
+      onReport: (diagReport) => {
+        setStartupDiagnostic(diagReport);
+      },
+    });
     const intelTimer = window.setInterval(() => {
       void loadLiveIntel(undefined, false);
     }, 3 * 60 * 1000);
-    return () => window.clearInterval(intelTimer);
+    return () => {
+      stopPeriodicWorkspaceDiag();
+      window.clearInterval(intelTimer);
+    };
   }, [loadWorkspace, loadLiveIntel]);
 
   const voiceControlRef = useRef<{
@@ -1841,6 +1884,17 @@ export default function App() {
   if (!currentUser) {
     return (
       <MotionConfig reducedMotion="user">
+        {(startupDiagnostic?.hasCriticalAlert ||
+          startupDiagnostic?.hasLatencyAlert ||
+          startupDiagnostic?.exceedsLatencyThreshold) && (
+          <div className="fixed top-2 inset-x-2 sm:inset-x-6 z-50">
+            <ApiKeyDiagnosticAlert
+              report={startupDiagnostic}
+              isChecking={isLoadingWorkspace}
+              onRecheck={() => void loadWorkspace(true)}
+            />
+          </div>
+        )}
         <AuthPortal
           registeredUsers={workspace?.users ?? []}
           onBeforeAuthSubmit={() => {
@@ -2065,6 +2119,13 @@ export default function App() {
 
         {/* Main Content (Fluid full-width viewport adaptation — no artificial 1440px box) */}
         <main className="relative z-10 flex-1 w-full max-w-none px-2.5 sm:px-4 lg:px-5 pt-2.5 sm:pt-3 pb-20 md:pb-4">
+          {/* Persistent Startup Connectivity & Vercel GEMINI_API_KEY Diagnostic Alert */}
+          <ApiKeyDiagnosticAlert
+            report={startupDiagnostic}
+            isChecking={isLoadingWorkspace}
+            onRecheck={() => void loadWorkspace(true)}
+          />
+
           {/* Status Bar Tray & Background Daemon Control + Theme & User Session Bar (Hidden in Focus Mode on Console) */}
           {(!isFocusMode || activeView !== 'console') && (
             <div
@@ -2241,6 +2302,12 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2">
+                    <WorkspaceConnectionStatusBadge
+                      report={startupDiagnostic}
+                      isChecking={isLoadingWorkspace}
+                      onRecheck={() => void loadWorkspace(true)}
+                    />
+
                     <PWAInstallButton />
 
                     <button
@@ -2665,8 +2732,8 @@ export default function App() {
                         <AssistantPresenceCard
                           id="jarvis"
                           name="J.A.R.V.I.S."
-                          subtitle="Arquitetura · Agenda · Estratégia"
-                          specialtyLine="Analítico, sereno e protetor. Gerencia horários, segurança técnica e visão de longo prazo."
+                          subtitle="Sabedoria Cristocêntrica · Arquitetura · Agenda"
+                          specialtyLine="Sábio, paciente e cristocêntrico. Unifica princípios da Bíblia A Mensagem, segurança técnica e visão estratégica."
                           imageSrc={jarvisAvatarUrl}
                           isSelected={targetMode === 'jarvis'}
                           isSpeaking={
@@ -3181,6 +3248,35 @@ export default function App() {
 
                             <button
                               type="button"
+                              onClick={() => {
+                                triggerHaptic('toggle');
+                                setShowChristianDashboard((prev) => {
+                                  const next = !prev;
+                                  if (next) {
+                                    window.setTimeout(() => {
+                                      christianDashboardRef.current?.scrollIntoView({
+                                        behavior: 'smooth',
+                                        block: 'nearest',
+                                      });
+                                    }, 80);
+                                  }
+                                  return next;
+                                });
+                              }}
+                              aria-pressed={showChristianDashboard}
+                              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                                showChristianDashboard
+                                  ? 'border-amber-500/60 bg-amber-500/20 text-amber-900 dark:text-amber-100'
+                                  : 'border-slate-300 dark:border-slate-700 bg-transparent text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                              }`}
+                              title="Mostrar ou ocultar seção opcional Dashboard Cristão"
+                            >
+                              <BookOpen className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">Dashboard Cristão</span>
+                            </button>
+
+                            <button
+                              type="button"
                                 onClick={() => {
                                   triggerHaptic('tap');
                                   const preferred: AssistantId =
@@ -3595,6 +3691,37 @@ export default function App() {
                       </aside>
                       )}
                     </div>
+
+                    {/* Optional Christian Dashboard Section (Bíblia A Mensagem & escolabiblicadominical.org) */}
+                    {showChristianDashboard && (
+                      <div ref={christianDashboardRef}>
+                        <ChristianDashboard
+                          isStarkRoomTheme={isStarkRoomTheme}
+                          isProcessing={isProcessing}
+                          onAskJarvis={(prompt) => {
+                            voice.unlockAudio();
+                            setTargetMode('jarvis');
+                            void submitMessage(prompt, {
+                              mode: 'jarvis',
+                              triggerType: 'texto',
+                              search: 'always',
+                            });
+                            consolePanelRef.current?.scrollIntoView({
+                              behavior: 'smooth',
+                              block: 'start',
+                            });
+                          }}
+                          onSpeakVerse={(turn) => {
+                            voice.unlockAudio();
+                            void voice.playTurnsAudio([turn]);
+                          }}
+                          onHideSection={() => {
+                            triggerHaptic('toggle');
+                            setShowChristianDashboard(false);
+                          }}
+                        />
+                      </div>
+                    )}
                   </>
                 ) : activeView === 'agenda' ? (
                   <AgendaAndRoutinesPanel
@@ -3636,6 +3763,17 @@ export default function App() {
                   />
                 ) : activeView === 'memoria' ? (
                   <div className="space-y-8">
+                    <NeuralEvolutionMatrix
+                      workspace={workspace}
+                      currentUser={currentUser}
+                      onWorkspaceUpdated={updateWorkspace}
+                      onPlayEvolutionTurns={(turns) => {
+                        if (autoSpeak) {
+                          voice.unlockAudio();
+                          void voice.playTurnsAudio(turns);
+                        }
+                      }}
+                    />
                     <DatabaseManagerPanel
                       workspace={workspace}
                       currentUser={currentUser}

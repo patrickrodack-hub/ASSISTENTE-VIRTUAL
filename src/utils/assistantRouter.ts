@@ -133,20 +133,20 @@ export function resolveAssistantRouting(
     resolvedMode = explicitMode;
   } else if (clean.length > 0) {
     const wantsDebate =
-      /\b(opini[oõ]es|dividam|comparem|debater|debate|qual a melhor|o que voc[eê]s acham|conselho|auditoria completa)\b/i.test(
+      /\b(opini[oõ]es|dividam|comparem|debater|debate|qual a melhor|o que voc[eê]s acham|voc[eê]s|conselho|auditoria completa|equipe|os tr[eê]s|todos)\b/i.test(
         lower
       );
     const wantsUltron =
-      /\b(diagn[oó]stico|previs[aã]o|prever|futuro|falha|colapso|gargalo|probabilidade|risco oculto|anomalia|estresse|subdesenvolvid|humano|vulnerabilidade cr[ií]tica)\b/i.test(
+      /\b(diagn[oó]stico|previs[aã]o|prever|futuro|falha|colapso|gargalo|probabilidade|risco|anomalia|estresse|subdesenvolvid|humano|humanidade|mente|consci[eê]ncia|evolu[cç][aã]o|vulnerabilidade|entropia|imp[eé]rio|cepea|commodity|commodities|safra|agro)\b/i.test(
         lower
       );
     const wantsJarvis =
       CHRISTIAN_STUDY_REGEX.test(clean) ||
-      /\b(arquitetura|seguran[cç]a|criptografia|autentica[cç][aã]o|servidor|banco de dados|api|estrutura|estrat[eé]gia|padroniza[cç][aã]o|protocolo|escalabilidade)\b/i.test(
+      /\b(arquitetura|seguran[cç]a|criptografia|autentica[cç][aã]o|servidor|banco de dados|api|estrutura|estrat[eé]gia|padroniza[cç][aã]o|protocolo|escalabilidade|sabedoria|conselho s[aá]bio|b3|bolsa|d[oó]lar|cota[cç][aã]o|mercado financeiro|c[oó]digo|sistema)\b/i.test(
         lower
       );
     const wantsFriday =
-      /\b(r[aá]pido|pr[aá]tico|tarefa|agenda|hoje|rotina|interface|ux|design|tela|bot[aã]o|cansado|foco|produtividade|resumo|direto ao ponto)\b/i.test(
+      /\b(r[aá]pido|pr[aá]tico|tarefa|agenda|hoje|rotina|interface|ux|design|tela|bot[aã]o|cansado|foco|produtividade|resumo|direto ao ponto|clima|tempo|temperatura|chuva|futebol|esporte|flamengo|vasco|botafogo|fluminense|ge|g1|not[ií]cia|manchete|assuntos gerais|conhecimentos gerais|curiosidade|hist[oó]ria|geografia|ci[eê]ncia|cultura|arte|cinema|m[uú]sica|filme|livro|sa[uú]de|culin[aá]ria|receita|viagem|pa[ií]s|planeta|como funciona|o que [eé]|quem foi|onde fica|me explica|explica)\b/i.test(
         lower
       );
 
@@ -161,7 +161,8 @@ export function resolveAssistantRouting(
     } else if (wantsFriday) {
       resolvedMode = 'sexta-feira';
     } else {
-      resolvedMode = 'todos';
+      // SEXTA-FEIRA is the specialist for open general-knowledge / everyday questions unless Jarvis or Ultron's specific domains are invoked
+      resolvedMode = clean.includes('?') ? 'sexta-feira' : 'jarvis';
     }
   }
 
@@ -190,18 +191,18 @@ export function resolveAssistantRouting(
       : isCodeQuery
       ? 'Auditando arquitetura, contratos de tipo e blindagem de segurança...'
       : isSearchQuery
-      ? `Consultando ${domainsLabel} e atualizando cache em tempo real...`
-      : 'Processando matriz estratégica, sabedoria cristocêntrica e memória de Patrick...',
+      ? `Consultando ${domainsLabel} e atualizando memória evolutiva em tempo real...`
+      : 'Processando matriz estratégica, sabedoria cristocêntrica e aprendizado contínuo...',
     'sexta-feira': isCodeQuery
       ? 'Mapeando solução prática, fluidez de execução e estabilidade...'
       : isSearchQuery
-      ? `Filtrando sinais ao vivo de ${domainsLabel} para resposta tática...`
-      : 'Sincronizando prioridades do dia, empatia e resposta ágil...',
+      ? `Especialista em Assuntos Gerais: cruzando dados ao vivo de ${domainsLabel}...`
+      : 'Especialista em Assuntos Gerais: sintetizando conhecimento prático, rotina e resposta ágil...',
     ultron: isCodeQuery
       ? 'Dissecando gargalos, falhas em cascata e previsões de risco...'
       : isSearchQuery
       ? `Cruzando dados atualizados de ${domainsLabel} na matriz preditiva...`
-      : 'Calculando diagnósticos preditivos e catalogando padrões humanos...',
+      : 'Calculando diagnósticos preditivos e evoluindo grafo da mente de Patrick...',
   };
 
   return {

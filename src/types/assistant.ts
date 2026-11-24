@@ -242,7 +242,7 @@ export interface CreatorProfile {
   totalInteractions: number;
 }
 
-export type DailyIntelSourceKey = 'g1' | 'ge' | 'b3' | 'cepea' | 'redes_sociais';
+export type DailyIntelSourceKey = 'g1' | 'ge' | 'b3' | 'cepea' | 'redes_sociais' | 'bibliaon';
 
 export interface DailyIntelRecordItem {
   title: string;
@@ -323,6 +323,51 @@ export interface VoiceTrainingState {
   lastValidation?: VoiceValidationResult;
 }
 
+export type GeminiKeyDiagnosticStatus = 'valid' | 'missing' | 'malformed' | 'unreachable';
+
+export interface WorkspaceEndpointDiagnostics {
+  endpoint: '/api/workspace';
+  connected: boolean;
+  geminiConfigured: boolean;
+  geminiKeyStatus: GeminiKeyDiagnosticStatus;
+  geminiKeyHint: string;
+  runtime: 'vercel-serverless' | 'node-express' | 'offline-client';
+  vercelEnv: boolean;
+  checkedAt: string;
+}
+
+export interface AssistantCognitiveEvolutionProfile {
+  assistantId: AssistantId;
+  cognitiveLevel: number;
+  experiencePoints: number;
+  nextLevelXp: number;
+  specialtyTitle: string;
+  learnedFromUserCount: number;
+  learnedFromSourcesCount: number;
+  positiveFeedbackCount: number;
+  revisionFeedbackCount: number;
+  masteredDomains: string[];
+  latestInsight: string;
+  lastEvolvedAt: string;
+}
+
+export interface NeuralEvolutionEvent {
+  id: string;
+  timestamp: string;
+  assistantId: AssistantId | 'todos';
+  sourceType: 'usuario' | 'desenvolvedor' | 'fonte_externa' | 'feedback_reforco';
+  sourceLabel: string;
+  summary: string;
+}
+
+export interface SystemNeuralEvolutionState {
+  version: string;
+  totalLearningCycles: number;
+  activeSourcesIntegrated: string[];
+  assistants: Record<AssistantId, AssistantCognitiveEvolutionProfile>;
+  recentEvolutionEvents: NeuralEvolutionEvent[];
+}
+
 export interface WorkspaceState {
   profile: CreatorProfile;
   memories: MemoryItem[];
@@ -335,7 +380,10 @@ export interface WorkspaceState {
   dailyIntelFeed?: DailySourceSnapshot[];
   voiceSamples?: VoiceSampleRecord[];
   voiceTrainingProfiles?: Partial<Record<VoiceTargetAssistantId, VoiceTrainingState>>;
+  neuralEvolution?: SystemNeuralEvolutionState;
   conversations: ConversationEntry[];
   telemetryLog?: TelemetryEntry[];
+  _diagnostics?: WorkspaceEndpointDiagnostics;
 }
+
 

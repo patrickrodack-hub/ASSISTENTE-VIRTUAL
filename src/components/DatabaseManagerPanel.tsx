@@ -842,7 +842,9 @@ export function DatabaseManagerPanel({
               <p className="text-xs text-slate-700 dark:text-cyan-100/85">
                 Fontes oficiais consultadas automaticamente pelos assistentes e gravadas na base:{' '}
                 <strong>g1.com.br</strong>, <strong>ge.com.br</strong>, <strong>b3.com.br</strong>,{' '}
-                <strong>cepea.com.br</strong> e <strong>Redes Sociais Tradicionais</strong>.
+                <strong>cepea.com.br</strong>, <strong>bibliaon.com</strong>,{' '}
+                <strong>escolabiblicadominical.org</strong> e{' '}
+                <strong>Redes Sociais Tradicionais</strong>.
               </p>
             </div>
             <button

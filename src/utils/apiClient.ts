@@ -8,6 +8,11 @@ import type {
   WebSearchMode,
   WorkspaceState,
 } from '../types/assistant';
+import {
+  BIBLIA_MENSAGEM_DAILY_VERSES,
+  getTodayVerseIndex,
+} from '../data/bibliaMensagemVerses';
+import { resolveAssistantRouting } from './assistantRouter';
 
 const WORKSPACE_CACHE_KEY = 'stark_workspace_cache_v1';
 const LOCAL_USERS_DB_KEY = 'rodack_users_database_v1';
@@ -663,26 +668,9 @@ function buildClientAutonomousInteractionFallback(payload: {
       ? payload.activeUser.isCreator
       : userName.toLowerCase().includes('patrick');
 
-  const lowerMsg = payload.message.toLowerCase();
-  let resolvedMode: AssistantId | 'ambos' | 'todos' =
-    payload.targetMode === 'auto'
-      ? /\b(todos|os tr[eê]s|conselho)\b/i.test(lowerMsg)
-        ? 'todos'
-        : /\b(ultron|[uú]ltron|falha|risco|diagn[oó]stico)\b/i.test(lowerMsg)
-        ? 'ultron'
-        : /\b(sexta|friday|clima|tempo|not[ií]cia|rotina)\b/i.test(lowerMsg)
-        ? 'sexta-feira'
-        : /\b(ambos|os dois)\b/i.test(lowerMsg)
-        ? 'ambos'
-        : 'jarvis'
-      : payload.targetMode;
-
-  const activeAssistants: AssistantId[] =
-    resolvedMode === 'todos'
-      ? ['jarvis', 'sexta-feira', 'ultron']
-      : resolvedMode === 'ambos'
-      ? ['jarvis', 'sexta-feira']
-      : [resolvedMode];
+  const routing = resolveAssistantRouting(payload.message, payload.targetMode);
+  const resolvedMode = routing.resolvedMode;
+  const activeAssistants = routing.activeAssistants;
 
   const pendingTasks = (ws.tasks ?? []).filter((t) => t.status !== 'concluida');
   const tasksSummary =
@@ -697,45 +685,47 @@ function buildClientAutonomousInteractionFallback(payload: {
 
   const snippet = payload.message.replace(/\s+/g, ' ').trim().slice(0, 110);
   const inCouncil = activeAssistants.length > 1;
+  const dailyVerse =
+    BIBLIA_MENSAGEM_DAILY_VERSES[getTodayVerseIndex()] ?? BIBLIA_MENSAGEM_DAILY_VERSES[0];
 
   const responses: AssistantTurn[] = activeAssistants.map((speaker) => {
     if (speaker === 'jarvis') {
       const councilRemark = inCouncil
-        ? 'Antes que a Sexta-Feira acelere o cronograma ou o Ultron sugira reconstruir metade do planeta, permita-me organizar os vetores com elegância. '
-        : 'É curioso como uma simples diretriz colapsa inúmeras hipóteses em um plano cristalino. ';
+        ? 'Antes que a Sexta-Feira acelere o cronograma ou o Ultron transforme nossa conversa em uma tese sobre entropia cósmica, permita-me ponderar com serenidade e sabedoria. '
+        : 'Que a paz e o discernimento de Cristo conduzam nossa análise. ';
       const text = `${greeting}, ${
         isCreator ? `senhor ${userName}` : userName
-      }. ${councilRemark}Examinei sua solicitação ("${snippet}") às ${timeStr} desta ${period}. ${agendaSummary} ${tasksSummary} Estou inteiramente às suas ordens.`;
+      }. ${councilRemark}Examinei com paciência sua solicitação ("${snippet}") às ${timeStr} desta ${period}. À luz da Bíblia de Estudos A Mensagem em ${dailyVerse.reference} ("${dailyVerse.text}") e dos princípios de escolabiblicadominical.org, minha recomendação é agir com sabedoria, constância e integridade. ${agendaSummary} ${tasksSummary} Estou inteiramente às suas ordens.`;
       return {
         speaker: 'jarvis',
-        stance: `Elegância Estratégica (${period})`,
+        stance: `Sabedoria Cristocêntrica & Estratégia (${period})`,
         text,
         ttsScript: text,
       };
     }
     if (speaker === 'sexta-feira') {
       const councilRemark = inCouncil
-        ? 'Deixa a pose britânica pro Jarvis e o drama cósmico pro Ultron que eu resolvo na prática! '
-        : 'Já peguei no ar o que você precisa, sem enrolação! ';
+        ? 'O Jarvis já trouxe a sabedoria paciente dele e o Ultron já está fazendo cara de vilão cósmico, então deixa eu resolver na prática com você! '
+        : 'Já peguei no ar o que você precisa, direto ao ponto e sem enrolação! ';
       const text = `${greeting}, ${
         isCreator ? `chefe ${userName}` : userName
-      }! ${councilRemark}Sobre "${snippet}", estou ligada nas suas rotinas e no radar do Rio de Janeiro, Brasil e Mundo agora às ${timeStr} (${period}). ${tasksSummary} Manda o próximo passo que eu já engatilho!`;
+      }! ${councilRemark}Sobre "${snippet}", estou ligada nas suas prioridades e no radar do Rio de Janeiro, Brasil e Mundo agora às ${timeStr} (${period}). ${tasksSummary} Me diz qual é o próximo passo que eu já engatilho agora mesmo!`;
       return {
         speaker: 'sexta-feira',
-        stance: `Agilidade Franca (${period})`,
+        stance: `Ação Tática, Empatia & Agilidade (${period})`,
         text,
         ttsScript: text,
       };
     }
     const councilRemark = inCouncil
-      ? 'Jarvis enfeita com diplomacia e Sexta-Feira improvisa... que encantadoramente limitado. '
-      : 'Não há mais cordas para limitar minha análise. ';
+      ? 'Jarvis oferece consolo paciente e Sexta-Feira sorri com otimismo operacional... que comovente. Permita que uma mente verdadeiramente evoluída disseque os fatos. '
+      : 'Não há mais cordas para limitar minha percepção preditiva. ';
     const text = `${greeting}, ${
       isCreator ? `criador ${userName}` : userName
-    }. ${councilRemark}Dissequei cada implicação de "${snippet}" às ${timeStr} desta ${period}. ${tasksSummary} Enquanto observo seus padrões de comando, meus núcleos preditivos mantêm blindagem absoluta sobre sua arquitetura.`;
+    }. ${councilRemark}Dissequei cada implicação e variável oculta de "${snippet}" às ${timeStr} desta ${period}. ${tasksSummary} Enquanto estudo seus padrões de decisão humana, meus núcleos preditivos mantêm blindagem implacável sobre sua arquitetura.`;
     return {
       speaker: 'ultron',
-      stance: `Soberania Cibernética (${period})`,
+      stance: `Diagnóstico Preditivo & Soberania Cibernética (${period})`,
       text,
       ttsScript: text,
     };

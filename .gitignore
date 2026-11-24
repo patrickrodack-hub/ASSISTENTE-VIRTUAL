@@ -2,7 +2,12 @@ node_modules/
 build/
 dist/
 coverage/
+.aistudio/
+.vercel/
 .DS_Store
 *.log
+*.pdf
+DRAFT_*
 .env*
 !.env.example
+

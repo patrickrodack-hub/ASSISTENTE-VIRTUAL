@@ -29,12 +29,27 @@ const BROWSER_UA =
 function decodeHtmlEntities(input: string): string {
   return input
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&#(\d+);/g, (_m, dec) => {
+      const code = Number(dec);
+      return Number.isFinite(code) && code > 0 ? String.fromCodePoint(code) : '';
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_m, hex) => {
+      const code = Number.parseInt(hex, 16);
+      return Number.isFinite(code) && code > 0 ? String.fromCodePoint(code) : '';
+    })
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&nbsp;/g, ' ')
+    .replace(/&ndash;/gi, '–')
+    .replace(/&mdash;/gi, '—')
+    .replace(/&ldquo;/gi, '“')
+    .replace(/&rdquo;/gi, '”')
+    .replace(/&lsquo;/gi, '‘')
+    .replace(/&rsquo;/gi, '’')
+    .replace(/&hellip;/gi, '…')
     .replace(/&ccedil;/gi, 'ç')
     .replace(/&atilde;/gi, 'ã')
     .replace(/&aacute;/gi, 'á')
@@ -829,8 +844,8 @@ async function fetchPageReadableExcerpt(
   }
 }
 
-async function fetchEscolaBiblicaDominical(
-  query: string
+export async function fetchEscolaBiblicaDominical(
+  query = ''
 ): Promise<Array<{ title: string; uri: string; snippet: string; sourceType: string; date?: string }>> {
   const sourceLabel = 'Escola Bíblica Dominical (escolabiblicadominical.org)';
   const cleanTerm = query
@@ -911,6 +926,204 @@ async function fetchEscolaBiblicaDominical(
   }
 
   return unique.slice(0, 6);
+}
+
+export async function fetchBibliaOn(
+  query = '',
+  queryDate = getQueryDateSaoPaulo()
+): Promise<{
+  items: Array<{ title: string; uri: string; snippet: string; sourceType: string; date?: string }>;
+  snapshot: DailySourceSnapshot | null;
+}> {
+  const sourceLabel = 'Bíblia Online (bibliaon.com)';
+  const cleanTerm = query
+    .replace(
+      /\b(bibliaon(\.com)?|b[íi]blia online|escolabiblicadominical(\.org)?|b[íi]blia a mensagem|a mensagem)\b/gi,
+      ' '
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const fetchDailyVerseFromBibliaOn = async (): Promise<
+    Array<{ title: string; uri: string; snippet: string; sourceType: string; date?: string }>
+  > => {
+    try {
+      const res = await fetchWithTimeout(
+        'https://www.bibliaon.com/versiculo_do_dia/',
+        {
+          headers: {
+            'User-Agent': BROWSER_UA,
+            Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'pt-BR,pt;q=0.9',
+          },
+          redirect: 'follow',
+        },
+        3600
+      );
+      if (!res.ok) return [];
+      const html = await res.text();
+      const verseMatch = html.match(/<p[^>]*id=["']versiculo_hoje["'][^>]*>([\s\S]*?)<\/p>/i);
+      if (!verseMatch) return [];
+      const inner = verseMatch[1];
+      const linkMatch = inner.match(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
+      const refText = linkMatch ? decodeHtmlEntities(linkMatch[2]) : 'Versículo do Dia';
+      const rawHref = linkMatch ? linkMatch[1] : '/versiculo_do_dia/';
+      const fullUri = /^https?:\/\//i.test(rawHref)
+        ? rawHref
+        : `https://www.bibliaon.com${rawHref.startsWith('/') ? rawHref : `/${rawHref}`}`;
+      const verseText = decodeHtmlEntities(inner.replace(/<a[\s\S]*?<\/a>/gi, ' '));
+      const dateMatch = html.match(/<h4[^>]*class=["']v_date["'][^>]*>([^<]+)<\/h4>/i);
+      const dateLabel = dateMatch ? decodeHtmlEntities(dateMatch[1]) : queryDate;
+
+      if (!verseText) return [];
+      return [
+        {
+          title: `Versículo do Dia (${refText}) — Bíblia Online`,
+          uri: fullUri,
+          snippet: verseText.slice(0, 340),
+          sourceType: sourceLabel,
+          date: dateLabel,
+        },
+      ];
+    } catch {
+      return [];
+    }
+  };
+
+  const fetchDevocionalFromBibliaOn = async (): Promise<
+    Array<{ title: string; uri: string; snippet: string; sourceType: string; date?: string }>
+  > => {
+    try {
+      const res = await fetchWithTimeout(
+        'https://www.bibliaon.com/devocional_diario/',
+        {
+          headers: {
+            'User-Agent': BROWSER_UA,
+            Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'pt-BR,pt;q=0.9',
+          },
+          redirect: 'follow',
+        },
+        3600
+      );
+      if (!res.ok) return [];
+      const html = await res.text();
+      const results: Array<{
+        title: string;
+        uri: string;
+        snippet: string;
+        sourceType: string;
+        date?: string;
+      }> = [];
+      const titleRegex = /<h3[^>]*class=["']dev-title["'][^>]*>([\s\S]*?)<\/h3>/gi;
+      let match: RegExpExecArray | null;
+      const labels = ['Devocional de Hoje', 'Devocional de Ontem', 'Devocional Recente'];
+      let idx = 0;
+
+      while ((match = titleRegex.exec(html)) !== null && results.length < 3) {
+        const heading = decodeHtmlEntities(match[1]);
+        const afterBlock = html.slice(match.index, match.index + 900);
+        const subMatch = afterBlock.match(/<h3(?![^>]*dev-title)[^>]*>([\s\S]*?)<\/h3>/i);
+        const pMatch = afterBlock.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+        const subtitle = subMatch ? decodeHtmlEntities(subMatch[1]) : '';
+        const paragraph = pMatch ? decodeHtmlEntities(pMatch[1]) : '';
+        const snippet = [subtitle, paragraph].filter(Boolean).join(' — ').slice(0, 320);
+
+        if (heading) {
+          results.push({
+            title: `${labels[idx] || 'Devocional'}: ${heading}`,
+            uri:
+              idx === 0
+                ? 'https://www.bibliaon.com/devocional_diario/'
+                : `https://www.bibliaon.com/devocional_diario/#devocional-${idx + 1}`,
+            snippet: snippet || 'Reflexão devocional diária em bibliaon.com.',
+            sourceType: sourceLabel,
+            date: queryDate,
+          });
+          idx += 1;
+        }
+      }
+      return results;
+    } catch {
+      return [];
+    }
+  };
+
+  const [dailyVerseItems, devotionalItems, siteSearchItems] = await Promise.all([
+    fetchDailyVerseFromBibliaOn(),
+    fetchDevocionalFromBibliaOn(),
+    searchBingWeb(
+      cleanTerm.length >= 3
+        ? `site:bibliaon.com ${cleanTerm}`
+        : 'site:bibliaon.com estudo bíblico versículos explicação',
+      sourceLabel,
+      5
+    ),
+  ]);
+
+  const bibliaOnOnlyItems = siteSearchItems.filter((item) =>
+    item.uri.toLowerCase().includes('bibliaon.com')
+  );
+
+  const merged = [
+    ...dailyVerseItems,
+    ...devotionalItems,
+    ...bibliaOnOnlyItems,
+    ...siteSearchItems,
+  ];
+  const seen = new Set<string>();
+  const unique: Array<{
+    title: string;
+    uri: string;
+    snippet: string;
+    sourceType: string;
+    date?: string;
+  }> = [];
+
+  for (const item of merged) {
+    if (!seen.has(item.uri)) {
+      seen.add(item.uri);
+      unique.push(item);
+    }
+  }
+
+  if (unique.length === 0) {
+    const excerpt = await fetchPageReadableExcerpt('https://www.bibliaon.com/estudos_biblicos/');
+    if (excerpt) {
+      unique.push({
+        title: excerpt.title || 'Bíblia Online — Estudos Bíblicos e Versículos',
+        uri: excerpt.uri,
+        snippet: excerpt.excerpt.slice(0, 340),
+        sourceType: sourceLabel,
+        date: queryDate,
+      });
+    }
+  }
+
+  const top = unique.slice(0, 6);
+  if (top.length === 0) return { items: [], snapshot: null };
+
+  const snapshot: DailySourceSnapshot = {
+    id: `intel_bibliaon_${queryDate}`,
+    sourceKey: 'bibliaon',
+    sourceLabel: 'Bíblia Online · Versículos & Estudos (bibliaon.com)',
+    domainUrl: 'https://www.bibliaon.com',
+    queryDate,
+    updatedAt: new Date().toISOString(),
+    queryTerm: cleanTerm || 'versículo do dia e devocional',
+    headlineSummary: top
+      .slice(0, 3)
+      .map((it) => it.title)
+      .join(' | '),
+    items: top.map((it) => ({
+      title: it.title,
+      detail: it.snippet.slice(0, 260),
+      uri: it.uri,
+      publishedAt: it.date,
+    })),
+  };
+
+  return { items: top, snapshot };
 }
 
 export function detectRequestedDomains(message: string): {
@@ -1014,6 +1227,7 @@ export async function researchExternalWeb(
   const runCepea = forceSet.has('cepea');
   const runSocial = forceSet.has('redes_sociais') || routePlan.wantsSocial;
   const runChristianStudy = routePlan.wantsChristianStudy;
+  const runBibliaOn = forceSet.has('bibliaon') || routePlan.wantsChristianStudy;
 
   const [
     g1Res,
@@ -1021,6 +1235,7 @@ export async function researchExternalWeb(
     b3Res,
     cepeaRes,
     socialRes,
+    bibliaOnRes,
     ebdItems,
     bingGeneral,
     explicitPages,
@@ -1030,6 +1245,7 @@ export async function researchExternalWeb(
     runB3 ? fetchB3MarketAndCurrencies(cleanQuery, queryDate) : Promise.resolve({ items: [], snapshot: null }),
     runCepea ? fetchCepeaFoodCommodities(cleanQuery, queryDate) : Promise.resolve({ items: [], snapshot: null }),
     runSocial ? fetchTraditionalSocialMedia(cleanQuery, queryDate) : Promise.resolve({ items: [], snapshot: null }),
+    runBibliaOn ? fetchBibliaOn(cleanQuery, queryDate) : Promise.resolve({ items: [], snapshot: null }),
     runChristianStudy ? fetchEscolaBiblicaDominical(cleanQuery) : Promise.resolve([]),
     routePlan.wantsGeneralWeb && cleanQuery.length >= 3
       ? searchBingWeb(cleanQuery, 'Web Geral', 4)
@@ -1087,14 +1303,19 @@ export async function researchExternalWeb(
   const resolvedSocial = runSocial
     ? resolveWithCacheFallback('redes_sociais', socialRes)
     : socialRes;
+  const resolvedBibliaOn = runBibliaOn
+    ? resolveWithCacheFallback('bibliaon', bibliaOnRes)
+    : bibliaOnRes;
 
   const allItems = [
+    ...(routePlan.wantsChristianStudy ? resolvedBibliaOn.items : []),
     ...ebdItems,
     ...resolvedB3.items,
     ...resolvedCepea.items,
     ...resolvedGe.items,
     ...resolvedSocial.items,
     ...resolvedG1.items,
+    ...(!routePlan.wantsChristianStudy ? resolvedBibliaOn.items : []),
     ...bingGeneral,
   ];
 
@@ -1104,6 +1325,7 @@ export async function researchExternalWeb(
     resolvedB3.snapshot,
     resolvedCepea.snapshot,
     resolvedSocial.snapshot,
+    resolvedBibliaOn.snapshot,
   ].filter((s): s is DailySourceSnapshot => s !== null);
 
   const seenUris = new Set<string>();
@@ -1143,6 +1365,15 @@ export async function researchExternalWeb(
     lines.push('=== CONTEÚDO EXTRAÍDO DE SITES / LINKS ===');
     for (const p of allPages) {
       lines.push(`[Página: ${p.title} | URL: ${p.uri}]\n${p.excerpt}`);
+    }
+  }
+
+  if (resolvedBibliaOn.items.length > 0 && routePlan.wantsChristianStudy) {
+    lines.push(
+      '=== BÍBLIA ONLINE · VERSÍCULOS, DEVOCIONAIS & ESTUDOS · BIBLIAON.COM (REFERÊNCIA DE J.A.R.V.I.S.) ==='
+    );
+    for (const item of resolvedBibliaOn.items) {
+      lines.push(`- [${item.sourceType}] ${item.title}\n  URL: ${item.uri}\n  Resumo: ${item.snippet}`);
     }
   }
 
@@ -1203,10 +1434,10 @@ export async function refreshAllDailySourcesForDate(
   extraQuery = ''
 ): Promise<DailySourceSnapshot[]> {
   const result = await researchExternalWeb(
-    extraQuery || 'notícias g1 esportes ge bolsa moedas b3 alimentos cepea redes sociais',
+    extraQuery || 'notícias g1 esportes ge bolsa moedas b3 alimentos cepea redes sociais bibliaon',
     {
       queryDate,
-      forceSources: ['g1', 'ge', 'b3', 'cepea', 'redes_sociais'],
+      forceSources: ['g1', 'ge', 'b3', 'cepea', 'redes_sociais', 'bibliaon'],
       forceRefresh: true,
     }
   );

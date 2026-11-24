@@ -37,6 +37,7 @@ import {
   clearAssistantTtsCache,
   formatGeminiErrorMessage,
   generateProactiveInitiative,
+  getGeminiKeyDiagnostic,
   isGeminiApiConfigured,
   processAssistantInteraction,
   processAssistantInteractionStream,
@@ -54,6 +55,8 @@ import {
   scanCreatorOnlinePresence,
 } from './liveIntelService.ts';
 import {
+  fetchBibliaOn,
+  fetchEscolaBiblicaDominical,
   getQueryDateSaoPaulo,
   getSearchCacheSnapshot,
   refreshAllDailySourcesForDate,
@@ -76,12 +79,15 @@ export function createApiApp(): express.Express {
 
   // Lightweight health & runtime diagnostic endpoint (works on Node, Cloud Run, and Vercel)
   app.get('/api/health', (_req, res) => {
+    const keyDiag = getGeminiKeyDiagnostic();
     const geminiConfigured = isGeminiApiConfigured();
     res.json({
       ok: true,
       runtime: IS_SERVERLESS_RUNTIME ? 'vercel-serverless' : 'node-express',
-      vercelEnv: Boolean(process.env.VERCEL),
+      vercelEnv: Boolean(process.env.VERCEL || IS_SERVERLESS_RUNTIME),
       geminiConfigured,
+      geminiKeyStatus: keyDiag.geminiKeyStatus,
+      geminiKeyHint: keyDiag.geminiKeyHint,
       voiceTtsReady: geminiConfigured,
       webSearchFallback: 'google-news+wikipedia+awesomeapi+gemini-grounding',
       exclusiveVoices: {
@@ -182,11 +188,31 @@ export function createApiApp(): express.Express {
     }
   });
 
-  // Workspace state
+  // Workspace state + startup connectivity & GEMINI_API_KEY diagnostics
   app.get('/api/workspace', async (_req, res) => {
     try {
       const workspace = await readWorkspace();
-      res.json(workspace);
+      const keyDiag = getGeminiKeyDiagnostic();
+      const runtime = IS_SERVERLESS_RUNTIME ? 'vercel-serverless' : 'node-express';
+      const vercelEnv = Boolean(process.env.VERCEL || IS_SERVERLESS_RUNTIME);
+
+      res.setHeader('X-Rodack-Gemini-Configured', String(keyDiag.geminiConfigured));
+      res.setHeader('X-Rodack-Gemini-Status', keyDiag.geminiKeyStatus);
+      res.setHeader('X-Rodack-Runtime', runtime);
+
+      res.json({
+        ...workspace,
+        _diagnostics: {
+          endpoint: '/api/workspace',
+          connected: true,
+          geminiConfigured: keyDiag.geminiConfigured,
+          geminiKeyStatus: keyDiag.geminiKeyStatus,
+          geminiKeyHint: keyDiag.geminiKeyHint,
+          runtime,
+          vercelEnv,
+          checkedAt: new Date().toISOString(),
+        },
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erro ao carregar workspace.';
       res.status(500).json({ error: message });
@@ -238,6 +264,150 @@ export function createApiApp(): express.Express {
     } catch (err) {
       res.status(500).json({
         error: err instanceof Error ? err.message : 'Erro ao atualizar fontes diárias externas.',
+      });
+    }
+  });
+
+  // Christian Dashboard Live Feed: recent spiritual headlines, devotionals & studies from escolabiblicadominical.org + bibliaon.com
+  let christianDashboardCache: {
+    expiresAt: number;
+    payload: {
+      updatedAt: string;
+      queryDate: string;
+      sourceName: string;
+      sourceUrl: string;
+      liveFetched: boolean;
+      headlines: Array<{
+        id: string;
+        title: string;
+        uri: string;
+        snippet: string;
+        publishedAt?: string;
+        sourceType: string;
+        sourceDomain: 'escolabiblicadominical.org' | 'bibliaon.com';
+      }>;
+    };
+  } | null = null;
+
+  app.get('/api/intel/christian-dashboard', async (req, res) => {
+    try {
+      const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
+      const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 120) : '';
+      const queryDate = getQueryDateSaoPaulo();
+
+      if (
+        !forceRefresh &&
+        !query &&
+        christianDashboardCache &&
+        christianDashboardCache.expiresAt > Date.now()
+      ) {
+        res.json(christianDashboardCache.payload);
+        return;
+      }
+
+      const [ebdRaw, bibliaOnRes] = await Promise.all([
+        fetchEscolaBiblicaDominical(query).catch(() => []),
+        fetchBibliaOn(query, queryDate).catch(() => ({ items: [], snapshot: null })),
+      ]);
+
+      const ebdHeadlines = ebdRaw
+        .filter((item) => /^https?:\/\//i.test(item.uri))
+        .slice(0, 5)
+        .map((item, idx) => ({
+          id: `ebd-${idx}-${Buffer.from(item.uri).toString('base64').slice(0, 12)}`,
+          title: item.title,
+          uri: item.uri,
+          snippet: item.snippet,
+          publishedAt: item.date,
+          sourceType: item.sourceType,
+          sourceDomain: 'escolabiblicadominical.org' as const,
+        }));
+
+      const bibliaOnHeadlines = bibliaOnRes.items
+        .filter((item) => /^https?:\/\//i.test(item.uri))
+        .slice(0, 5)
+        .map((item, idx) => ({
+          id: `bibliaon-${idx}-${Buffer.from(item.uri).toString('base64').slice(0, 12)}`,
+          title: item.title,
+          uri: item.uri,
+          snippet: item.snippet,
+          publishedAt: item.date,
+          sourceType: item.sourceType,
+          sourceDomain: 'bibliaon.com' as const,
+        }));
+
+      // Interleave both sources cleanly so Patrick sees highlights from bibliaon.com & escolabiblicadominical.org together
+      const mergedHeadlines: Array<{
+        id: string;
+        title: string;
+        uri: string;
+        snippet: string;
+        publishedAt?: string;
+        sourceType: string;
+        sourceDomain: 'escolabiblicadominical.org' | 'bibliaon.com';
+      }> = [];
+      const maxLen = Math.max(ebdHeadlines.length, bibliaOnHeadlines.length);
+      for (let i = 0; i < maxLen; i += 1) {
+        if (bibliaOnHeadlines[i]) mergedHeadlines.push(bibliaOnHeadlines[i]);
+        if (ebdHeadlines[i]) mergedHeadlines.push(ebdHeadlines[i]);
+      }
+
+      const fallbackHeadlines =
+        mergedHeadlines.length > 0
+          ? mergedHeadlines
+          : [
+              {
+                id: 'bibliaon-versiculo-dia',
+                title: 'Versículo do Dia e Devocional Diário — Bíblia Online',
+                uri: 'https://www.bibliaon.com/versiculo_do_dia/',
+                snippet:
+                  'Versículos diários, devocionais cristãos e explicações de passagens bíblicas para meditação com J.A.R.V.I.S.',
+                sourceType: 'bibliaon.com',
+                sourceDomain: 'bibliaon.com' as const,
+              },
+              {
+                id: 'ebd-portal-home',
+                title: 'Lições e Subsídios da Escola Bíblica Dominical',
+                uri: 'https://escolabiblicadominical.org/',
+                snippet:
+                  'Estudos bíblicos semanais, comentários de lições da EBD e devocionais cristocêntricos para aprofundamento nas Escrituras.',
+                sourceType: 'escolabiblicadominical.org',
+                sourceDomain: 'escolabiblicadominical.org' as const,
+              },
+              {
+                id: 'bibliaon-estudos',
+                title: 'Estudos Bíblicos por Tema e Explicação de Passagens — Bíblia Online',
+                uri: 'https://www.bibliaon.com/estudos_biblicos/',
+                snippet:
+                  'Estudos evangélicos organizados por temas, livros da Bíblia, fé e crescimento espiritual.',
+                sourceType: 'bibliaon.com',
+                sourceDomain: 'bibliaon.com' as const,
+              },
+            ];
+
+      const payload = {
+        updatedAt: new Date().toISOString(),
+        queryDate,
+        sourceName: 'bibliaon.com · escolabiblicadominical.org',
+        sourceUrl: 'https://www.bibliaon.com',
+        liveFetched: mergedHeadlines.length > 0,
+        headlines: fallbackHeadlines,
+      };
+
+      if (!query) {
+        christianDashboardCache = {
+          expiresAt: Date.now() + 10 * 60 * 1000,
+          payload,
+        };
+      }
+
+      res.json(payload);
+    } catch (err) {
+      res.status(500).json({
+        error:
+          err instanceof Error
+            ? err.message
+            : 'Erro ao carregar manchetes espirituais de bibliaon.com e escolabiblicadominical.org.',
       });
     }
   });
@@ -388,6 +558,75 @@ export function createApiApp(): express.Express {
       });
 
       res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: formatGeminiErrorMessage(err) });
+    }
+  });
+
+  // Active Neural Evolution & Cross-Source Knowledge Consolidation
+  app.post('/api/assistant/evolve', async (req, res) => {
+    try {
+      const { focusTopic = '', clientTimeIso, clientTimezone, activeUser } = req.body ?? {};
+      const queryDate = getQueryDateSaoPaulo(
+        typeof clientTimeIso === 'string' ? clientTimeIso : undefined,
+        typeof clientTimezone === 'string' ? clientTimezone : undefined
+      );
+
+      // 1. Refresh daily external sources (G1, GE, B3, CEPEA, Redes Sociais, EBD, BíbliaOn)
+      const [snapshots, ebdItems, bibliaOnRes] = await Promise.all([
+        refreshAllDailySourcesForDate(queryDate, String(focusTopic || '')).catch(() => []),
+        fetchEscolaBiblicaDominical(String(focusTopic || '')).catch(() => []),
+        fetchBibliaOn(String(focusTopic || ''), queryDate).catch(() => ({
+          items: [],
+          snapshot: null,
+        })),
+      ]);
+
+      if (snapshots.length > 0) {
+        await upsertDailyIntelSnapshots(queryDate, snapshots);
+      }
+
+      const g1Headline = snapshots.find((s) => s.sourceKey === 'g1')?.items?.[0]?.title;
+      const geHeadline = snapshots.find((s) => s.sourceKey === 'ge')?.items?.[0]?.title;
+      const b3Headline = snapshots.find((s) => s.sourceKey === 'b3')?.items?.[0]?.title;
+      const cepeaHeadline = snapshots.find((s) => s.sourceKey === 'cepea')?.items?.[0]?.title;
+      const christianHeadline =
+        ebdItems[0]?.title || bibliaOnRes.items[0]?.title || 'Princípios da Bíblia A Mensagem';
+
+      const evolutionPrompt = `[CICLO DE EVOLUÇÃO COGNITIVA & CONSOLIDAÇÃO NEURAL — ${queryDate}]${
+        focusTopic ? ` Foco solicitado pelo Desenvolvedor/Usuário: "${String(focusTopic).trim()}".` : ''
+      }
+Consolidem um novo ciclo de aprendizado contínuo a partir do usuário, do desenvolvedor Patrick Pessoa e de todas as fontes conectadas hoje:
+- J.A.R.V.I.S. (Sabedoria Cristocêntrica, Arquitetura & B3): Sintetize aprendizados de "${christianHeadline}"${
+        b3Headline ? ` e indicadores B3 ("${b3Headline}")` : ''
+      }.
+- SEXTA-FEIRA (Especialista em Assuntos Gerais, G1, GE & Rotina RJ): Sintetize aprendizados gerais${
+        g1Headline ? ` de G1 ("${g1Headline}")` : ''
+      }${geHeadline ? ` e GE ("${geHeadline}")` : ''}.
+- ULTRON (Diagnóstico Preditivo, Padrões do Criador & CEPEA): Sintetize padrões preditivos${
+        cepeaHeadline ? ` e CEPEA ("${cepeaHeadline}")` : ''
+      }.
+Registrem aprendizados permanentes em newMemories mantendo 100% da personalidade individual de cada assistente.`;
+
+      const result = await processAssistantInteraction({
+        message: evolutionPrompt,
+        targetMode: 'todos',
+        triggerType: 'proativo',
+        useWebSearch: 'always',
+        clientTimeIso,
+        clientTimezone,
+        proactiveReason: 'Ciclo de Evolução Cognitiva & Consolidação de Fontes Externas',
+        activeUser,
+      });
+
+      res.json({
+        ...result,
+        queryDate,
+        consolidatedSourcesCount:
+          snapshots.reduce((acc, s) => acc + s.items.length, 0) +
+          ebdItems.length +
+          bibliaOnRes.items.length,
+      });
     } catch (err) {
       res.status(500).json({ error: formatGeminiErrorMessage(err) });
     }

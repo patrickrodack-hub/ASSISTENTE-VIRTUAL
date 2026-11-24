@@ -25,6 +25,13 @@ import type {
   VoiceValidationResult,
   WorkspaceState,
 } from '../src/types/assistant.ts';
+import type { NeuralEvolutionEvent } from '../src/types/assistant.ts';
+import {
+  applyCognitiveEvolutionToWorkspace,
+  applyFeedbackReinforcementLearning,
+  createDefaultNeuralEvolutionState,
+  ensureNeuralEvolutionState,
+} from './continuousLearningEngine.ts';
 
 export const IS_SERVERLESS_RUNTIME = Boolean(
   process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME
@@ -606,6 +613,7 @@ function createSeedWorkspace(): WorkspaceState {
     dailyIntelFeed: [],
     voiceSamples: createDefaultVoiceSamples(),
     voiceTrainingProfiles: createDefaultVoiceTrainingProfiles(),
+    neuralEvolution: createDefaultNeuralEvolutionState(),
     conversations: [
       {
         id: crypto.randomUUID(),
@@ -774,6 +782,13 @@ async function ensureFile(): Promise<WorkspaceState> {
       changed = true;
     }
 
+    if (!state.neuralEvolution || !state.neuralEvolution.assistants) {
+      ensureNeuralEvolutionState(state);
+      changed = true;
+    } else {
+      ensureNeuralEvolutionState(state);
+    }
+
     cachedWorkspace = state;
     if (changed) {
       await safeWriteJsonFile(DATA_FILE, state);
@@ -813,15 +828,46 @@ export async function updateWorkspace(
 export async function addMemory(
   item: Omit<MemoryItem, 'id' | 'createdAt'>
 ): Promise<MemoryItem> {
+  const now = new Date().toISOString();
   const created: MemoryItem = {
     ...item,
     id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
+    createdAt: now,
   };
   await updateWorkspace((state) => {
     state.memories.unshift(created);
     if (state.memories.length > 120) {
       state.memories = state.memories.slice(0, 120);
+    }
+    const evo = ensureNeuralEvolutionState(state);
+    evo.totalLearningCycles += 1;
+    const targets: AssistantId[] =
+      item.sourceAssistant === 'todos'
+        ? ['jarvis', 'sexta-feira', 'ultron']
+        : item.sourceAssistant === 'ambos'
+        ? ['jarvis', 'sexta-feira']
+        : [item.sourceAssistant];
+    for (const id of targets) {
+      const p = evo.assistants[id];
+      if (p) {
+        p.learnedFromUserCount += 1;
+        p.experiencePoints += 45;
+        p.cognitiveLevel = Math.max(1, Math.floor(p.experiencePoints / 250) + 1);
+        p.nextLevelXp = p.cognitiveLevel * 250;
+        p.latestInsight = `${item.title}: ${item.content.slice(0, 130)}`;
+        p.lastEvolvedAt = now;
+      }
+    }
+    evo.recentEvolutionEvents.unshift({
+      id: crypto.randomUUID(),
+      timestamp: now,
+      assistantId: item.sourceAssistant === 'ambos' ? 'todos' : item.sourceAssistant,
+      sourceType: 'desenvolvedor',
+      sourceLabel: 'Ensinamento Direto de Patrick Pessoa',
+      summary: `Novo conhecimento ensinado na Memória: "${item.title}".`,
+    });
+    if (evo.recentEvolutionEvents.length > 25) {
+      evo.recentEvolutionEvents = evo.recentEvolutionEvents.slice(0, 25);
     }
   });
   return created;
@@ -1003,25 +1049,25 @@ export async function recordInteraction(
   newAlerts: Omit<AlertItem, 'id' | 'createdAt' | 'resolved'>[],
   emotion: DetectedEmotion,
   newEvents: Omit<AgendaEventItem, 'id' | 'createdAt' | 'completed'>[] = [],
-  newQuestions: Omit<CreatorQuestionItem, 'id' | 'createdAt' | 'answered'>[] = []
+  newQuestions: Omit<CreatorQuestionItem, 'id' | 'createdAt' | 'answered'>[] = [],
+  evolutionMeta?: {
+    evolutionEvents?: NeuralEvolutionEvent[];
+    userLearnedDelta?: number;
+    sourcesLearnedDelta?: number;
+  }
 ): Promise<WorkspaceState> {
   return updateWorkspace((state) => {
     const now = new Date().toISOString();
     state.profile.currentEmotion = emotion;
     state.profile.totalInteractions += 1;
 
-    for (const m of newMemories) {
-      const duplicate = state.memories.some(
-        (existing) => existing.title.toLowerCase() === m.title.toLowerCase()
-      );
-      if (!duplicate) {
-        state.memories.unshift({
-          ...m,
-          id: crypto.randomUUID(),
-          createdAt: now,
-        });
-      }
-    }
+    applyCognitiveEvolutionToWorkspace(state, {
+      entry,
+      synthesizedMemories: newMemories,
+      evolutionEvents: evolutionMeta?.evolutionEvents ?? [],
+      userLearnedDelta: evolutionMeta?.userLearnedDelta ?? Math.max(1, newMemories.length),
+      sourcesLearnedDelta: evolutionMeta?.sourcesLearnedDelta ?? (entry.sources?.length ?? 0),
+    });
 
     for (const t of newTasks) {
       const duplicate = state.tasks.some(
@@ -1154,6 +1200,11 @@ export async function setTurnFeedback(
         }
       }
     }
+    applyFeedbackReinforcementLearning(state, {
+      entryId,
+      speaker,
+      feedback,
+    });
   });
 }
 

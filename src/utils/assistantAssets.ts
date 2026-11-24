@@ -52,7 +52,7 @@ export const ASSISTANT_VISUAL_PROFILES: Record<AssistantId, AssistantVisualProfi
     id: 'sexta-feira',
     personaIndex: 1,
     name: 'SEXTA-FEIRA',
-    role: 'Operações Táticas · Matriz Androide Ciano',
+    role: 'Especialista em Assuntos Gerais & Operações Táticas · Matriz Ciano',
     frequencyLabel: '210.4 Hz · Voz Tática',
     primaryHex: '#38BDF8',
     secondaryHex: '#BAE6FD',
@@ -61,7 +61,7 @@ export const ASSISTANT_VISUAL_PROFILES: Record<AssistantId, AssistantVisualProfi
     textAccentClass: 'text-sky-300',
     barClass: 'bg-sky-400',
     sampleGreeting:
-      'Na escuta, chefe Patrick! Projeção holográfica tridimensional da Sexta-Feira online. Pode mandar a próxima missão que eu resolvo na hora!',
+      'Na escuta, chefe Patrick! Projeção tridimensional da Sexta-Feira online — sua Especialista em Assuntos Gerais e copiloto tática no Rio. Pode mandar qualquer pergunta ou missão que eu resolvo na hora!',
   },
   ultron: {
     id: 'ultron',
