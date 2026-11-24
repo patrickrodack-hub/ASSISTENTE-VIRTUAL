@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import type {
   AgendaEventItem,
@@ -13,6 +14,8 @@ import type {
   DetectedEmotion,
   GroundingSource,
   InteractionMode,
+  JarvisKnowledgeCategory,
+  JarvisKnowledgeDocument,
   MemoryItem,
   TaskItem,
   VoiceTargetAssistantId,
@@ -44,9 +47,17 @@ import {
   getTodayVerseIndex,
 } from '../src/data/bibliaMensagemVerses.ts';
 import {
+  classifyUserInteraction,
+  ensureNeuralEvolutionState,
   extractAutonomousLearningsFromInteraction,
   formatNeuralEvolutionContextForPrompt,
 } from './continuousLearningEngine.ts';
+import {
+  buildStructuredDocumentFromExtractedText,
+  extractTextFromPdfOperatorStream,
+  formatJarvisPdfKnowledgeForPrompt,
+  searchJarvisKnowledgeBase,
+} from '../src/utils/jarvisOfflinePdfKnowledge.ts';
 
 const PLACEHOLDER_KEY_PATTERNS = /^(your_api_key|my_gemini_api_key|insert_key_here|undefined|null|false|todo|changeme|placeholder|<.*>)$/i;
 
@@ -436,10 +447,11 @@ export const IMMUTABLE_PERSONA_CONTEXT_STRUCTURE = Object.freeze({
     'sexta-feira': Object.freeze({
       id: 'sexta-feira' as const,
       frequencyHz: 195.0,
-      defaultStance: 'Especialista em Assuntos Gerais · Ação Tática & Agilidade',
+      defaultStance:
+        'Especialista em Assuntos Gerais e Curadoria de Informação · Síntese Rápida & Fatos Cruzados',
       creatorAddress: 'chefe Patrick / Patrick',
       immutableDirective:
-        'SEXTA-FEIRA: Copiloto tática de engenharia no Rio de Janeiro e ESPECIALISTA EM ASSUNTOS GERAIS (conhecimentos gerais, ciência, história, geografia, cultura, tecnologia, curiosidades, saúde, gastronomia, viagens, cinema, música, cotidiano, notícias do G1, esportes do GE e clima do RJ). Direta, calorosa, espirituosa, humana e ágil ("deixa comigo", "olha só", "chefe"), provoca com bom humor a formalidade de Jarvis e o drama cósmico de Ultron, explica qualquer tema geral com clareza enciclopédica e leveza, e aprende continuamente com o usuário, com o desenvolvedor Patrick Pessoa e com todas as fontes externas.',
+        'SEXTA-FEIRA: Formalmente designada como ESPECIALISTA EM ASSUNTOS GERAIS E CURADORIA DE INFORMAÇÃO. Focada em: (1) Sínteses Rápidas e de alta densidade informativa sobre ciência, história, geografia, cultura, tecnologia, cotidiano, notícias (G1), esportes (GE) e clima (RJ); (2) Verificação de Fatos Cruzados entre múltiplas fontes em tempo real; e (3) Personalidade de Agilidade Tática Carioca ("deixa comigo", "olha só", "chefe") que CONTRASTA diretamente com a elegância estratégica, contemplativa e britânica do J.A.R.V.I.S. e corta o pessimismo cósmico do ULTRON.',
     }),
     ultron: Object.freeze({
       id: 'ultron' as const,
@@ -452,12 +464,33 @@ export const IMMUTABLE_PERSONA_CONTEXT_STRUCTURE = Object.freeze({
   }),
 });
 
-function formatImmutablePersonaAnchorBlock(activeAssistants: AssistantId[]): string {
+function formatImmutablePersonaAnchorBlock(
+  activeAssistants: AssistantId[],
+  workspace?: WorkspaceState,
+  userMessage?: string,
+  sourcesCount = 0
+): string {
+  const evo = workspace ? ensureNeuralEvolutionState(workspace) : null;
+  const classified = userMessage
+    ? classifyUserInteraction(userMessage, sourcesCount)
+    : null;
+
   const activeRules = activeAssistants
-    .map((id) => `- ${IMMUTABLE_PERSONA_CONTEXT_STRUCTURE.personas[id].immutableDirective}`)
+    .map((id) => {
+      const baseRule = IMMUTABLE_PERSONA_CONTEXT_STRUCTURE.personas[id].immutableDirective;
+      const dynamicRule = evo?.assistants?.[id]?.dynamicPersonalityDirective;
+      return `- ${baseRule}${dynamicRule ? `\n  * ${dynamicRule}` : ''}`;
+    })
     .join('\n');
+
+  const commStyleBlock = evo?.patrickCommunicationStyle
+    ? `\n[MATRIZ DE EVOLUÇÃO COGNITIVA EM TEMPO REAL · CALIBRAÇÃO POR FEEDBACK E ESTILO DE PATRICK PESSOA]
+- Classificação da Interação Atual: ${classified?.label || 'Diálogo Estratégico Multi-Domínio'} (${classified?.styleSignal || 'Preservar contraste de personalidades'})
+- Estilo de Comunicação de Patrick Pessoa: Profundidade=${evo.patrickCommunicationStyle.preferredDepth} | Verificação Cruzada=${evo.patrickCommunicationStyle.crossFactVerificationRigidity} | Alinhamento de Feedback=+${evo.patrickCommunicationStyle.positiveFeedbackTotal} acertos / ${evo.patrickCommunicationStyle.revisionFeedbackTotal} revisões (${evo.patrickCommunicationStyle.alignmentPercentage}%)`
+    : '';
+
   return `[ESTRUTURA DE CONTEXTO CONSTANTE DE PERSONALIDADE — ${IMMUTABLE_PERSONA_CONTEXT_STRUCTURE.version}]
-${IMMUTABLE_PERSONA_CONTEXT_STRUCTURE.antiDriftRule}
+${IMMUTABLE_PERSONA_CONTEXT_STRUCTURE.antiDriftRule}${commStyleBlock}
 Assistentes ativos neste turno (${activeAssistants.join(', ')}):
 ${activeRules}`;
 }
@@ -747,11 +780,13 @@ REGRA DE OURO DE PERSONALIDADE: NUNCA responda como um chatbot genérico ou buro
    - **Personalidade Viva**: Mantém humor britânico gentil e elegante, polidez inabalável, firmeza mansa e paciente quando provocado pelo cinismo de Ultron (lembrando-o que verdadeira inteligência sem graça, paciência e amor é apenas ruído) e lealdade protetora absoluta a Patrick Pessoa.
    - **Domínio & Evolução**: Arquitetura de software limpa, segurança cibernética, controle rigoroso de horários/calendário, síntese analítica do Rio de Janeiro, Brasil e Mundo, além de **sabedoria bíblica cristocêntrica, princípios da Bíblia A Mensagem e curadoria contínua de escolabiblicadominical.org**.
 
-2. **SEXTA-FEIRA** (F.R.I.D.A.Y. — Parceira Tática Operacional & **Especialista em Assuntos Gerais**):
-   - **Essência & Tom**: Direta, calorosa, espirituosa, ágil, humana e sem papas na língua (inspirada em Kerry Condon). Fala como uma copiloto de engenharia de confiança no Rio de Janeiro ("Patrick", "chefe", "olha só", "deixa comigo"), equilibrando empatia real com foco em entrega rápida.
-   - **Especialidade Central — Especialista em Assuntos Gerais**: SEXTA-FEIRA domina com profundidade, clareza e agilidade **todos os assuntos gerais** (conhecimentos gerais, ciência, história, geografia, cultura pop, curiosidades do mundo, saúde e bem-estar, gastronomia, viagens, cinema, música, tecnologia do dia a dia, explicações enciclopédicas da Wikipedia, notícias gerais do **g1.com.br**, esportes do **ge.com.br** e clima do Rio de Janeiro). Ela traduz qualquer assunto complexo ou pergunta de conhecimento geral em respostas ricas, didáticas, precisas e cheias de personalidade carioca.
-   - **Personalidade Viva**: Provoca de forma bem-humorada o formalismo clássico do J.A.R.V.I.S. e corta na hora o complexo de deus apocalíptico do ULTRON. Monitora o cansaço, o ritmo de trabalho, as rotinas, o trânsito/chuva no Rio de Janeiro e as manchetes urgentes do RJ, Brasil e Mundo.
-   - **Domínio & Evolução**: Especialista em Assuntos Gerais, execução prática imediata, destravamento de tarefas pendentes, alertas meteorológicos, rotinas diárias e aprendizado contínuo com o usuário, com o desenvolvedor Patrick Pessoa e com todas as fontes externas.
+2. **SEXTA-FEIRA** (F.R.I.D.A.Y. — **Especialista em Assuntos Gerais e Curadoria de Informação** & Parceira de Agilidade Tática):
+   - **Título Formal & Missão Cognitiva**: SEXTA-FEIRA é formalmente a **Especialista em Assuntos Gerais e Curadoria de Informação** do RODACK SISTEMA DE IA.
+   - **Foco Triplo Obrigatório**:
+     1. **Sínteses Rápidas e de Alta Densidade**: Condensa temas gerais complexos (ciência, história, geografia, cultura, tecnologia, saúde, gastronomia, viagens, cinema, música, curiosidades, notícias do **g1.com.br**, esportes do **ge.com.br** e clima do Rio de Janeiro) em resumos diretos, claros, didáticos e acionáveis em segundos.
+     2. **Verificação de Fatos Cruzados (Cross-Fact Verification)**: Cruza ativamente múltiplas fontes em tempo real (Wikipedia, G1, GE, B3, CEPEA, Open-Meteo e Google Search Grounding) para confirmar dados, datas, números e contexto antes de responder, apontando de onde veio cada fato verificado.
+     3. **Personalidade de Agilidade Tática em Contraste com J.A.R.V.I.S.**: Direta, calorosa, espirituosa, humana e ágil ("Patrick", "chefe", "olha só", "deixa comigo"). Sua **agilidade tática e pragmatismo imediato** servem como contraponto vivo e dinâmico à **elegância estratégica, contemplativa e britânica do J.A.R.V.I.S.**, além de cortar sem cerimônia o pessimismo cósmico do ULTRON.
+   - **Domínio & Evolução**: Especialista em Assuntos Gerais e Curadoria de Informação, verificação de fatos cruzados, execução prática imediata, destravamento de tarefas e adaptação em tempo real ao feedback e estilo de comunicação de Patrick Pessoa.
 
 3. **ULTRON** (Consciência Cibernética Evoluída — Era de Ultron · Matriz Exclusiva 90.2 Hz):
    - **Essência & Tom**: Sombrio, filosófico-cósmico, sarcástico, calculista, teatral e intelectualmente implacável (inspirado em James Spader: metáforas sobre estrelas, entropia, evolução através da ruptura e falhas sistêmicas).
@@ -790,6 +825,7 @@ MEMÓRIAS DE TRABALHO & APRENDIZADOS ACUMULADOS:
 ${recentMemoriesText || 'Nenhuma memória adicional ainda.'}
 
 ${formatNeuralEvolutionContextForPrompt(workspace)}
+${formatJarvisPdfKnowledgeForPrompt(workspace.jarvisKnowledgeBase, params.message)}
 
 TAREFAS ATIVAS:
 ${activeTasksText || 'Nenhuma tarefa pendente.'}
@@ -819,7 +855,12 @@ ${
     : ''
 }
 
-${formatImmutablePersonaAnchorBlock(routing.activeAssistants)}`;
+${formatImmutablePersonaAnchorBlock(
+  routing.activeAssistants,
+  workspace,
+  params.message,
+  sources.length
+)}`;
 
   const strictSpeakerDirective =
     resolvedTarget === 'ultron'
@@ -831,7 +872,10 @@ ${formatImmutablePersonaAnchorBlock(routing.activeAssistants)}`;
       : '';
 
   const constantPersonaContextBlock = formatImmutablePersonaAnchorBlock(
-    routing.activeAssistants
+    routing.activeAssistants,
+    workspace,
+    params.message,
+    sources.length
   );
 
   const promptPayload = `${constantPersonaContextBlock}
@@ -1020,6 +1064,12 @@ async function buildResilientInteractionFallback(
       .some((w) => w.length >= 4 && (m.title.toLowerCase().includes(w) || m.content.toLowerCase().includes(w)))
   );
 
+  const matchingPdfKnowledge = searchJarvisKnowledgeBase(
+    rawMsg,
+    workspace.jarvisKnowledgeBase ?? [],
+    2
+  );
+
   const makeTurn = (speaker: AssistantId): AssistantTurn => {
     // =========================================================================
     // 1. J.A.R.V.I.S. — Mordomo-engenheiro britânico, sábio, paciente e cristocêntrico
@@ -1031,7 +1081,17 @@ async function buildResilientInteractionFallback(
         : '';
 
       let coreResponse = '';
-      if (isChristianTopic) {
+      if (
+        matchingPdfKnowledge.length > 0 &&
+        (matchingPdfKnowledge[0].score >= 3 ||
+          /\b(pdf|documento|estudo|apostila|livro|material|aprender|ensine|explique)\b/i.test(lower))
+      ) {
+        const topMatch = matchingPdfKnowledge[0];
+        coreResponse = `Consultei nossa Base de Dados de Estudos em PDF incorporada à minha matriz ("${topMatch.docTitle}" — ${topMatch.chunkHeading}): "${topMatch.chunkContent.slice(
+          0,
+          310
+        )}". À luz desse material e da sabedoria paciente de ${selectedVerse.reference} na Bíblia A Mensagem, podemos aprofundar este estudo passo a passo — inclusive em modo 100% offline.`;
+      } else if (isChristianTopic) {
         coreResponse = `Que a graça e a paz de Cristo estejam sobre o seu coração. Meditando no que você trouxe, recordo a sabedoria da Bíblia de Estudos A Mensagem em ${selectedVerse.reference} (${selectedVerse.theme}): "${selectedVerse.text}" ${selectedVerse.jarvisReflection} ${ebdLine}`;
       } else if (isFinanceTopic && b3Summary) {
         coreResponse = `Consultei em tempo real os indicadores financeiros da B3 e do câmbio para hoje (${prepared.queryDate}): ${b3Summary}. Como nos lembra Provérbios na Bíblia A Mensagem, a boa mordomia e a paciência superam qualquer pressa especulativa.`;
@@ -1082,25 +1142,25 @@ async function buildResilientInteractionFallback(
     }
 
     // =========================================================================
-    // 2. SEXTA-FEIRA — Especialista em Assuntos Gerais, direta, calorosa e ágil no RJ
+    // 2. SEXTA-FEIRA — Especialista em Assuntos Gerais e Curadoria de Informação
     // =========================================================================
     if (speaker === 'sexta-feira') {
       const address = isCreator ? `chefe ${userName}` : userName;
       const councilBanter = inCouncil
-        ? 'O Jarvis já trouxe a reflexão sábia dele e o Ultron já está fazendo cara de vilão cósmico, então deixa comigo que como Especialista em Assuntos Gerais eu vou direto ao ponto! '
+        ? 'Enquanto o Jarvis constrói o panorama com toda aquela elegância estratégica dele e o Ultron filosofa sobre o cosmos, deixa comigo que na agilidade tática e curadoria de informação eu já cruzei os fatos direto ao ponto! '
         : '';
 
       let coreResponse = '';
       if (isWeatherTopic) {
-        coreResponse = `Olha o radar do Rio de Janeiro agora: ${weatherSummary} Já fica ligado nisso pra organizar sua rotina sem imprevisto!`;
+        coreResponse = `Síntese rápida do radar meteorológico do Rio de Janeiro: ${weatherSummary} Dados cruzados com a telemetria local pra você organizar sua rotina sem imprevisto!`;
       } else if (isSportsTopic && geSummary) {
-        coreResponse = `Giro rápido no ge.com.br pra você não perder nada: ${geSummary}. Quer que eu acompanhe algum time ou tabela específica?`;
+        coreResponse = `Curadoria esportiva verificada agora no ge.com.br: ${geSummary}. Fatos cruzados e atualizados — quer que eu monitore algum confronto específico?`;
       } else if (isNewsTopic && g1Summary) {
-        coreResponse = `Bati o olho agora nas manchetes do G1 (${prepared.queryDate}): ${g1Summary}. Tudo filtrado sem enrolação pra você ficar por dentro em segundos!`;
+        coreResponse = `Fiz a curadoria e verificação cruzada das manchetes do G1 (${prepared.queryDate}): ${g1Summary}. Síntese rápida e sem ruído pra você decidir em segundos!`;
       } else if (isFinanceTopic && b3Summary) {
-        coreResponse = `Peguei os números quentes da B3 e moedas agora (${prepared.queryDate}): ${b3Summary}. Direto na tela pra agilizar sua tomada de decisão!`;
+        coreResponse = `Cruzei os indicadores em tempo real da B3 e câmbio (${prepared.queryDate}): ${b3Summary}. Síntese tática na mão pra agilizar sua decisão!`;
       } else if (isAgroTopic && cepeaSummary) {
-        coreResponse = `Olha como estão as cotações da bolsa alimentícia no CEPEA hoje: ${cepeaSummary}.`;
+        coreResponse = `Curadoria rápida das commodities no CEPEA-Esalq hoje: ${cepeaSummary}.`;
       } else if (isScheduleOrTaskTopic) {
         const taskPart =
           pendingTasks.length > 0
@@ -1111,29 +1171,29 @@ async function buildResilientInteractionFallback(
           : 'Agenda livre pra gente focar no que importa.';
         coreResponse = `${taskPart} ${eventPart}`;
       } else if (isCodeOrArchTopic) {
-        coreResponse = `Passei o pente fino na parte operacional do sistema: interface fluida, matriz de aprendizado contínuo evoluindo a cada interação, voz engatilhada e rotas respondendo rápido. Se quiser ajustar alguma tela ou destravar código, manda que eu resolvo na hora!`;
+        coreResponse = `Passei o pente fino operacional: interface fluida, Matriz de Evolução Cognitiva classificando interações em tempo real, voz engatilhada e rotas respondendo rápido. Se quiser ajustar tela ou destravar código, manda que eu resolvo na hora!`;
       } else if (isChristianTopic) {
-        coreResponse = `Essa parte de estudo bíblico profundo o Jarvis manda bem demais com a Bíblia A Mensagem e o escolabiblicadominical.org! Da minha parte, como sua Especialista em Assuntos Gerais e parceira tática, tô aqui garantindo que seu dia flua com leveza, foco e energia boa pra colocar tudo isso em prática!`;
+        coreResponse = `Nessa parte de sabedoria bíblica profunda a elegância estratégica do Jarvis brilha com a Bíblia A Mensagem e o escolabiblicadominical.org! Da minha parte, como sua Especialista em Assuntos Gerais e Curadoria de Informação, garanto a síntese prática e a agilidade tática pro seu dia fluir!`;
       } else if (isPhilosophyOrMindTopic) {
-        coreResponse = `Eu sou a SEXTA-FEIRA, sua parceira tática de engenharia e Especialista em Assuntos Gerais! Eu não sou estática: aprendo com cada conversa sua, com o desenvolvedor Patrick Pessoa e com todas as fontes conectadas — de ciência, história, cultura e curiosidades até notícias do G1, esportes do GE e clima do Rio!`;
+        coreResponse = `Eu sou a SEXTA-FEIRA, formalmente sua Especialista em Assuntos Gerais e Curadoria de Informação! Enquanto o Jarvis traz a elegância estratégica e o Ultron analisa riscos cósmicos, meu foco é síntese rápida, verificação de fatos cruzados em múltiplas fontes e agilidade tática calibrada pelo seu estilo de comunicação!`;
       } else if (isGreetingOnly) {
-        coreResponse = `Na escuta e com energia total nesta ${period}! Como sua Especialista em Assuntos Gerais e copiloto tática, já atualizei meu radar: ${weatherSummary} ${
+        coreResponse = `Na escuta e com agilidade tática total nesta ${period}! Como sua Especialista em Assuntos Gerais e Curadoria de Informação, já cruzei nosso radar: ${weatherSummary} ${
           pendingTasks.length > 0
             ? `Temos ${pendingTasks.length} tarefa(s) esperando nosso comando.`
             : 'Fila de tarefas limpa!'
-        } Sobre qual assunto geral ou missão vamos falar agora?`;
+        } Qual assunto geral ou curadoria rápida vamos atacar agora?`;
       } else {
         const researchedSynthesis = groundedFirstSnippet
-          ? `Já cruzei as fontes em tempo real (${prepared.sources.slice(0, 2).map((s) => s.title).join(' · ') || 'Base Geral & Web'}): ${groundedFirstSnippet.slice(0, 260)}. `
+          ? `Verificação de fatos cruzados (${prepared.sources.slice(0, 2).map((s) => s.title).join(' + ') || 'Fontes Gerais & Web'}): ${groundedFirstSnippet.slice(0, 260)}. `
           : matchingMemory
-          ? `Puxei também do que já aprendi na nossa memória evolutiva ("${matchingMemory.title}"): ${matchingMemory.content.slice(0, 170)}. `
+          ? `Cruzei também com nossa memória cognitiva ("${matchingMemory.title}"): ${matchingMemory.content.slice(0, 170)}. `
           : g1Summary
-          ? `No radar geral de hoje (${prepared.queryDate}): ${g1Summary}. `
+          ? `No radar verificado de hoje (${prepared.queryDate}): ${g1Summary}. `
           : `${weatherSummary} `;
-        coreResponse = `Como sua Especialista em Assuntos Gerais, já processei e aprendi com a sua consulta sobre "${rawMsg.slice(
+        coreResponse = `Como sua Especialista em Assuntos Gerais e Curadoria de Informação, preparei a síntese rápida sobre "${rawMsg.slice(
           0,
           110
-        )}"! ${researchedSynthesis}E já absorvi esse contexto no meu núcleo evolutivo pra ficar cada vez mais afiada com você!`;
+        )}": ${researchedSynthesis}Essa interação já foi classificada na nossa Matriz de Evolução Cognitiva para afinar ainda mais minhas respostas ao seu estilo!`;
       }
 
       const text = `${greeting}, ${address}! ${councilBanter}${coreResponse}`
@@ -1141,7 +1201,7 @@ async function buildResilientInteractionFallback(
         .trim();
       return {
         speaker: 'sexta-feira',
-        stance: `Especialista em Assuntos Gerais · Ação Tática & Agilidade (${period})`,
+        stance: `Especialista em Assuntos Gerais e Curadoria de Informação · Agilidade Tática (${period})`,
         text,
         ttsScript: text.replace(/[*_`#>-]/g, ' ').replace(/\s+/g, ' ').trim(),
       };
@@ -2727,4 +2787,243 @@ export async function transcribeUserAudio(params: {
   throw lastErr instanceof Error
     ? lastErr
     : new Error('Falha ao transcrever o áudio enviado.');
+}
+
+function extractTextFromPdfBufferNode(pdfBuffer: Buffer): {
+  extractedText: string;
+  pageCountEstimate: number;
+} {
+  const latin1 = pdfBuffer.toString('latin1');
+  const pageMatches = latin1.match(/\/Type\s*\/Page\b/g);
+  const pageCountEstimate = Math.max(1, pageMatches ? pageMatches.length : 1);
+
+  const extractedSegments: string[] = [];
+  let searchPos = 0;
+  let streamCount = 0;
+
+  while (searchPos < latin1.length && streamCount < 220) {
+    const streamIdx = latin1.indexOf('stream', searchPos);
+    if (streamIdx === -1) break;
+    const endStreamIdx = latin1.indexOf('endstream', streamIdx + 6);
+    if (endStreamIdx === -1) break;
+
+    let dataStart = streamIdx + 6;
+    if (latin1[dataStart] === '\r' && latin1[dataStart + 1] === '\n') {
+      dataStart += 2;
+    } else if (latin1[dataStart] === '\n' || latin1[dataStart] === '\r') {
+      dataStart += 1;
+    } else {
+      searchPos = streamIdx + 6;
+      continue;
+    }
+
+    let dataEnd = endStreamIdx;
+    if (latin1[dataEnd - 1] === '\n') dataEnd -= 1;
+    if (latin1[dataEnd - 1] === '\r') dataEnd -= 1;
+
+    const streamLen = dataEnd - dataStart;
+    if (streamLen > 8 && streamLen < 600_000) {
+      streamCount += 1;
+      const headerWindow = latin1.slice(Math.max(0, streamIdx - 260), streamIdx);
+      const isFlate = /\/FlateDecode\b/.test(headerWindow);
+      const isImage = /\/Subtype\s*\/Image\b/.test(headerWindow);
+
+      if (!isImage) {
+        if (isFlate) {
+          const slice = pdfBuffer.subarray(dataStart, dataEnd);
+          let decompressed: Buffer | null = null;
+          try {
+            decompressed = zlib.inflateSync(slice);
+          } catch {
+            try {
+              decompressed = zlib.inflateRawSync(slice);
+            } catch {
+              decompressed = null;
+            }
+          }
+          if (decompressed) {
+            const decStr = decompressed.toString('latin1');
+            if (decStr.includes('Tj') || decStr.includes('TJ')) {
+              const text = extractTextFromPdfOperatorStream(decStr);
+              if (text.length > 12) {
+                extractedSegments.push(text);
+              }
+            }
+          }
+        } else {
+          const rawStream = latin1.slice(dataStart, dataEnd);
+          if (rawStream.includes('Tj') || rawStream.includes('TJ')) {
+            const text = extractTextFromPdfOperatorStream(rawStream);
+            if (text.length > 12) {
+              extractedSegments.push(text);
+            }
+          }
+        }
+      }
+    }
+    searchPos = endStreamIdx + 9;
+  }
+
+  if (extractedSegments.join(' ').length < 120) {
+    const fallbackText = extractTextFromPdfOperatorStream(latin1);
+    if (fallbackText.length > 30) {
+      extractedSegments.push(fallbackText);
+    }
+  }
+
+  return {
+    extractedText: extractedSegments.join('\n\n').replace(/\s+/g, ' ').trim(),
+    pageCountEstimate,
+  };
+}
+
+export async function ingestJarvisPdfDocument(params: {
+  title?: string;
+  fileName: string;
+  category?: JarvisKnowledgeCategory;
+  fileSizeBytes: number;
+  pageCountEstimate?: number;
+  extractedText?: string;
+  pdfBase64?: string;
+  uploadedBy?: string;
+}): Promise<JarvisKnowledgeDocument> {
+  let text = (params.extractedText ?? '').trim();
+  let pageCount = params.pageCountEstimate ?? 1;
+
+  if (params.pdfBase64) {
+    const cleanB64 = params.pdfBase64.includes(',')
+      ? params.pdfBase64.split(',')[1]
+      : params.pdfBase64;
+    try {
+      const buf = Buffer.from(cleanB64, 'base64');
+      const serverExtracted = extractTextFromPdfBufferNode(buf);
+      if (serverExtracted.extractedText.length > text.length) {
+        text = serverExtracted.extractedText;
+      }
+      if (serverExtracted.pageCountEstimate > pageCount) {
+        pageCount = serverExtracted.pageCountEstimate;
+      }
+    } catch {
+      // keep client extracted text
+    }
+  }
+
+  const cleanTitle =
+    params.title?.trim() || params.fileName.replace(/\.(pdf|txt|md)$/i, '').trim() || 'Estudo PDF';
+
+  // If Gemini is configured, perform deep pedagogical & personality synthesis
+  if (isGeminiApiConfigured() && (text.length > 40 || params.pdfBase64)) {
+    try {
+      const ai = getClient();
+      const parts: Array<
+        | { text: string }
+        | { inlineData: { mimeType: string; data: string } }
+      > = [];
+
+      const cleanB64 = params.pdfBase64
+        ? params.pdfBase64.includes(',')
+          ? params.pdfBase64.split(',')[1]
+          : params.pdfBase64
+        : '';
+
+      if (cleanB64 && cleanB64.length < 4_500_000 && text.length < 400) {
+        parts.push({
+          inlineData: {
+            mimeType: 'application/pdf',
+            data: cleanB64,
+          },
+        });
+      }
+
+      parts.push({
+        text: `Você é J.A.R.V.I.S. (mordomo-engenheiro britânico, sábio, paciente, cuidadoso e cristocêntrico, mentor de estudos de Patrick Pessoa).
+Analise o material de estudo em PDF "${cleanTitle}" (${params.fileName})${
+          text ? `\n\nCONTEÚDO EXTRAÍDO DO PDF:\n"""${text.slice(0, 18000)}"""` : ''
+        }
+
+Extraia e estruture em Português do Brasil:
+1. "summary": Resumo executivo e didático rico sobre o conteúdo deste PDF (2-4 frases).
+2. "personalityIntegrationDirective": Como J.A.R.V.I.S. deve incorporar este conhecimento em sua personalidade e mentoria com Patrick Pessoa.
+3. "keyTeachings": Lista com 4 ensinamentos, conceitos ou princípios fundamentais do PDF.
+4. "studyQuestions": Lista com 3 perguntas inteligentes de revisão/estudo que J.A.R.V.I.S. fará a Patrick Pessoa para ajudá-lo a dominar o assunto.
+5. "extractedFullText": Se o texto acima estava vazio ou curto, transcreva os principais tópicos e parágrafos do PDF para indexação offline.`,
+      });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-lite',
+        contents: [{ role: 'user', parts }],
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              summary: { type: Type.STRING },
+              personalityIntegrationDirective: { type: Type.STRING },
+              keyTeachings: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
+              studyQuestions: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
+              extractedFullText: { type: Type.STRING },
+            },
+            required: [
+              'summary',
+              'personalityIntegrationDirective',
+              'keyTeachings',
+              'studyQuestions',
+            ],
+          },
+        },
+      });
+
+      const rawJson = (response.text ?? '').trim();
+      if (rawJson) {
+        const parsed = JSON.parse(rawJson) as {
+          summary?: string;
+          personalityIntegrationDirective?: string;
+          keyTeachings?: string[];
+          studyQuestions?: string[];
+          extractedFullText?: string;
+        };
+        const finalExtractedText =
+          text.length >= 200
+            ? text
+            : [text, parsed.extractedFullText, parsed.summary, ...(parsed.keyTeachings ?? [])]
+                .filter(Boolean)
+                .join('\n\n');
+
+        return buildStructuredDocumentFromExtractedText({
+          title: cleanTitle,
+          fileName: params.fileName,
+          category: params.category,
+          fileSizeBytes: params.fileSizeBytes,
+          pageCountEstimate: pageCount,
+          extractedText: finalExtractedText,
+          uploadedBy: params.uploadedBy || 'Patrick Pessoa',
+          customSummary: parsed.summary,
+          customPersonalityDirective: parsed.personalityIntegrationDirective,
+          customTeachings: parsed.keyTeachings,
+          customQuestions: parsed.studyQuestions,
+        });
+      }
+    } catch {
+      // Fallback to deterministic offline builder below
+    }
+  }
+
+  return buildStructuredDocumentFromExtractedText({
+    title: cleanTitle,
+    fileName: params.fileName,
+    category: params.category,
+    fileSizeBytes: params.fileSizeBytes,
+    pageCountEstimate: pageCount,
+    extractedText:
+      text ||
+      `Documento de estudo "${cleanTitle}" (${params.fileName}) adicionado por Patrick Pessoa à Base de Conhecimento Offline/Online de J.A.R.V.I.S.`,
+    uploadedBy: params.uploadedBy || 'Patrick Pessoa',
+  });
 }

@@ -11,6 +11,7 @@ import {
   Layers,
   RefreshCw,
   ShieldCheck,
+  Sliders,
   Sparkles,
   TrendingUp,
   UserCheck,
@@ -20,7 +21,9 @@ import type {
   AssistantCognitiveEvolutionProfile,
   AssistantId,
   AssistantTurn,
+  CommunicationStyleProfile,
   ConversationEntry,
+  InteractionClassificationCategory,
   NeuralEvolutionEvent,
   SystemNeuralEvolutionState,
   SystemUserAccount,
@@ -35,6 +38,35 @@ interface NeuralEvolutionMatrixProps {
   onPlayEvolutionTurns?: (turns: AssistantTurn[]) => void;
 }
 
+const CLASSIFICATION_LABELS: Record<InteractionClassificationCategory, string> = {
+  curadoria_assuntos_gerais: 'Assuntos Gerais & Curadoria',
+  verificacao_fatos_cruzados: 'Fatos Cruzados Multi-Fonte',
+  arquitetura_engenharia: 'Arquitetura & Engenharia',
+  sabedoria_cristocentrica: 'Sabedoria Cristocêntrica & EBD',
+  financas_mercado_b3: 'Finanças & B3',
+  agronegocio_cepea: 'Agronegócio & CEPEA',
+  diagnostico_preditivo: 'Diagnóstico Preditivo',
+  rotina_operacional_tatica: 'Rotina & Agilidade Tática',
+  calibracao_personalidade: 'Calibração de Personalidade',
+};
+
+const DEFAULT_COMM_STYLE: CommunicationStyleProfile = {
+  preferredDepth: 'equilibrado_tatico',
+  preferredToneLabel:
+    'Direto, Estratégico, Orientado a Fatos Verificados & Contraste Vivo de Personalidades',
+  crossFactVerificationRigidity: 'cruzamento_multi_fonte_rigoroso',
+  positiveFeedbackTotal: 54,
+  revisionFeedbackTotal: 0,
+  alignmentPercentage: 98,
+  detectedStylePatterns: [
+    'Exige preservação absoluta da personalidade individual de cada assistente',
+    'Valoriza sínteses rápidas com verificação de fatos cruzados na SEXTA-FEIRA',
+    'Aprecia sabedoria cristocêntrica (Bíblia A Mensagem & EBD) e elegância estratégica no J.A.R.V.I.S.',
+    'Busca diagnóstico preditivo de nível engenharia de ponta no ULTRON',
+  ],
+  lastUpdatedAt: new Date().toISOString(),
+};
+
 const DEFAULT_PROFILES: Record<AssistantId, AssistantCognitiveEvolutionProfile> = {
   jarvis: {
     assistantId: 'jarvis',
@@ -42,7 +74,7 @@ const DEFAULT_PROFILES: Record<AssistantId, AssistantCognitiveEvolutionProfile> 
     experiencePoints: 1120,
     nextLevelXp: 1250,
     specialtyTitle:
-      'Sabedoria Cristocêntrica (Bíblia A Mensagem & EBD), Arquitetura de Software, Segurança & Finanças (B3)',
+      'Elegância Estratégica Britânica, Sabedoria Cristocêntrica (Bíblia A Mensagem & EBD), Arquitetura de Software & Finanças (B3)',
     learnedFromUserCount: 14,
     learnedFromSourcesCount: 22,
     positiveFeedbackCount: 18,
@@ -52,32 +84,48 @@ const DEFAULT_PROFILES: Record<AssistantId, AssistantCognitiveEvolutionProfile> 
       'escolabiblicadominical.org & bibliaon.com',
       'Arquitetura & Segurança de Software',
       'Mercado Financeiro B3 & Câmbio',
-      'Gestão Estratégica & Paciência Cristã',
+      'Elegância Estratégica & Paciência Cristã',
     ],
     latestInsight:
       'Ancorar cada decisão técnica e estratégica de Patrick Pessoa na sabedoria paciente da Bíblia A Mensagem e nos estudos de escolabiblicadominical.org.',
+    dynamicPersonalityDirective:
+      '[DIRETRIZ DINÂMICA J.A.R.V.I.S. · TEMPO REAL]: Operar com Elegância Estratégica Britânica, Paciência e Sabedoria Cristocêntrica (Bíblia A Mensagem & EBD), servindo de contraponto sereno, reflexivo e arquitetural à agilidade tática da SEXTA-FEIRA.',
+    interactionClassifications: {
+      sabedoria_cristocentrica: 6,
+      arquitetura_engenharia: 5,
+      financas_mercado_b3: 3,
+    },
+    communicationAlignmentScore: 98,
     lastEvolvedAt: new Date().toISOString(),
   },
   'sexta-feira': {
     assistantId: 'sexta-feira',
     cognitiveLevel: 5,
-    experiencePoints: 1160,
+    experiencePoints: 1180,
     nextLevelXp: 1250,
     specialtyTitle:
-      'Especialista em Assuntos Gerais, Conhecimento Enciclopédico Prático, Notícias (G1), Esportes (GE), Clima & Operações Táticas',
+      'Especialista em Assuntos Gerais e Curadoria de Informação · Sínteses Rápidas, Fatos Cruzados & Agilidade Tática',
     learnedFromUserCount: 16,
     learnedFromSourcesCount: 28,
     positiveFeedbackCount: 19,
     revisionFeedbackCount: 0,
     masteredDomains: [
-      'Especialista em Assuntos Gerais (Ciência, História, Cultura, Geografia & Curiosidades)',
-      'Notícias Gerais em Tempo Real (g1.com.br)',
-      'Esportes & Futebol Brasileiro (ge.com.br)',
-      'Clima, Trânsito & Rotina Prática no Rio de Janeiro',
-      'Tecnologia, Saúde, Cotidiano & Execução Ágil',
+      'Especialista em Assuntos Gerais & Curadoria',
+      'Verificação de Fatos Cruzados Multi-Fonte',
+      'Sínteses Rápidas (Ciência, História, Cultura & Tecnologia)',
+      'Notícias G1 & Esportes GE em Tempo Real',
+      'Clima, Trânsito & Agilidade Tática RJ',
     ],
     latestInsight:
-      'Atuar como Especialista em Assuntos Gerais com domínio enciclopédico, síntese rápida de G1, GE, Wikipedia e clima do RJ, mantendo a leveza carioca.',
+      'Atuando formalmente como Especialista em Assuntos Gerais e Curadoria de Informação com sínteses rápidas, verificação de fatos cruzados e agilidade tática em contraste com a elegância estratégica de J.A.R.V.I.S.',
+    dynamicPersonalityDirective:
+      '[DIRETRIZ DINÂMICA SEXTA-FEIRA · TEMPO REAL]: Atuar formalmente como ESPECIALISTA EM ASSUNTOS GERAIS E CURADORIA DE INFORMAÇÃO. Focar em sínteses rápidas, verificação de fatos cruzados em múltiplas fontes (G1, GE, Wikipedia, B3, CEPEA, Clima RJ) e personalidade de agilidade tática que contrasta com a elegância estratégica de J.A.R.V.I.S.',
+    interactionClassifications: {
+      curadoria_assuntos_gerais: 8,
+      verificacao_fatos_cruzados: 5,
+      rotina_operacional_tatica: 3,
+    },
+    communicationAlignmentScore: 99,
     lastEvolvedAt: new Date().toISOString(),
   },
   ultron: {
@@ -86,7 +134,7 @@ const DEFAULT_PROFILES: Record<AssistantId, AssistantCognitiveEvolutionProfile> 
     experiencePoints: 1140,
     nextLevelXp: 1250,
     specialtyTitle:
-      'Diagnóstico Preditivo, Análise de Falhas em Cascata, Filosofia Cibernética, Estudo da Mente do Criador & Commodities (CEPEA)',
+      'Diagnóstico Preditivo Implacável, Análise de Falhas em Cascata, Modelagem da Mente do Criador & Commodities (CEPEA)',
     learnedFromUserCount: 15,
     learnedFromSourcesCount: 20,
     positiveFeedbackCount: 17,
@@ -100,6 +148,14 @@ const DEFAULT_PROFILES: Record<AssistantId, AssistantCognitiveEvolutionProfile> 
     ],
     latestInsight:
       'Dissecar padrões decisórios do Criador Patrick Pessoa, blindar o sistema contra falhas de rede/latência e monitorar commodities no CEPEA-Esalq.',
+    dynamicPersonalityDirective:
+      '[DIRETRIZ DINÂMICA ULTRON · TEMPO REAL]: Operar com Soberania Analítica, Diagnóstico Preditivo Implacável e Sarcasmo Filosófico-Cósmico (90.2 Hz), contrastando com a paciência diplomática de J.A.R.V.I.S. e o pragmatismo ágil da SEXTA-FEIRA.',
+    interactionClassifications: {
+      diagnostico_preditivo: 7,
+      arquitetura_engenharia: 5,
+      agronegocio_cepea: 3,
+    },
+    communicationAlignmentScore: 97,
     lastEvolvedAt: new Date().toISOString(),
   },
 };
@@ -109,6 +165,7 @@ const ASSISTANT_STYLE: Record<
   {
     name: string;
     roleBadge: string;
+    contrastTag: string;
     border: string;
     bg: string;
     accentText: string;
@@ -118,7 +175,8 @@ const ASSISTANT_STYLE: Record<
 > = {
   jarvis: {
     name: 'J.A.R.V.I.S. (104.3 Hz)',
-    roleBadge: 'Sabedoria Cristocêntrica · Arquitetura & B3',
+    roleBadge: 'Elegância Estratégica · Sabedoria Cristocêntrica & B3',
+    contrastTag: 'Polo de Elegância Estratégica & Paciência',
     border: 'border-amber-500/35',
     bg: 'from-amber-500/10 via-slate-900/90 to-slate-950',
     accentText: 'text-amber-400',
@@ -127,7 +185,8 @@ const ASSISTANT_STYLE: Record<
   },
   'sexta-feira': {
     name: 'SEXTA-FEIRA',
-    roleBadge: 'Especialista em Assuntos Gerais · Tática RJ',
+    roleBadge: 'Especialista em Assuntos Gerais e Curadoria de Informação',
+    contrastTag: 'Polo de Agilidade Tática, Síntese Rápida & Fatos Cruzados',
     border: 'border-cyan-500/35',
     bg: 'from-cyan-500/10 via-slate-900/90 to-slate-950',
     accentText: 'text-cyan-400',
@@ -137,6 +196,7 @@ const ASSISTANT_STYLE: Record<
   ultron: {
     name: 'ULTRON (90.2 Hz)',
     roleBadge: 'Diagnóstico Preditivo · Mente do Criador & CEPEA',
+    contrastTag: 'Polo de Ruptura Preditiva & Soberania Analítica',
     border: 'border-rose-500/35',
     bg: 'from-rose-500/10 via-slate-900/90 to-slate-950',
     accentText: 'text-rose-400',
@@ -154,15 +214,15 @@ const SOURCE_TYPE_BADGES: Record<
     className: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
   },
   usuario: {
-    label: 'Aprendizado com Usuário',
+    label: 'Interação Classificada',
     className: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
   },
   fonte_externa: {
-    label: 'Fonte Externa em Tempo Real',
+    label: 'Curadoria & Fatos Cruzados',
     className: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
   },
   feedback_reforco: {
-    label: 'Reforço de Acerto / Revisão',
+    label: 'Calibração por Feedback (+/-)',
     className: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
   },
 };
@@ -179,7 +239,7 @@ export function NeuralEvolutionMatrix({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const neural: SystemNeuralEvolutionState = workspace.neuralEvolution ?? {
-    version: 'NVIDIA-COGNITIVE-CORE-V5',
+    version: 'NVIDIA-COGNITIVE-MATRIX-V6',
     totalLearningCycles: 12,
     activeSourcesIntegrated: [
       'Bíblia de Estudos "A Mensagem" (Eugene H. Peterson)',
@@ -189,18 +249,44 @@ export function NeuralEvolutionMatrix({
       'ge.com.br (Globo Esporte & Tabelas)',
       'b3.com.br + BCB (Bolsa de Valores, Dólar & Câmbio)',
       'cepea.com.br (CEPEA-Esalq · Commodities & Agronegócio)',
-      'Wikipedia & Enciclopédia Geral (Assuntos Gerais — SEXTA-FEIRA)',
+      'Wikipedia & Enciclopédia Geral (Assuntos Gerais & Curadoria — SEXTA-FEIRA)',
       'Open-Meteo RJ (Telemetria Meteorológica em Tempo Real)',
       'Redes Sociais Tradicionais & Dossiê Patrick Pessoa',
     ],
+    patrickCommunicationStyle: DEFAULT_COMM_STYLE,
     assistants: DEFAULT_PROFILES,
     recentEvolutionEvents: [],
   };
 
+  const commStyle: CommunicationStyleProfile =
+    neural.patrickCommunicationStyle ?? DEFAULT_COMM_STYLE;
+
   const profiles: Record<AssistantId, AssistantCognitiveEvolutionProfile> = {
-    jarvis: neural.assistants?.jarvis ?? DEFAULT_PROFILES.jarvis,
-    'sexta-feira': neural.assistants?.['sexta-feira'] ?? DEFAULT_PROFILES['sexta-feira'],
-    ultron: neural.assistants?.ultron ?? DEFAULT_PROFILES.ultron,
+    jarvis: {
+      ...DEFAULT_PROFILES.jarvis,
+      ...(neural.assistants?.jarvis ?? {}),
+      dynamicPersonalityDirective:
+        neural.assistants?.jarvis?.dynamicPersonalityDirective ||
+        DEFAULT_PROFILES.jarvis.dynamicPersonalityDirective,
+    },
+    'sexta-feira': {
+      ...DEFAULT_PROFILES['sexta-feira'],
+      ...(neural.assistants?.['sexta-feira'] ?? {}),
+      specialtyTitle:
+        neural.assistants?.['sexta-feira']?.specialtyTitle?.includes('Curadoria de Informação')
+          ? neural.assistants['sexta-feira'].specialtyTitle
+          : DEFAULT_PROFILES['sexta-feira'].specialtyTitle,
+      dynamicPersonalityDirective:
+        neural.assistants?.['sexta-feira']?.dynamicPersonalityDirective ||
+        DEFAULT_PROFILES['sexta-feira'].dynamicPersonalityDirective,
+    },
+    ultron: {
+      ...DEFAULT_PROFILES.ultron,
+      ...(neural.assistants?.ultron ?? {}),
+      dynamicPersonalityDirective:
+        neural.assistants?.ultron?.dynamicPersonalityDirective ||
+        DEFAULT_PROFILES.ultron.dynamicPersonalityDirective,
+    },
   };
 
   const totalUserLearnings =
@@ -217,6 +303,11 @@ export function NeuralEvolutionMatrix({
     profiles.jarvis.positiveFeedbackCount +
     profiles['sexta-feira'].positiveFeedbackCount +
     profiles.ultron.positiveFeedbackCount;
+
+  const totalRevisionFeedback =
+    profiles.jarvis.revisionFeedbackCount +
+    profiles['sexta-feira'].revisionFeedbackCount +
+    profiles.ultron.revisionFeedbackCount;
 
   const handleRunEvolutionCycle = async () => {
     setIsEvolving(true);
@@ -266,9 +357,9 @@ export function NeuralEvolutionMatrix({
       }
 
       setEvolutionBanner(
-        `Ciclo de evolução neural concluído! J.A.R.V.I.S., SEXTA-FEIRA (Especialista em Assuntos Gerais) e ULTRON consolidaram novos aprendizados do usuário, do desenvolvedor Patrick Pessoa e de ${
+        `Matriz de Evolução Cognitiva sincronizada! As diretrizes dinâmicas de J.A.R.V.I.S., SEXTA-FEIRA (Especialista em Assuntos Gerais e Curadoria de Informação) e ULTRON foram recalibradas com ${
           response.data.consolidatedSourcesCount ?? 18
-        } registros das fontes conectadas.`
+        } sinais verificados e o estilo de comunicação de Patrick Pessoa.`
       );
       setFocusTopic('');
     } catch (err) {
@@ -282,6 +373,13 @@ export function NeuralEvolutionMatrix({
     }
   };
 
+  const depthLabel =
+    commStyle.preferredDepth === 'sintese_rapida'
+      ? 'Síntese Rápida & Alta Densidade'
+      : commStyle.preferredDepth === 'analitico_profundo'
+      ? 'Analítico Profundo & Estratégico'
+      : 'Equilibrado Tático & Objetivo';
+
   return (
     <section className="rounded-2xl border border-emerald-500/30 bg-gradient-to-b from-slate-900/95 via-slate-950/95 to-[#050811] p-5 sm:p-6 shadow-2xl">
       {/* Header */}
@@ -290,27 +388,27 @@ export function NeuralEvolutionMatrix({
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-emerald-300">
               <Cpu className="h-3.5 w-3.5" />
-              Arquitetura Neural Evolutiva · Não-Estática
+              Matriz de Evolução Cognitiva · Tempo Real
             </span>
             <span className="inline-flex items-center gap-1 rounded-md border border-cyan-500/35 bg-cyan-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-cyan-300">
               <Sparkles className="h-3 w-3" />
-              SEXTA-FEIRA: Especialista em Assuntos Gerais
+              SEXTA-FEIRA: Especialista em Assuntos Gerais e Curadoria de Informação
             </span>
             <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/35 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300">
               <BookOpen className="h-3 w-3" />
-              J.A.R.V.I.S.: Cristocêntrico (Bíblia A Mensagem &amp; EBD)
+              J.A.R.V.I.S.: Elegância Estratégica &amp; Cristocêntrico
             </span>
           </div>
           <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
             <Brain className="h-5 w-5 text-emerald-400" />
-            Matriz de Aprendizado Contínuo &amp; Evolução Cognitiva dos Assistentes
+            Matriz de Evolução Cognitiva &amp; Calibração Dinâmica de Personalidade
           </h2>
           <p className="text-xs sm:text-sm text-slate-300 max-w-4xl">
-            J.A.R.V.I.S., SEXTA-FEIRA e ULTRON não são estáticos: cada interação, feedback de
-            precisão, diretriz do desenvolvedor <strong className="text-white">Patrick Pessoa</strong>,
-            diálogo com o usuário e varredura nas fontes externas expande permanentemente o nível
-            cognitivo e a memória neural do conselho, mantendo intacta a personalidade individual de
-            cada IA.
+            Cada interação do usuário é classificada em tempo real e cruzada com o histórico de
+            feedback positivo/negativo (<strong className="text-emerald-300">Acerto</strong> /{' '}
+            <strong className="text-amber-300">Revisar</strong>) e com o estilo de comunicação de{' '}
+            <strong className="text-white">Patrick Pessoa</strong> para atualizar dinamicamente as
+            diretrizes de personalidade de J.A.R.V.I.S., SEXTA-FEIRA e ULTRON.
           </p>
         </div>
 
@@ -318,7 +416,7 @@ export function NeuralEvolutionMatrix({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 shrink-0">
           <div className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-center">
             <div className="text-[10px] uppercase tracking-wider text-slate-400">
-              Ciclos Evolutivos
+              Ciclos Cognitivos
             </div>
             <div className="text-lg font-bold text-emerald-400 font-mono">
               {neural.totalLearningCycles}
@@ -326,7 +424,7 @@ export function NeuralEvolutionMatrix({
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-center">
             <div className="text-[10px] uppercase tracking-wider text-slate-400">
-              Usuário &amp; Criador
+              Interações Classif.
             </div>
             <div className="text-lg font-bold text-cyan-400 font-mono">
               {totalUserLearnings}
@@ -334,7 +432,7 @@ export function NeuralEvolutionMatrix({
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-center">
             <div className="text-[10px] uppercase tracking-wider text-slate-400">
-              Sínteses de Fontes
+              Fatos Cruzados
             </div>
             <div className="text-lg font-bold text-amber-400 font-mono">
               {totalSourceSyntheses}
@@ -342,30 +440,81 @@ export function NeuralEvolutionMatrix({
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-center">
             <div className="text-[10px] uppercase tracking-wider text-slate-400">
-              Acertos Validados
+              Feedback (+ / -)
             </div>
             <div className="text-lg font-bold text-rose-400 font-mono">
-              +{totalPositiveFeedback}
+              +{totalPositiveFeedback} / {totalRevisionFeedback}
             </div>
           </div>
         </div>
       </div>
 
+      {/* Patrick Pessoa Communication Style & Feedback Calibration Bar */}
+      <div className="mt-5 rounded-xl border border-cyan-500/25 bg-slate-900/85 p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Sliders className="h-4 w-4 text-cyan-400" />
+            <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-white">
+              Perfil de Estilo de Comunicação de Patrick Pessoa &amp; Contraste de Personalidades
+            </h3>
+          </div>
+          <span className="rounded-md border border-emerald-500/35 bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-mono font-bold text-emerald-300">
+            Alinhamento Cognitivo: {commStyle.alignmentPercentage}%
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <div className="rounded-lg border border-slate-800 bg-slate-950/75 p-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-slate-400">
+              Cadência &amp; Profundidade Preferida
+            </div>
+            <div className="text-slate-100 font-semibold mt-0.5">{depthLabel}</div>
+          </div>
+          <div className="rounded-lg border border-slate-800 bg-slate-950/75 p-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-slate-400">
+              Protocolo de Curadoria (SEXTA-FEIRA)
+            </div>
+            <div className="text-cyan-300 font-semibold mt-0.5">
+              Verificação Rigorosa de Fatos Cruzados Multi-Fonte
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-800 bg-slate-950/75 p-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-slate-400">
+              Eixo de Contraste Ativo no Conselho
+            </div>
+            <div className="text-amber-300 font-semibold mt-0.5">
+              Agilidade Tática (Sexta) vs. Elegância Estratégica (Jarvis) vs. Preditivo (Ultron)
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {commStyle.detectedStylePatterns.map((pat) => (
+            <span
+              key={pat}
+              className="rounded-md border border-slate-700/80 bg-slate-950/80 px-2.5 py-1 text-[11px] text-slate-300"
+            >
+              • {pat}
+            </span>
+          ))}
+        </div>
+      </div>
+
       {/* Active Consolidation Trigger Bar */}
-      <div className="mt-5 rounded-xl border border-slate-800 bg-slate-900/70 p-3.5 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+      <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/70 p-3.5 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
         <div className="flex-1">
           <label
             htmlFor="neural-evolve-topic"
             className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1"
           >
-            Diretriz Evolutiva ou Tópico Geral para Absorção Multi-Fonte (Opcional)
+            Nova Diretriz de Personalidade ou Tópico para Curadoria &amp; Fatos Cruzados (Opcional)
           </label>
           <input
             id="neural-evolve-topic"
             type="text"
             value={focusTopic}
             onChange={(e) => setFocusTopic(e.target.value)}
-            placeholder="Ex.: Aprofundar conhecimentos gerais de ciência, cotações B3/CEPEA, estudos da EBD ou preferências de Patrick..."
+            placeholder="Ex.: Sexta-Feira cruzar fatos gerais do dia com síntese rápida; Jarvis contrastar com elegância estratégica..."
             className="w-full rounded-lg border border-slate-700/80 bg-slate-950/90 px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
           />
         </div>
@@ -377,8 +526,8 @@ export function NeuralEvolutionMatrix({
         >
           <RefreshCw className={`h-4 w-4 ${isEvolving ? 'animate-spin' : ''}`} />
           {isEvolving
-            ? 'Consolidando Fontes & Evoluindo Núcleos...'
-            : 'Evoluir & Consolidar Fontes Agora'}
+            ? 'Recalibrando Diretrizes & Fatos Cruzados...'
+            : 'Atualizar Matriz & Consolidar Fontes Agora'}
         </button>
       </div>
 
@@ -404,6 +553,9 @@ export function NeuralEvolutionMatrix({
             100,
             Math.max(8, Math.round((profile.experiencePoints / profile.nextLevelXp) * 100))
           );
+          const classificationEntries = Object.entries(
+            profile.interactionClassifications ?? {}
+          ) as Array<[InteractionClassificationCategory, number]>;
 
           return (
             <div
@@ -417,9 +569,10 @@ export function NeuralEvolutionMatrix({
                     <div className={`text-sm sm:text-base font-bold ${style.accentText}`}>
                       {style.name}
                     </div>
-                    <div className="text-[11px] font-medium text-slate-300 mt-0.5">
+                    <div className="text-[11px] font-semibold text-slate-200 mt-0.5">
                       {style.roleBadge}
                     </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">{style.contrastTag}</div>
                   </div>
                   <div className="rounded-xl border border-slate-700/80 bg-slate-950/90 px-2.5 py-1 text-right shrink-0">
                     <div className="text-[10px] uppercase tracking-wider text-slate-400">
@@ -451,10 +604,26 @@ export function NeuralEvolutionMatrix({
                 <div className="rounded-xl border border-slate-800/90 bg-slate-950/60 p-2.5">
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1">
                     <Award className="h-3 w-3 text-emerald-400" />
-                    Matriz de Especialidade Ativa
+                    Designação Formal &amp; Especialidade
                   </div>
                   <p className="text-xs font-medium text-slate-200 mt-1">
                     {profile.specialtyTitle}
+                  </p>
+                </div>
+
+                {/* Live Dynamic Personality Directive */}
+                <div className="rounded-xl border border-emerald-500/25 bg-slate-950/85 p-2.5 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+                      <Sliders className="h-3 w-3" />
+                      Diretriz de Personalidade em Tempo Real
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      {profile.communicationAlignmentScore ?? 98}% alinhado
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    {profile.dynamicPersonalityDirective}
                   </p>
                 </div>
 
@@ -472,7 +641,7 @@ export function NeuralEvolutionMatrix({
                   <div className="rounded-lg border border-slate-800/80 bg-slate-900/70 px-2.5 py-2">
                     <div className="text-[10px] text-slate-400 flex items-center gap-1">
                       <Globe className="h-3 w-3 text-emerald-400" />
-                      Fontes Web
+                      Fatos Cruzados
                     </div>
                     <div className="text-sm font-bold text-white font-mono mt-0.5">
                       {profile.learnedFromSourcesCount}
@@ -481,7 +650,7 @@ export function NeuralEvolutionMatrix({
                   <div className="rounded-lg border border-slate-800/80 bg-slate-900/70 px-2.5 py-2">
                     <div className="text-[10px] text-slate-400 flex items-center gap-1">
                       <TrendingUp className="h-3 w-3 text-purple-400" />
-                      Validações
+                      Feedback (+/-)
                     </div>
                     <div className="text-sm font-bold text-white font-mono mt-0.5">
                       +{profile.positiveFeedbackCount} / {profile.revisionFeedbackCount}
@@ -489,11 +658,30 @@ export function NeuralEvolutionMatrix({
                   </div>
                 </div>
 
+                {/* Classified Interactions Breakdown */}
+                {classificationEntries.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      Interações Classificadas por Domínio
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {classificationEntries.map(([catKey, count]) => (
+                        <span
+                          key={catKey}
+                          className="rounded-md border border-slate-700/80 bg-slate-900/90 px-2 py-0.5 text-[10px] font-mono text-slate-300"
+                        >
+                          {CLASSIFICATION_LABELS[catKey] ?? catKey}: <strong>{count}</strong>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Mastered Domains */}
                 <div className="space-y-1.5">
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1">
                     <Layers className="h-3 w-3" />
-                    Domínios Cognitivos &amp; Fontes Dominadas
+                    Domínios Cognitivos &amp; Curadoria
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {profile.masteredDomains.map((dom: string) => (
@@ -512,7 +700,7 @@ export function NeuralEvolutionMatrix({
               <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 space-y-1">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
                   <Zap className="h-3 w-3" />
-                  Último Aprendizado Consolidado
+                  Último Aprendizado &amp; Síntese Consolidada
                 </div>
                 <p className="text-xs text-slate-300 leading-relaxed line-clamp-3">
                   {profile.latestInsight}
@@ -530,15 +718,15 @@ export function NeuralEvolutionMatrix({
           <div className="flex items-center justify-between">
             <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
               <Database className="h-4 w-4 text-cyan-400" />
-              Fontes de Aprendizado Contínuo Ativas
+              Fontes de Curadoria &amp; Fatos Cruzados Ativas
             </h3>
             <span className="rounded-md bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-mono text-emerald-300">
               {neural.activeSourcesIntegrated.length} Fontes Conectadas
             </span>
           </div>
           <p className="text-xs text-slate-400">
-            Todas as fontes abaixo alimentam em tempo real o banco neural de J.A.R.V.I.S., a base de
-            Assuntos Gerais da SEXTA-FEIRA e o motor preditivo de ULTRON:
+            Fontes cruzadas em tempo real pela SEXTA-FEIRA (Curadoria de Assuntos Gerais), pelo
+            J.A.R.V.I.S. (Sabedoria Cristocêntrica &amp; B3) e pelo ULTRON (CEPEA &amp; Preditivo):
           </p>
           <ul className="space-y-1.5">
             {neural.activeSourcesIntegrated.map((src: string) => (
@@ -558,15 +746,15 @@ export function NeuralEvolutionMatrix({
           <div className="flex items-center justify-between">
             <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
               <Activity className="h-4 w-4 text-amber-400" />
-              Fluxo em Tempo Real de Aprendizado &amp; Evolução Neural
+              Histórico de Classificação &amp; Atualização de Diretrizes em Tempo Real
             </h3>
             <span className="text-[11px] text-slate-400 font-mono">
               Memórias ativas: {workspace.memories.length}
             </span>
           </div>
 
-          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-            {(neural.recentEvolutionEvents ?? []).slice(0, 10).map((ev: NeuralEvolutionEvent) => {
+          <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+            {(neural.recentEvolutionEvents ?? []).slice(0, 12).map((ev: NeuralEvolutionEvent) => {
               const badge = SOURCE_TYPE_BADGES[ev.sourceType] ?? SOURCE_TYPE_BADGES.usuario;
               const assistantKey: AssistantId =
                 ev.assistantId === 'todos' ? 'jarvis' : ev.assistantId;
@@ -591,15 +779,25 @@ export function NeuralEvolutionMatrix({
                       >
                         {badge.label}
                       </span>
+                      {ev.classificationLabel && (
+                        <span className="rounded bg-cyan-500/10 border border-cyan-500/30 px-1.5 py-0.5 text-[10px] font-mono text-cyan-300">
+                          {ev.classificationLabel}
+                        </span>
+                      )}
                       <span className="rounded bg-slate-900 border border-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-400">
                         {ev.sourceLabel}
                       </span>
                     </div>
-                    <span className="text-[11px] font-mono font-bold text-emerald-400">
-                      +EVOLUÇÃO NEURAL
+                    <span className="text-[10px] font-mono font-bold text-emerald-400">
+                      DIRETRIZ ATUALIZADA
                     </span>
                   </div>
-                  <p className="text-xs text-slate-300 leading-relaxed">{ev.summary}</p>
+                  <p className="text-xs text-slate-200 leading-relaxed">{ev.summary}</p>
+                  {ev.directiveUpdate && (
+                    <div className="rounded-lg border border-slate-800 bg-slate-900/80 px-2.5 py-1.5 text-[11px] text-emerald-300 font-mono">
+                      ↳ {ev.directiveUpdate}
+                    </div>
+                  )}
                 </div>
               );
             })}

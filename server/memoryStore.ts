@@ -24,14 +24,17 @@ import type {
   VoiceTrainingState,
   VoiceValidationResult,
   WorkspaceState,
+  JarvisKnowledgeDocument,
+  NeuralEvolutionEvent,
 } from '../src/types/assistant.ts';
-import type { NeuralEvolutionEvent } from '../src/types/assistant.ts';
 import {
   applyCognitiveEvolutionToWorkspace,
   applyFeedbackReinforcementLearning,
+  buildDynamicPersonalityDirective,
   createDefaultNeuralEvolutionState,
   ensureNeuralEvolutionState,
 } from './continuousLearningEngine.ts';
+import { JARVIS_KNOWLEDGE_CATEGORY_LABELS } from '../src/utils/jarvisOfflinePdfKnowledge.ts';
 
 export const IS_SERVERLESS_RUNTIME = Boolean(
   process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME
@@ -787,6 +790,11 @@ async function ensureFile(): Promise<WorkspaceState> {
       changed = true;
     } else {
       ensureNeuralEvolutionState(state);
+    }
+
+    if (!Array.isArray(state.jarvisKnowledgeBase)) {
+      state.jarvisKnowledgeBase = [];
+      changed = true;
     }
 
     cachedWorkspace = state;
@@ -1712,6 +1720,7 @@ export async function getDatabaseSummary() {
       socialProfiles: (workspace.creatorDossier?.socialProfiles ?? []).length,
       dailySources: (workspace.dailyIntelFeed ?? []).length,
       voiceSamples: (workspace.voiceSamples ?? []).length,
+      jarvisKnowledgeDocs: (workspace.jarvisKnowledgeBase ?? []).length,
     },
     creatorAccount: {
       username: CREATOR_HARDCODED_ACCOUNT.username,
@@ -1720,6 +1729,148 @@ export async function getDatabaseSummary() {
       hardcodedProtection: true,
     },
   };
+}
+
+export async function addJarvisKnowledgeDocument(
+  doc: JarvisKnowledgeDocument
+): Promise<{ document: JarvisKnowledgeDocument; workspace: WorkspaceState }> {
+  const now = new Date().toISOString();
+  const normalizedDoc: JarvisKnowledgeDocument = {
+    ...doc,
+    id: doc.id || `jarvis-pdf-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`,
+    offlineReady: true,
+    createdAt: doc.createdAt || now,
+  };
+
+  const workspace = await updateWorkspace((state) => {
+    if (!Array.isArray(state.jarvisKnowledgeBase)) {
+      state.jarvisKnowledgeBase = [];
+    }
+    state.jarvisKnowledgeBase = [
+      normalizedDoc,
+      ...state.jarvisKnowledgeBase.filter(
+        (existing) =>
+          existing.id !== normalizedDoc.id &&
+          existing.title.toLowerCase() !== normalizedDoc.title.toLowerCase()
+      ),
+    ].slice(0, 35);
+
+    const categoryLabel =
+      JARVIS_KNOWLEDGE_CATEGORY_LABELS[normalizedDoc.category] || 'Estudo & Mentoria';
+
+    // Incorporate into J.A.R.V.I.S. active memories
+    const memoryTitle = `[Base PDF J.A.R.V.I.S. · ${categoryLabel}] ${normalizedDoc.title}`;
+    const pdfMemoryItem: MemoryItem = {
+      id: crypto.randomUUID(),
+      title: memoryTitle,
+      content: `${normalizedDoc.summary} | Diretriz de Personalidade: ${
+        normalizedDoc.personalityIntegrationDirective
+      } | Lições-Chave: ${normalizedDoc.keyTeachings.slice(0, 3).join(' ; ')}`,
+      category:
+        normalizedDoc.category === 'arquitetura_engenharia' ? 'arquitetura' : 'aprendizado',
+      sourceAssistant: 'jarvis',
+      importance: 'alta',
+      createdAt: now,
+    };
+    state.memories = [
+      pdfMemoryItem,
+      ...state.memories.filter((m) => m.title.toLowerCase() !== memoryTitle.toLowerCase()),
+    ].slice(0, 100);
+
+    // Evolve J.A.R.V.I.S. Cognitive Profile & Personality Directive
+    const evo = ensureNeuralEvolutionState(state);
+    evo.totalLearningCycles += 1;
+    const jarvisProfile = evo.assistants.jarvis;
+    if (jarvisProfile) {
+      jarvisProfile.experiencePoints += 120;
+      jarvisProfile.learnedFromUserCount += 1;
+      jarvisProfile.learnedFromSourcesCount += Math.max(1, normalizedDoc.chunks.length);
+      jarvisProfile.cognitiveLevel = Math.max(
+        1,
+        Math.floor(jarvisProfile.experiencePoints / 250) + 1
+      );
+      jarvisProfile.nextLevelXp = jarvisProfile.cognitiveLevel * 250;
+      const domainBadge = `PDF: ${normalizedDoc.title.slice(0, 36)}`;
+      if (!jarvisProfile.masteredDomains.includes(domainBadge)) {
+        jarvisProfile.masteredDomains = [
+          domainBadge,
+          ...jarvisProfile.masteredDomains,
+        ].slice(0, 8);
+      }
+      jarvisProfile.latestInsight = `Base PDF incorporada ("${normalizedDoc.title}"): ${normalizedDoc.summary.slice(
+        0,
+        155
+      )}`;
+      jarvisProfile.dynamicPersonalityDirective = `${buildDynamicPersonalityDirective(
+        'jarvis',
+        jarvisProfile,
+        evo.patrickCommunicationStyle,
+        normalizedDoc.category === 'estudo_biblico_cristao'
+          ? 'sabedoria_cristocentrica'
+          : 'arquitetura_engenharia'
+      )} Incorporado material de estudo em PDF "${normalizedDoc.title}" (${
+        normalizedDoc.chunks.length
+      } seções offline/online) para mentoria ativa de Patrick Pessoa.`;
+      jarvisProfile.lastEvolvedAt = now;
+    }
+
+    evo.recentEvolutionEvents.unshift({
+      id: crypto.randomUUID(),
+      timestamp: now,
+      assistantId: 'jarvis',
+      sourceType: 'desenvolvedor',
+      sourceLabel: `Biblioteca PDF Offline/Online · ${normalizedDoc.fileName}`,
+      summary: `J.A.R.V.I.S. absorveu o documento PDF "${normalizedDoc.title}" (${normalizedDoc.chunks.length} seções, ~${normalizedDoc.pageCountEstimate} pág.) em seu banco de dados e personalidade (+120 XP).`,
+      classification:
+        normalizedDoc.category === 'estudo_biblico_cristao'
+          ? 'sabedoria_cristocentrica'
+          : 'arquitetura_engenharia',
+      classificationLabel: categoryLabel,
+      directiveUpdate: normalizedDoc.personalityIntegrationDirective.slice(0, 180),
+    });
+
+    if (evo.recentEvolutionEvents.length > 25) {
+      evo.recentEvolutionEvents = evo.recentEvolutionEvents.slice(0, 25);
+    }
+  });
+
+  return { document: normalizedDoc, workspace };
+}
+
+export async function deleteJarvisKnowledgeDocument(id: string): Promise<WorkspaceState> {
+  return updateWorkspace((state) => {
+    if (!Array.isArray(state.jarvisKnowledgeBase)) return;
+    state.jarvisKnowledgeBase = state.jarvisKnowledgeBase.filter((d) => d.id !== id);
+  });
+}
+
+export async function syncJarvisKnowledgeDocuments(
+  incomingDocs: JarvisKnowledgeDocument[]
+): Promise<WorkspaceState> {
+  if (!Array.isArray(incomingDocs) || incomingDocs.length === 0) {
+    return readWorkspace();
+  }
+
+  return updateWorkspace((state) => {
+    if (!Array.isArray(state.jarvisKnowledgeBase)) {
+      state.jarvisKnowledgeBase = [];
+    }
+    const docMap = new Map<string, JarvisKnowledgeDocument>();
+    for (const existing of state.jarvisKnowledgeBase) {
+      if (existing?.id) docMap.set(existing.id, existing);
+    }
+    for (const doc of incomingDocs) {
+      if (doc?.id && doc?.title && Array.isArray(doc.chunks)) {
+        docMap.set(doc.id, {
+          ...doc,
+          offlineReady: true,
+        });
+      }
+    }
+    state.jarvisKnowledgeBase = Array.from(docMap.values())
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+      .slice(0, 35);
+  });
 }
 
 

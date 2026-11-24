@@ -19,12 +19,26 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  setLogLevel,
   updateDoc,
   where,
   type Unsubscribe,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
-import type { SystemUserAccount, WorkspaceState } from './types/assistant';
+import type {
+  JarvisKnowledgeCategory,
+  JarvisKnowledgeChunk,
+  JarvisKnowledgeDocument,
+  SystemUserAccount,
+  WorkspaceState,
+} from './types/assistant';
+
+// Silence internal @firebase/firestore clock-skew warnings ("Detected an update time that is in the future")
+try {
+  setLogLevel('silent');
+} catch {
+  // ignore if unsupported in environment
+}
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -157,15 +171,22 @@ export async function signInWithGoogleCloud(): Promise<FirebaseUser> {
   return credential.user;
 }
 
+const ensuredProfileUids = new Set<string>();
+
 export async function signOutFromGoogleCloud(): Promise<void> {
+  ensuredProfileUids.clear();
   await signOut(auth);
 }
 
 export async function ensureFirestoreUserProfile(
   fbUser: FirebaseUser,
-  localAccount?: SystemUserAccount | null
+  localAccount?: SystemUserAccount | null,
+  forceRefresh = false
 ): Promise<void> {
   const uid = sanitizeValidFirestoreId(fbUser.uid);
+  if (!forceRefresh && ensuredProfileUids.has(uid)) {
+    return;
+  }
   const userPath = `users/${uid}`;
   const isCreator =
     fbUser.email?.toLowerCase() === 'patrickrodack@gmail.com' ||
@@ -200,7 +221,7 @@ export async function ensureFirestoreUserProfile(
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-    } else {
+    } else if (forceRefresh) {
       await updateDoc(doc(db, 'users', uid), {
         username: safeUsername.length >= 2 ? safeUsername : 'Operador',
         roleLabel: safeRole.length >= 2 ? safeRole : 'Operador',
@@ -224,7 +245,7 @@ export async function ensureFirestoreUserProfile(
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
-      } else {
+      } else if (forceRefresh) {
         await updateDoc(doc(db, 'users', uid, 'private', 'contact'), {
           email: safeEmail,
           updatedAt: serverTimestamp(),
@@ -234,6 +255,8 @@ export async function ensureFirestoreUserProfile(
       handleFirestoreError(error, OperationType.WRITE, privatePath);
     }
   }
+
+  ensuredProfileUids.add(uid);
 }
 
 export function subscribeOwnerSystemRecords(
@@ -451,7 +474,217 @@ export async function syncWorkspaceToCloudFirestore(
     syncedCount += 1;
   }
 
+  // 9. Sync J.A.R.V.I.S. Extracted PDF Study Knowledge Base & Chunks
+  for (const pdfDoc of (workspace.jarvisKnowledgeBase ?? []).slice(0, 15)) {
+    const count = await syncJarvisPdfDocumentToFirestore(pdfDoc, actorName);
+    syncedCount += count;
+  }
+
   return syncedCount;
+}
+
+/**
+ * Armazena o documento PDF extraído e seus blocos de estudo no Cloud Firestore (/system_records),
+ * respeitando rigorosamente os limites de validação de firestore.rules e firebase-blueprint.json
+ * e mantendo cache persistente offline.
+ */
+export async function syncJarvisPdfDocumentToFirestore(
+  pdfDoc: JarvisKnowledgeDocument,
+  actorName = 'Patrick Pessoa'
+): Promise<number> {
+  const fbUser = auth.currentUser;
+  if (!fbUser) return 0;
+
+  const cleanDocId = sanitizeValidFirestoreId(pdfDoc.id);
+  const metaEnvelope = JSON.stringify({
+    __jarvisPdfMetaV1: true,
+    docId: pdfDoc.id,
+    title: pdfDoc.title,
+    fileName: pdfDoc.fileName,
+    category: pdfDoc.category,
+    fileSizeBytes: pdfDoc.fileSizeBytes,
+    pageCountEstimate: pdfDoc.pageCountEstimate,
+    totalCharacters: pdfDoc.totalCharacters,
+    createdAt: pdfDoc.createdAt,
+    uploadedBy: pdfDoc.uploadedBy || actorName,
+    summary: pdfDoc.summary.slice(0, 850),
+    personalityIntegrationDirective: pdfDoc.personalityIntegrationDirective.slice(0, 650),
+    keyTeachings: (pdfDoc.keyTeachings ?? []).slice(0, 4).map((t) => t.slice(0, 260)),
+    studyQuestions: (pdfDoc.studyQuestions ?? []).slice(0, 4).map((q) => q.slice(0, 240)),
+    chunksCount: pdfDoc.chunks.length,
+  });
+
+  await upsertFirestoreSystemRecord({
+    id: sanitizeValidFirestoreId(`pdf_doc_${cleanDocId}`),
+    recordType: 'memoria',
+    title: `[PDF J.A.R.V.I.S.] ${pdfDoc.title}`.slice(0, BLUEPRINT_CONSTRAINTS.TITLE_MAX_LENGTH),
+    summary: metaEnvelope.slice(0, BLUEPRINT_CONSTRAINTS.SUMMARY_MAX_LENGTH),
+    status: 'ativo',
+    createdByUsername: (pdfDoc.uploadedBy || actorName).slice(
+      0,
+      BLUEPRINT_CONSTRAINTS.USERNAME_MAX_LENGTH
+    ),
+  });
+
+  let written = 1;
+  // Store up to 12 extracted text sections in Firestore so the full study text is persisted in Firestore
+  for (const chunk of (pdfDoc.chunks ?? []).slice(0, 12)) {
+    const chunkEnvelope = JSON.stringify({
+      __jarvisPdfChunkV1: true,
+      docId: pdfDoc.id,
+      docTitle: pdfDoc.title,
+      chunkId: chunk.id,
+      index: chunk.index,
+      heading: chunk.heading.slice(0, 140),
+      keywords: (chunk.keywords ?? []).slice(0, 8),
+      content: chunk.content.slice(0, 3100),
+    });
+
+    await upsertFirestoreSystemRecord({
+      id: sanitizeValidFirestoreId(`pdf_chk_${cleanDocId}_${chunk.index}`),
+      recordType: 'memoria',
+      title: `[PDF SEÇÃO ${chunk.index}] ${pdfDoc.title} · ${chunk.heading}`.slice(
+        0,
+        BLUEPRINT_CONSTRAINTS.TITLE_MAX_LENGTH
+      ),
+      summary: chunkEnvelope.slice(0, BLUEPRINT_CONSTRAINTS.SUMMARY_MAX_LENGTH),
+      status: 'ativo',
+      createdByUsername: (pdfDoc.uploadedBy || actorName).slice(
+        0,
+        BLUEPRINT_CONSTRAINTS.USERNAME_MAX_LENGTH
+      ),
+    });
+    written += 1;
+  }
+
+  return written;
+}
+
+export async function deleteJarvisPdfDocumentFromFirestore(
+  pdfDoc: JarvisKnowledgeDocument
+): Promise<void> {
+  const fbUser = auth.currentUser;
+  if (!fbUser) return;
+  const cleanDocId = sanitizeValidFirestoreId(pdfDoc.id);
+  await deleteFirestoreSystemRecord(`pdf_doc_${cleanDocId}`).catch(() => {});
+  const maxChunks = Math.max(12, pdfDoc.chunks?.length ?? 0);
+  for (let idx = 1; idx <= maxChunks; idx += 1) {
+    await deleteFirestoreSystemRecord(`pdf_chk_${cleanDocId}_${idx}`).catch(() => {});
+  }
+}
+
+/**
+ * Reconstrói os documentos PDF do J.A.R.V.I.S. armazenados na coleção /system_records do Cloud Firestore
+ * para vinculação automática ao prompt de sistema do J.A.R.V.I.S. e consulta offline.
+ */
+export function hydrateJarvisPdfDocumentsFromFirestoreRecords(
+  records: FirestoreSystemRecord[]
+): JarvisKnowledgeDocument[] {
+  if (!Array.isArray(records) || records.length === 0) return [];
+
+  const docMetaMap = new Map<
+    string,
+    {
+      docId: string;
+      title: string;
+      fileName: string;
+      category: JarvisKnowledgeCategory;
+      fileSizeBytes: number;
+      pageCountEstimate: number;
+      totalCharacters: number;
+      createdAt: string;
+      uploadedBy: string;
+      summary: string;
+      personalityIntegrationDirective: string;
+      keyTeachings: string[];
+      studyQuestions: string[];
+    }
+  >();
+
+  const chunksByDocId = new Map<string, JarvisKnowledgeChunk[]>();
+
+  for (const rec of records) {
+    if (rec.recordType !== 'memoria' || !rec.summary) continue;
+    const trimmed = rec.summary.trim();
+    if (!trimmed.startsWith('{')) continue;
+
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      if (parsed.__jarvisPdfMetaV1 && typeof parsed.docId === 'string') {
+        docMetaMap.set(parsed.docId, {
+          docId: parsed.docId,
+          title: String(parsed.title || rec.title || 'Estudo PDF'),
+          fileName: String(parsed.fileName || 'documento.pdf'),
+          category: (parsed.category as JarvisKnowledgeCategory) || 'ciencias_estudos_gerais',
+          fileSizeBytes: Number(parsed.fileSizeBytes) || 0,
+          pageCountEstimate: Number(parsed.pageCountEstimate) || 1,
+          totalCharacters: Number(parsed.totalCharacters) || 0,
+          createdAt: String(parsed.createdAt || new Date().toISOString()),
+          uploadedBy: String(parsed.uploadedBy || rec.createdByUsername || 'Patrick Pessoa'),
+          summary: String(parsed.summary || ''),
+          personalityIntegrationDirective: String(parsed.personalityIntegrationDirective || ''),
+          keyTeachings: Array.isArray(parsed.keyTeachings)
+            ? parsed.keyTeachings.map((t) => String(t))
+            : [],
+          studyQuestions: Array.isArray(parsed.studyQuestions)
+            ? parsed.studyQuestions.map((q) => String(q))
+            : [],
+        });
+      } else if (parsed.__jarvisPdfChunkV1 && typeof parsed.docId === 'string') {
+        const list = chunksByDocId.get(parsed.docId) ?? [];
+        list.push({
+          id: String(parsed.chunkId || `chunk-${parsed.index || list.length + 1}`),
+          index: Number(parsed.index) || list.length + 1,
+          heading: String(parsed.heading || `Seção ${list.length + 1}`),
+          content: String(parsed.content || ''),
+          keywords: Array.isArray(parsed.keywords)
+            ? parsed.keywords.map((k) => String(k))
+            : [],
+        });
+        chunksByDocId.set(parsed.docId, list);
+      }
+    } catch {
+      // ignore non-JSON memory records
+    }
+  }
+
+  const hydrated: JarvisKnowledgeDocument[] = [];
+  for (const [docId, meta] of docMetaMap.entries()) {
+    const rawChunks = (chunksByDocId.get(docId) ?? []).sort((a, b) => a.index - b.index);
+    const chunks: JarvisKnowledgeChunk[] =
+      rawChunks.length > 0
+        ? rawChunks
+        : [
+            {
+              id: `chunk-1-${docId}`,
+              index: 1,
+              heading: `${meta.title} · Síntese Principal`,
+              content: `${meta.summary}\n${meta.keyTeachings.join('\n')}`,
+              keywords: [],
+            },
+          ];
+
+    hydrated.push({
+      id: meta.docId,
+      title: meta.title,
+      fileName: meta.fileName,
+      category: meta.category,
+      fileSizeBytes: meta.fileSizeBytes,
+      pageCountEstimate: meta.pageCountEstimate,
+      summary: meta.summary,
+      personalityIntegrationDirective: meta.personalityIntegrationDirective,
+      keyTeachings: meta.keyTeachings,
+      studyQuestions: meta.studyQuestions,
+      chunks,
+      totalCharacters:
+        meta.totalCharacters || chunks.reduce((acc, c) => acc + c.content.length, 0),
+      offlineReady: true,
+      uploadedBy: meta.uploadedBy,
+      createdAt: meta.createdAt,
+    });
+  }
+
+  return hydrated.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function fetchOwnerSystemRecordsOnce(): Promise<FirestoreSystemRecord[]> {

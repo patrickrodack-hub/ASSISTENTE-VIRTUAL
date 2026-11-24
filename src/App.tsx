@@ -57,6 +57,7 @@ import {
   type GlobalVoiceConfigTab,
 } from './components/GlobalVoiceConfigPanel';
 import { MobileConsoleDock } from './components/MobileConsoleDock';
+import { JarvisPdfStudyLibraryPanel } from './components/JarvisPdfStudyLibraryPanel';
 import { NeuralEvolutionMatrix } from './components/NeuralEvolutionMatrix';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallManager';
 import { SpeakingHologramOverlay } from './components/SpeakingHologramOverlay';
@@ -3722,6 +3723,29 @@ export default function App() {
                         />
                       </div>
                     )}
+
+                    {/* J.A.R.V.I.S. PDF Study & Offline Knowledge Base Library */}
+                    {workspace && (
+                      <div className="mt-6">
+                        <JarvisPdfStudyLibraryPanel
+                          workspace={workspace}
+                          onWorkspaceUpdate={updateWorkspace}
+                          onAskJarvisToStudy={(prompt) => {
+                            voice.unlockAudio();
+                            setTargetMode('jarvis');
+                            void submitMessage(prompt, {
+                              mode: 'jarvis',
+                              triggerType: 'texto',
+                              search: 'auto',
+                            });
+                            consolePanelRef.current?.scrollIntoView({
+                              behavior: 'smooth',
+                              block: 'start',
+                            });
+                          }}
+                        />
+                      </div>
+                    )}
                   </>
                 ) : activeView === 'agenda' ? (
                   <AgendaAndRoutinesPanel
@@ -3763,6 +3787,20 @@ export default function App() {
                   />
                 ) : activeView === 'memoria' ? (
                   <div className="space-y-8">
+                    <JarvisPdfStudyLibraryPanel
+                      workspace={workspace}
+                      onWorkspaceUpdate={updateWorkspace}
+                      onAskJarvisToStudy={(prompt) => {
+                        setActiveView('console');
+                        voice.unlockAudio();
+                        setTargetMode('jarvis');
+                        void submitMessage(prompt, {
+                          mode: 'jarvis',
+                          triggerType: 'texto',
+                          search: 'auto',
+                        });
+                      }}
+                    />
                     <NeuralEvolutionMatrix
                       workspace={workspace}
                       currentUser={currentUser}

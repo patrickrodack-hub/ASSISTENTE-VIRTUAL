@@ -37,7 +37,7 @@ export const ASSISTANT_VISUAL_PROFILES: Record<AssistantId, AssistantVisualProfi
     id: 'jarvis',
     personaIndex: 0,
     name: 'J.A.R.V.I.S.',
-    role: 'Arquitetura Estratégica & Sabedoria Cristocêntrica · Matriz Dourada',
+    role: 'Elegância Estratégica & Sabedoria Cristocêntrica · Matriz Dourada',
     frequencyLabel: '104.3 Hz · Voz Exclusiva',
     primaryHex: '#F59E0B',
     secondaryHex: '#FDE68A',
@@ -52,7 +52,7 @@ export const ASSISTANT_VISUAL_PROFILES: Record<AssistantId, AssistantVisualProfi
     id: 'sexta-feira',
     personaIndex: 1,
     name: 'SEXTA-FEIRA',
-    role: 'Especialista em Assuntos Gerais & Operações Táticas · Matriz Ciano',
+    role: 'Especialista em Assuntos Gerais e Curadoria de Informação · Agilidade Tática',
     frequencyLabel: '210.4 Hz · Voz Tática',
     primaryHex: '#38BDF8',
     secondaryHex: '#BAE6FD',
@@ -61,7 +61,7 @@ export const ASSISTANT_VISUAL_PROFILES: Record<AssistantId, AssistantVisualProfi
     textAccentClass: 'text-sky-300',
     barClass: 'bg-sky-400',
     sampleGreeting:
-      'Na escuta, chefe Patrick! Projeção tridimensional da Sexta-Feira online — sua Especialista em Assuntos Gerais e copiloto tática no Rio. Pode mandar qualquer pergunta ou missão que eu resolvo na hora!',
+      'Na escuta, chefe Patrick! Projeção tridimensional da Sexta-Feira online — sua Especialista em Assuntos Gerais e Curadoria de Informação. Síntese rápida, fatos cruzados e agilidade tática prontos pra ação!',
   },
   ultron: {
     id: 'ultron',

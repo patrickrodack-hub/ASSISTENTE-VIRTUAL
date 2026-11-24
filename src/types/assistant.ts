@@ -336,6 +336,28 @@ export interface WorkspaceEndpointDiagnostics {
   checkedAt: string;
 }
 
+export type InteractionClassificationCategory =
+  | 'curadoria_assuntos_gerais'
+  | 'verificacao_fatos_cruzados'
+  | 'arquitetura_engenharia'
+  | 'sabedoria_cristocentrica'
+  | 'financas_mercado_b3'
+  | 'agronegocio_cepea'
+  | 'diagnostico_preditivo'
+  | 'rotina_operacional_tatica'
+  | 'calibracao_personalidade';
+
+export interface CommunicationStyleProfile {
+  preferredDepth: 'sintese_rapida' | 'equilibrado_tatico' | 'analitico_profundo';
+  preferredToneLabel: string;
+  crossFactVerificationRigidity: 'padrao' | 'cruzamento_multi_fonte_rigoroso';
+  positiveFeedbackTotal: number;
+  revisionFeedbackTotal: number;
+  alignmentPercentage: number;
+  detectedStylePatterns: string[];
+  lastUpdatedAt: string;
+}
+
 export interface AssistantCognitiveEvolutionProfile {
   assistantId: AssistantId;
   cognitiveLevel: number;
@@ -348,6 +370,9 @@ export interface AssistantCognitiveEvolutionProfile {
   revisionFeedbackCount: number;
   masteredDomains: string[];
   latestInsight: string;
+  dynamicPersonalityDirective: string;
+  interactionClassifications?: Partial<Record<InteractionClassificationCategory, number>>;
+  communicationAlignmentScore?: number;
   lastEvolvedAt: string;
 }
 
@@ -358,14 +383,51 @@ export interface NeuralEvolutionEvent {
   sourceType: 'usuario' | 'desenvolvedor' | 'fonte_externa' | 'feedback_reforco';
   sourceLabel: string;
   summary: string;
+  classification?: InteractionClassificationCategory;
+  classificationLabel?: string;
+  directiveUpdate?: string;
 }
 
 export interface SystemNeuralEvolutionState {
   version: string;
   totalLearningCycles: number;
   activeSourcesIntegrated: string[];
+  patrickCommunicationStyle?: CommunicationStyleProfile;
   assistants: Record<AssistantId, AssistantCognitiveEvolutionProfile>;
   recentEvolutionEvents: NeuralEvolutionEvent[];
+}
+
+export type JarvisKnowledgeCategory =
+  | 'estudo_biblico_cristao'
+  | 'arquitetura_engenharia'
+  | 'financas_economia'
+  | 'ciencias_estudos_gerais'
+  | 'desenvolvimento_pessoal';
+
+export interface JarvisKnowledgeChunk {
+  id: string;
+  index: number;
+  heading: string;
+  content: string;
+  keywords: string[];
+}
+
+export interface JarvisKnowledgeDocument {
+  id: string;
+  title: string;
+  fileName: string;
+  category: JarvisKnowledgeCategory;
+  fileSizeBytes: number;
+  pageCountEstimate: number;
+  summary: string;
+  personalityIntegrationDirective: string;
+  keyTeachings: string[];
+  studyQuestions: string[];
+  chunks: JarvisKnowledgeChunk[];
+  totalCharacters: number;
+  offlineReady: boolean;
+  uploadedBy: string;
+  createdAt: string;
 }
 
 export interface WorkspaceState {
@@ -381,6 +443,7 @@ export interface WorkspaceState {
   voiceSamples?: VoiceSampleRecord[];
   voiceTrainingProfiles?: Partial<Record<VoiceTargetAssistantId, VoiceTrainingState>>;
   neuralEvolution?: SystemNeuralEvolutionState;
+  jarvisKnowledgeBase?: JarvisKnowledgeDocument[];
   conversations: ConversationEntry[];
   telemetryLog?: TelemetryEntry[];
   _diagnostics?: WorkspaceEndpointDiagnostics;

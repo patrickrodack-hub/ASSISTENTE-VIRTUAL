@@ -3,6 +3,7 @@ import {
   CREATOR_HARDCODED_ACCOUNT,
   IS_SERVERLESS_RUNTIME,
   addAgendaEvent,
+  addJarvisKnowledgeDocument,
   addMemory,
   addRoutineRule,
   addTask,
@@ -11,6 +12,7 @@ import {
   clearConversations,
   deleteAgendaEvent,
   deleteAlert,
+  deleteJarvisKnowledgeDocument,
   deleteMemory,
   deleteRoutineRule,
   deleteSystemUser,
@@ -23,6 +25,7 @@ import {
   resolveVoiceSampleAudioFile,
   saveUploadedVoiceSample,
   setTurnFeedback,
+  syncJarvisKnowledgeDocuments,
   toggleAlertResolved,
   toggleVoiceSampleTraining,
   updateAgendaEvent,
@@ -38,6 +41,7 @@ import {
   formatGeminiErrorMessage,
   generateProactiveInitiative,
   getGeminiKeyDiagnostic,
+  ingestJarvisPdfDocument,
   isGeminiApiConfigured,
   processAssistantInteraction,
   processAssistantInteractionStream,
@@ -46,6 +50,8 @@ import {
   validateExclusiveVoiceFidelity,
 } from './assistantEngine.ts';
 import type {
+  JarvisKnowledgeCategory,
+  JarvisKnowledgeDocument,
   VoiceAcousticProfile,
   VoiceSampleFormat,
   VoiceTargetAssistantId,
@@ -423,10 +429,17 @@ export function createApiApp(): express.Express {
         clientTimeIso,
         clientTimezone,
         activeUser,
+        jarvisKnowledgeDocs,
       } = req.body ?? {};
       if (!message || typeof message !== 'string' || !message.trim()) {
         res.status(400).json({ error: 'Envie uma mensagem válida para os assistentes.' });
         return;
+      }
+
+      if (Array.isArray(jarvisKnowledgeDocs) && jarvisKnowledgeDocs.length > 0) {
+        await syncJarvisKnowledgeDocuments(jarvisKnowledgeDocs as JarvisKnowledgeDocument[]).catch(
+          () => {}
+        );
       }
 
       const result = await processAssistantInteraction({
@@ -487,11 +500,18 @@ export function createApiApp(): express.Express {
       clientTimeIso,
       clientTimezone,
       activeUser,
+      jarvisKnowledgeDocs,
     } = req.body ?? {};
 
     if (!message || typeof message !== 'string' || !message.trim()) {
       res.status(400).json({ error: 'Envie uma mensagem válida para os assistentes.' });
       return;
+    }
+
+    if (Array.isArray(jarvisKnowledgeDocs) && jarvisKnowledgeDocs.length > 0) {
+      await syncJarvisKnowledgeDocuments(jarvisKnowledgeDocs as JarvisKnowledgeDocument[]).catch(
+        () => {}
+      );
     }
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -1118,6 +1138,112 @@ Registrem aprendizados permanentes em newMemories mantendo 100% da personalidade
       res.json({ workspace });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Erro ao excluir memória.' });
+    }
+  });
+
+  // J.A.R.V.I.S. PDF Study & Offline Knowledge Base CRUD
+  app.get('/api/jarvis/knowledge', async (_req, res) => {
+    try {
+      const workspace = await readWorkspace();
+      res.json({
+        documents: workspace.jarvisKnowledgeBase ?? [],
+      });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao listar base de estudos PDF do J.A.R.V.I.S.',
+      });
+    }
+  });
+
+  app.post('/api/jarvis/knowledge/ingest', async (req, res) => {
+    try {
+      const {
+        fileName,
+        title,
+        category = 'ciencias_estudos_gerais',
+        fileSizeBytes = 0,
+        pageCountEstimate = 1,
+        extractedText = '',
+        pdfBase64 = '',
+        uploadedBy = 'Patrick Pessoa',
+      } = req.body ?? {};
+
+      if (!fileName || typeof fileName !== 'string') {
+        res.status(400).json({ error: 'Informe o nome do arquivo PDF ou documento de estudo.' });
+        return;
+      }
+
+      const validCategories: JarvisKnowledgeCategory[] = [
+        'estudo_biblico_cristao',
+        'arquitetura_engenharia',
+        'financas_economia',
+        'ciencias_estudos_gerais',
+        'desenvolvimento_pessoal',
+      ];
+      const safeCategory: JarvisKnowledgeCategory = validCategories.includes(
+        category as JarvisKnowledgeCategory
+      )
+        ? (category as JarvisKnowledgeCategory)
+        : 'ciencias_estudos_gerais';
+
+      const ingestedDoc = await ingestJarvisPdfDocument({
+        fileName: fileName.trim(),
+        title: typeof title === 'string' && title.trim() ? title.trim() : undefined,
+        category: safeCategory,
+        fileSizeBytes: Number(fileSizeBytes) || 0,
+        pageCountEstimate: Number(pageCountEstimate) || 1,
+        extractedText: typeof extractedText === 'string' ? extractedText : undefined,
+        pdfBase64: typeof pdfBase64 === 'string' ? pdfBase64 : undefined,
+        uploadedBy: typeof uploadedBy === 'string' && uploadedBy.trim() ? uploadedBy.trim() : 'Patrick Pessoa',
+      });
+
+      const saved = await addJarvisKnowledgeDocument(ingestedDoc);
+      res.json({
+        document: saved.document,
+        workspace: saved.workspace,
+      });
+    } catch (err) {
+      res.status(500).json({
+        error:
+          err instanceof Error
+            ? err.message
+            : 'Erro ao processar e indexar o PDF na base de conhecimentos do J.A.R.V.I.S.',
+      });
+    }
+  });
+
+  app.delete('/api/jarvis/knowledge/:id', async (req, res) => {
+    try {
+      const workspace = await deleteJarvisKnowledgeDocument(req.params.id);
+      res.json({ workspace });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Erro ao remover documento PDF da base do J.A.R.V.I.S.',
+      });
+    }
+  });
+
+  app.post('/api/jarvis/knowledge/sync', async (req, res) => {
+    try {
+      const { documents } = req.body ?? {};
+      if (!Array.isArray(documents)) {
+        res.status(400).json({ error: 'Lista de documentos PDF inválida para sincronização.' });
+        return;
+      }
+      const workspace = await syncJarvisKnowledgeDocuments(
+        documents as JarvisKnowledgeDocument[]
+      );
+      res.json({
+        syncedCount: documents.length,
+        workspace,
+      });
+    } catch (err) {
+      res.status(500).json({
+        error:
+          err instanceof Error
+            ? err.message
+            : 'Erro ao sincronizar documentos PDF do Firestore com o núcleo do J.A.R.V.I.S.',
+      });
     }
   });
 

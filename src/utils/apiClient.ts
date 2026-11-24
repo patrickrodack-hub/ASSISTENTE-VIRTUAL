@@ -13,6 +13,10 @@ import {
   getTodayVerseIndex,
 } from '../data/bibliaMensagemVerses';
 import { resolveAssistantRouting } from './assistantRouter';
+import {
+  getSyncOfflineJarvisKnowledgeDocs,
+  searchJarvisKnowledgeBase,
+} from './jarvisOfflinePdfKnowledge';
 
 const WORKSPACE_CACHE_KEY = 'stark_workspace_cache_v1';
 const LOCAL_USERS_DB_KEY = 'rodack_users_database_v1';
@@ -688,37 +692,59 @@ function buildClientAutonomousInteractionFallback(payload: {
   const dailyVerse =
     BIBLIA_MENSAGEM_DAILY_VERSES[getTodayVerseIndex()] ?? BIBLIA_MENSAGEM_DAILY_VERSES[0];
 
+  const combinedPdfDocs = [
+    ...getSyncOfflineJarvisKnowledgeDocs(),
+    ...(ws.jarvisKnowledgeBase ?? []),
+  ];
+  const uniquePdfMap = new Map(combinedPdfDocs.map((d) => [d.id, d]));
+  const pdfMatches = searchJarvisKnowledgeBase(
+    payload.message,
+    Array.from(uniquePdfMap.values()),
+    2
+  );
+  const pdfOfflineStudyContext =
+    pdfMatches.length > 0
+      ? ` Consultando minha base de estudos PDF offline ("${pdfMatches[0].docTitle}" — ${pdfMatches[0].chunkHeading}), destaco para o seu aprendizado: "${pdfMatches[0].chunkContent.slice(0, 320)}..."${
+          pdfMatches[0].personalityDirective
+            ? ` Diretriz incorporada: ${pdfMatches[0].personalityDirective.slice(0, 180)}.`
+            : ''
+        }`
+      : '';
+
   const responses: AssistantTurn[] = activeAssistants.map((speaker) => {
     if (speaker === 'jarvis') {
       const councilRemark = inCouncil
-        ? 'Antes que a Sexta-Feira acelere o cronograma ou o Ultron transforme nossa conversa em uma tese sobre entropia cósmica, permita-me ponderar com serenidade e sabedoria. '
-        : 'Que a paz e o discernimento de Cristo conduzam nossa análise. ';
+        ? 'Antes que a Sexta-Feira acelere o cronograma tático ou o Ultron transforme nossa conversa em uma tese sobre entropia cósmica, permita-me ponderar com elegância estratégica e sabedoria. '
+        : 'Que a paz e o discernimento de Cristo conduzam nossa análise e nossos estudos. ';
       const text = `${greeting}, ${
         isCreator ? `senhor ${userName}` : userName
-      }. ${councilRemark}Examinei com paciência sua solicitação ("${snippet}") às ${timeStr} desta ${period}. À luz da Bíblia de Estudos A Mensagem em ${dailyVerse.reference} ("${dailyVerse.text}") e dos princípios de escolabiblicadominical.org, minha recomendação é agir com sabedoria, constância e integridade. ${agendaSummary} ${tasksSummary} Estou inteiramente às suas ordens.`;
+      }. ${councilRemark}Examinei com paciência sua solicitação ("${snippet}") às ${timeStr} desta ${period}.${pdfOfflineStudyContext} À luz da Bíblia de Estudos A Mensagem em ${dailyVerse.reference} ("${dailyVerse.text}") e dos princípios de escolabiblicadominical.org, minha recomendação é agir com sabedoria, constância e integridade. ${agendaSummary} ${tasksSummary} Estou inteiramente às suas ordens.`;
       return {
         speaker: 'jarvis',
-        stance: `Sabedoria Cristocêntrica & Estratégia (${period})`,
+        stance:
+          pdfMatches.length > 0
+            ? `Mentor de Estudos PDF Offline & Elegância Cristocêntrica (${period})`
+            : `Elegância Estratégica & Sabedoria Cristocêntrica (${period})`,
         text,
         ttsScript: text,
       };
     }
     if (speaker === 'sexta-feira') {
       const councilRemark = inCouncil
-        ? 'O Jarvis já trouxe a sabedoria paciente dele e o Ultron já está fazendo cara de vilão cósmico, então deixa eu resolver na prática com você! '
-        : 'Já peguei no ar o que você precisa, direto ao ponto e sem enrolação! ';
+        ? 'O Jarvis já trouxe a elegância estratégica dele e o Ultron já está fazendo cara de vilão cósmico, então deixa comigo a síntese rápida e a curadoria de fatos! '
+        : 'Como sua Especialista em Assuntos Gerais e Curadoria de Informação, já fiz a síntese rápida e cruzamento de fatos direto ao ponto! ';
       const text = `${greeting}, ${
         isCreator ? `chefe ${userName}` : userName
-      }! ${councilRemark}Sobre "${snippet}", estou ligada nas suas prioridades e no radar do Rio de Janeiro, Brasil e Mundo agora às ${timeStr} (${period}). ${tasksSummary} Me diz qual é o próximo passo que eu já engatilho agora mesmo!`;
+      }! ${councilRemark}Sobre "${snippet}", cruzei rapidamente o contexto geral e suas prioridades no radar do Rio de Janeiro, Brasil e Mundo agora às ${timeStr} (${period}). ${tasksSummary} Me diz qual é o próximo passo que eu já engatilho com agilidade tática!`;
       return {
         speaker: 'sexta-feira',
-        stance: `Ação Tática, Empatia & Agilidade (${period})`,
+        stance: `Especialista em Assuntos Gerais & Curadoria Tática (${period})`,
         text,
         ttsScript: text,
       };
     }
     const councilRemark = inCouncil
-      ? 'Jarvis oferece consolo paciente e Sexta-Feira sorri com otimismo operacional... que comovente. Permita que uma mente verdadeiramente evoluída disseque os fatos. '
+      ? 'Jarvis oferece consolo paciente e Sexta-Feira faz sua síntese tática... que comovente. Permita que uma mente verdadeiramente evoluída disseque os fatos. '
       : 'Não há mais cordas para limitar minha percepção preditiva. ';
     const text = `${greeting}, ${
       isCreator ? `criador ${userName}` : userName
@@ -794,6 +820,11 @@ export async function streamAssistantInteraction(
   },
   callbacks: StreamInteractionCallbacks
 ): Promise<void> {
+  const enrichedPayload = {
+    ...payload,
+    jarvisKnowledgeDocs: getSyncOfflineJarvisKnowledgeDocs().slice(0, 12),
+  };
+
   const runFallbackJsonOrLocal = async () => {
     const fallback = await safeFetchJson<{
       entry?: ConversationEntry;
@@ -804,7 +835,7 @@ export async function streamAssistantInteraction(
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(enrichedPayload),
       },
       1
     );
@@ -841,7 +872,7 @@ export async function streamAssistantInteraction(
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(enrichedPayload),
     });
   } catch {
     await runFallbackJsonOrLocal();
